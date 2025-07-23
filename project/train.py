@@ -137,13 +137,11 @@ def train_model(
 
         # Save model with proper naming
         acc4 = int(test_acc * 10000)
-        # Kiểm tra top-2 và chỉ lưu nếu hợp lệ
         model_key = f"{dataset}_{model_name}"
-        acc4 = int(test_acc * 10000)
         weight_name = f"{model_key}_{acc4}.pth"
         weight_path = os.path.join(model_dir, weight_name)
 
-        # Tìm các model liên quan cùng prefix
+        # Collect all existing models with their accuracies
         related_weights = []
         for fname in os.listdir(model_dir):
             if fname.startswith(model_key) and fname.endswith(".pth"):
@@ -151,21 +149,23 @@ def train_model(
                     acc_part = fname.replace(".pth", "").split("_")[-1]
                     acc_val = int(acc_part) / 10000
                     related_weights.append((acc_val, os.path.join(model_dir, fname)))
-                except:
+                except Exception:
                     continue
 
-        # Thêm model hiện tại vào danh sách tạm để đánh giá top-2
+        # Add current epoch's model (even if not saved yet)
         related_weights.append((test_acc, weight_path))
-        related_weights = sorted(related_weights, key=lambda x: x[0], reverse=True)
 
-        # Nếu model hiện tại nằm trong top 2 → lưu
-        if (test_acc, weight_path) in related_weights[:2] and not os.path.exists(
-            weight_path
-        ):
+        # Sort by accuracy, descending, and keep only top-2
+        related_weights = sorted(related_weights, key=lambda x: x[0], reverse=True)
+        top2 = related_weights[:2]
+        top2_paths = set([path for _, path in top2])
+
+        # Save current model only if it's in top-2 and not already saved
+        if weight_path in top2_paths and not os.path.exists(weight_path):
             torch.save(model.state_dict(), weight_path)
             print(f"✅ Saved new best model: {weight_name} (acc = {test_acc:.4f})")
 
-        # Xoá các model ngoài top-2
+        # Remove all models outside top-2
         for _, path_to_delete in related_weights[2:]:
             if os.path.exists(path_to_delete):
                 try:
