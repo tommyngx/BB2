@@ -100,11 +100,11 @@ def get_dataloaders(
                 hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.2
             ),
             A.GaussNoise(p=0.1),
-            A.CoarseDropout(
-                max_holes=8,
-                fill_value=0,
-                p=0.15,
-            ),
+            # A.CoarseDropout(
+            #    max_holes=8,
+            #    fill_value=0,
+            #    p=0.15,
+            # ),
             A.Normalize([0.5] * 3, [0.5] * 3),
             ToTensorV2(),
         ]
