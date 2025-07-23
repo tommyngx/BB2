@@ -23,13 +23,9 @@ def get_image_size_from_config(config_path="config/config.yaml"):
         config = config["config"]
     # Hỗ trợ cả kiểu int hoặc list/tuple
     img_size = config.get("image_size", 448)
-    # Luôn trả về tuple
-    if isinstance(img_size, int):
-        return (img_size, img_size)
     if isinstance(img_size, (list, tuple)):
         return tuple(img_size)
-    # fallback nếu kiểu khác
-    return (448, 448)
+    return (img_size, img_size)
 
 
 def load_data(data_folder):
@@ -77,55 +73,16 @@ def get_dataloaders(
     img_size = get_image_size_from_config(config_path)
     train_transform = A.Compose(
         [
-            A.RandomResizedCrop(*img_size, scale=(0.7, 1.0), ratio=(0.8, 1.2), p=0.4),
+            A.Resize(*img_size),
             A.HorizontalFlip(p=0.5),
             A.VerticalFlip(p=0.5),
             A.RandomRotate90(p=0.5),
             A.Transpose(p=0.5),
-            A.ShiftScaleRotate(
-                shift_limit=0.1,
-                scale_limit=0.1,
-                rotate_limit=30,
-                interpolation=1,
-                border_mode=0,
-                value=0,
-                p=0.5,
-            ),
-            A.ElasticTransform(
-                alpha=1,
-                sigma=20,
-                alpha_affine=10,
-                interpolation=1,
-                border_mode=0,
-                value=0,
-                p=0.2,
-            ),
-            A.GridDistortion(
-                num_steps=5,
-                distort_limit=0.3,
-                interpolation=1,
-                border_mode=0,
-                value=0,
-                normalized=True,
-                p=0.2,
-            ),
             A.RandomBrightnessContrast(p=0.2),
             A.HueSaturationValue(
                 hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.2
             ),
             A.GaussNoise(p=0.1),
-            A.CoarseDropout(
-                max_holes=6,
-                max_height=0.15,
-                max_width=0.25,
-                min_holes=1,
-                min_height=0.05,
-                min_width=0.1,
-                fill_value=0,
-                p=0.25,
-            ),
-            # Đảm bảo resize về đúng kích thước sau các phép biến đổi hình học
-            A.Resize(*img_size),
             A.Normalize([0.5] * 3, [0.5] * 3),
             ToTensorV2(),
         ]
