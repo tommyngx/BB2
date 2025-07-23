@@ -189,7 +189,7 @@ def plot_gradcam_plus(
             else str(type(model))
         )
         model_key = f"{dataset_key}_{model_type_name}".replace(" ", "")
-        save_path = os.path.join(save_dir, f"{model_key}_gradcam_all.png")
+        save_path = os.path.join(save_dir, f"{model_key}_gradcam.png")
         plt.savefig(save_path, bbox_inches="tight", pad_inches=0)
         print(f"Saved GradCAM visualization to {save_path}")
     # plt.show()
