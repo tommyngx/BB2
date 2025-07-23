@@ -66,7 +66,7 @@ def plot_metrics(train_losses, train_accs, test_losses, test_accs, save_path):
     plt.tight_layout()
     plt.savefig(save_path, bbox_inches="tight", pad_inches=0)
     plt.close()
-    print(f"Saved training plot to {save_path}")
+    # print(f"Saved training plot to {save_path}")
 
 
 def plot_metrics2(train_losses, train_accs, test_losses, test_accs, save_path):
