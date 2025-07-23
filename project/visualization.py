@@ -192,4 +192,4 @@ def plot_gradcam_plus(
         save_path = os.path.join(save_dir, f"{model_key}_gradcam_all.png")
         plt.savefig(save_path, bbox_inches="tight", pad_inches=0)
         print(f"Saved GradCAM visualization to {save_path}")
-    plt.show()
+    # plt.show()
