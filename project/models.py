@@ -1,6 +1,12 @@
+import warnings
+
+warnings.filterwarnings("ignore", category=FutureWarning)
+
 import torch.nn as nn
 import torchvision.models as models
-import timm
+
+# import timm
+import timm.models as timm_models  # Use timm.models instead of timm
 from fastervit import create_model
 import torch.hub as hub
 import torch.serialization
@@ -70,13 +76,13 @@ def get_model(model_type="dinov2", num_classes=2):
             )
             model.head = nn.Linear(model.head.in_features, num_classes)
     elif model_type == "convnextv2":
-        model = timm.create_model(
+        model = timm_models.create_model(
             "convnextv2_base.fcmae_ft_in22k_in1k",
             pretrained=True,
             num_classes=num_classes,
         )
     elif model_type == "efficientnetv2":
-        model = timm.create_model(
+        model = timm_models.create_model(
             "efficientnetv2_m", pretrained=False, num_classes=num_classes
         )
     else:
