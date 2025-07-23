@@ -7,7 +7,6 @@ from train import train_model, evaluate_model
 from visualization import plot_gradcam_plus
 from utils import plot_confusion_matrix
 
-
 # Nếu bạn muốn ẩn các cảnh báo FutureWarning từ timm khi chạy script, hãy thêm đoạn sau vào đầu file main.py:
 import warnings
 
