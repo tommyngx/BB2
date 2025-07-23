@@ -141,7 +141,7 @@ def plot_gradcam_plus(
         alpha = alpha_num / (alpha_denom + 1e-8)
         weights = torch.sum(alpha * torch.relu(grad), dim=(1, 2))
 
-        cam = torch.zeros(fmap.shape[1:], dtype=torch.float32)
+        cam = torch.zeros(fmap.shape[1:], dtype=torch.float32, device=fmap.device)
         for j, w in enumerate(weights):
             cam += w * fmap[j]
 
