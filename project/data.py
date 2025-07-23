@@ -101,10 +101,8 @@ def get_dataloaders(
             ),
             A.GaussNoise(p=0.1),
             A.CoarseDropout(
-                max_height=32,
-                max_width=32,
-                min_height=8,
-                min_width=8,
+                max_holes=8,
+                fill_value=0,
                 p=0.15,
             ),
             A.Normalize([0.5] * 3, [0.5] * 3),
@@ -117,5 +115,7 @@ def get_dataloaders(
     train_dataset = CancerImageDataset(train_df, root_dir, train_transform)
     test_dataset = CancerImageDataset(test_df, root_dir, test_transform)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    return train_loader, test_loader
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     return train_loader, test_loader
