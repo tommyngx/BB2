@@ -51,7 +51,7 @@ def train_model(
     lr=1e-4,
     device="cpu",
     model_name="model",
-    pretrained_model_path=None,
+    pretrained_model_path=None,  # keep arg for compatibility
     dataset="dataset",
     output="output",
     dataset_folder="None",
@@ -70,24 +70,6 @@ def train_model(
         )
 
     scheduler = LambdaLR(optimizer, lr_lambda=warmup_lambda)
-
-    if pretrained_model_path:
-        if pretrained_model_path.endswith(".pth") and not os.path.exists(
-            pretrained_model_path
-        ):
-            print(
-                f"Pretrained model file '{pretrained_model_path}' (.pth) not found. Skipping loading."
-            )
-        else:
-            try:
-                model.load_state_dict(
-                    torch.load(pretrained_model_path, map_location=device)
-                )
-                print(f"Loaded pretrained model from {pretrained_model_path}")
-            except Exception as e:
-                print(
-                    f"Error loading pretrained model: {e}. Starting training from scratch."
-                )
 
     # Prepare directories
     model_dir = os.path.join(output, "models")

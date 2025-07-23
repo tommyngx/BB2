@@ -48,8 +48,13 @@ def prepare_data_and_model(
     model = get_model(model_type=model_type, num_classes=num_classes)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if pretrained_model_path:
-        model.load_state_dict(torch.load(pretrained_model_path, map_location=device))
-        print(f"Loaded pretrained model from {pretrained_model_path}")
+        try:
+            model.load_state_dict(
+                torch.load(pretrained_model_path, map_location=device)
+            )
+            print(f"Loaded pretrained model from {pretrained_model_path}")
+        except Exception as e:
+            print(f"⚠️ Error loading pretrained model: {e}. Training from scratch.")
     model = model.to(device)
     return train_df, test_df, train_loader, test_loader, model, device
 
