@@ -35,7 +35,7 @@ def plot_metrics(train_losses, train_accs, test_losses, test_accs, save_path):
         val_lowest,
         s=150,
         c="blue",
-        label=f"Best Loss: {val_lowest:.4f} (Epoch {index_loss + 1})",
+        label=f"Best Loss: {val_lowest:.4f} (Epoch {index_loss + 1:d})",
     )
     axes[0].set_title("Training and Test Loss")
     axes[0].set_xlabel("Epochs")
@@ -53,7 +53,7 @@ def plot_metrics(train_losses, train_accs, test_losses, test_accs, save_path):
         acc_highest,
         s=150,
         c="blue",
-        label=f"Best Acc: {acc_highest:.4f} (Epoch {index_acc + 1})",
+        label=f"Best Acc: {acc_highest:.4f} (Epoch {index_acc + 1:d})",
     )
     axes[1].set_title("Training and Test Accuracy")
     axes[1].set_xlabel("Epochs")
