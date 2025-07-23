@@ -16,6 +16,7 @@ def plot_gradcam_plus(
     input_size=448,
     save_dir=None,
     dataset_name=None,
+    device=None,  # thêm device
 ):
     """
     Visualize Grad-CAM++ heatmaps for a batch of images using a given model.
@@ -96,11 +97,21 @@ def plot_gradcam_plus(
     if num_images == 1:
         axs = [axs]
 
+    # Chuyển model về đúng device
+    if device is None:
+        device = (
+            next(model.parameters()).device
+            if next(model.parameters(), None) is not None
+            else "cpu"
+        )
+    model = model.to(device)
+
     for i, (img_path, label) in enumerate(zip(img_paths, labels)):
         # Load and preprocess image
         img_pil = Image.open(img_path).convert("RGB")
         orig_size = img_pil.size
         input_tensor = preprocess(img_pil).unsqueeze(0).requires_grad_(True)
+        input_tensor = input_tensor.to(device)  # chuyển input về đúng device
 
         # Grad-CAM++ implementation
         activations = []
