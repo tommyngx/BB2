@@ -72,7 +72,6 @@ def train_model(
     scheduler = LambdaLR(optimizer, lr_lambda=warmup_lambda)
 
     if pretrained_model_path:
-        # Chỉ kiểm tra nếu là file .pth và không tồn tại
         if pretrained_model_path.endswith(".pth") and not os.path.exists(
             pretrained_model_path
         ):
@@ -135,41 +134,53 @@ def train_model(
         test_losses.append(test_loss)
         test_accs.append(test_acc)
 
-        # Save model with proper naming
+        # Save model with proper naming (keep original acc4 naming)
         acc4 = int(test_acc * 10000)
         model_key = f"{dataset}_{model_name}"
         weight_name = f"{model_key}_{acc4}.pth"
         weight_path = os.path.join(model_dir, weight_name)
 
-        # Collect all existing models with their accuracies
+        # Collect all existing models with their full accuracies
         related_weights = []
         for fname in os.listdir(model_dir):
             if fname.startswith(model_key) and fname.endswith(".pth"):
                 try:
                     acc_part = fname.replace(".pth", "").split("_")[-1]
-                    acc_val = int(acc_part) / 10000
+                    acc_val = (
+                        float(acc_part) / 10000
+                    )  # Convert back to float for precise comparison
                     related_weights.append((acc_val, os.path.join(model_dir, fname)))
                 except Exception:
                     continue
 
-        # Add current epoch's model (even if not saved yet)
+        # Add current epoch's model with full test_acc for precise sorting
         related_weights.append((test_acc, weight_path))
 
-        # Sort by accuracy, descending, and keep only top-2
+        # Sort by accuracy (using full float precision), descending, and keep top-2
         related_weights = sorted(related_weights, key=lambda x: x[0], reverse=True)
         top2 = related_weights[:2]
         top2_paths = set([path for _, path in top2])
 
-        # Save current model only if it's in top-2 and not already saved
-        if weight_path in top2_paths and not os.path.exists(weight_path):
-            torch.save(model.state_dict(), weight_path)
-            print(f"✅ Saved new best model: {weight_name} (acc = {test_acc:.4f})")
+        # Save current model if it's in top-2
+        if weight_path in top2_paths:
+            if os.path.exists(weight_path):
+                # Check if current test_acc is higher than existing file's accuracy
+                existing_acc = (
+                    float(weight_path.split("_")[-1].replace(".pth", "")) / 10000
+                )
+                if test_acc > existing_acc:
+                    torch.save(model.state_dict(), weight_path)
+                    print(f"✅ Overwrote model: {weight_name} (acc = {test_acc:.6f})")
+            else:
+                torch.save(model.state_dict(), weight_path)
+                print(f"✅ Saved new best model: {weight_name} (acc = {test_acc:.6f})")
 
         # Remove all models outside top-2
         for _, path_to_delete in related_weights[2:]:
             if os.path.exists(path_to_delete):
                 try:
                     os.remove(path_to_delete)
+                    print(f"🗑️ Deleted model: {path_to_delete}")
                 except Exception as e:
                     print(f"⚠️ Could not delete {path_to_delete}: {e}")
 
@@ -178,7 +189,6 @@ def train_model(
         plot_metrics(train_losses, train_accs, test_losses, test_accs, plot_path)
 
         # Save confusion matrix after every epoch
-        # Lấy nhãn thực và dự đoán trên test set
         all_labels = []
         all_preds = []
         model.eval()
