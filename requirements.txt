@@ -26,3 +26,4 @@ imgaug
 pycocotools
 torchmetrics
 pyyaml
+fastervit

@@ -69,15 +69,20 @@ def train_model(
     scheduler = LambdaLR(optimizer, lr_lambda=warmup_lambda)
 
     if pretrained_model_path:
-        try:
-            model.load_state_dict(
-                torch.load(pretrained_model_path, map_location=device)
-            )
-            print(f"Loaded pretrained model from {pretrained_model_path}")
-        except Exception as e:
+        if not os.path.exists(pretrained_model_path):
             print(
-                f"Error loading pretrained model: {e}. Starting training from scratch."
+                f"Pretrained model path '{pretrained_model_path}' not found. Skipping loading."
             )
+        else:
+            try:
+                model.load_state_dict(
+                    torch.load(pretrained_model_path, map_location=device)
+                )
+                print(f"Loaded pretrained model from {pretrained_model_path}")
+            except Exception as e:
+                print(
+                    f"Error loading pretrained model: {e}. Starting training from scratch."
+                )
 
     # Prepare directories
     model_dir = os.path.join(output, "models")
