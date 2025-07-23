@@ -5,7 +5,7 @@
 /notebooks/
 /reports/models/
 /src/
-#/project/__pycache__
+/project/__pycache__
 #.env.example
 
 # Byte-compiled / optimized / DLL files

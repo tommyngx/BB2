@@ -5,8 +5,10 @@ from fastervit import create_model
 import torch.hub as hub
 import torch.serialization
 import argparse
+import warnings
 
 torch.serialization.add_safe_globals([argparse.Namespace])
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 
 class DinoVisionTransformerClassifier(nn.Module):

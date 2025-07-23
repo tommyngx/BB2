@@ -1,15 +1,17 @@
 import argparse
 import yaml
 import os
+import warnings
+
 from data import load_data, get_dataloaders
 from models import get_model
 from train import train_model, evaluate_model
 from visualization import plot_gradcam_plus
 from utils import plot_confusion_matrix
+import torch
+from sklearn.metrics import classification_report
 
-# Nếu bạn muốn ẩn các cảnh báo FutureWarning từ timm khi chạy script, hãy thêm đoạn sau vào đầu file main.py:
-import warnings
-
+torch.serialization.add_safe_globals([argparse.Namespace])
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 
@@ -27,69 +29,45 @@ def load_config(config_name):
     return config
 
 
-def run_model(
-    dataset_folder,
-    model_type="resnet50",
-    batch_size=16,
-    num_epochs=10,
-    lr=1e-4,
-    pretrained_model_path=None,
-    outputs=None,
+def get_arg_or_config(arg_val, config_val, default_val):
+    # Trả về arg nếu hợp lệ, nếu không lấy từ config, nếu không lấy default
+    if arg_val is not None:
+        return arg_val
+    if config_val is not None:
+        return config_val
+    return default_val
+
+
+def prepare_data_and_model(
+    dataset_folder, model_type, batch_size, pretrained_model_path=None, num_classes=2
 ):
-    import gc
-    import torch
-
-    gc.collect()
-    torch.cuda.empty_cache()
-
     train_df, test_df = load_data(dataset_folder)
     train_loader, test_loader = get_dataloaders(
         train_df, test_df, dataset_folder, batch_size=batch_size
     )
-    model = get_model(model_type=model_type, num_classes=2)
+    model = get_model(model_type=model_type, num_classes=num_classes)
     device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    trained_model = train_model(
-        model,
-        train_loader,
-        test_loader,
-        num_epochs=num_epochs,
-        lr=lr,
-        device=device,
-        model_name=model_type,
-        pretrained_model_path=pretrained_model_path,
-        output=outputs,
-        dataset_folder=dataset_folder,
-    )
-
-    print("\nEvaluation on Test Set:")
-    evaluate_model(trained_model, test_loader, device=device, mode="Test")
-    print("\nEvaluation on Train Set:")
-    evaluate_model(trained_model, train_loader, device=device, mode="Train")
+    if pretrained_model_path:
+        model.load_state_dict(torch.load(pretrained_model_path, map_location=device))
+        print(f"Loaded pretrained model from {pretrained_model_path}")
+    model = model.to(device)
+    return train_df, test_df, train_loader, test_loader, model, device
 
 
-def train_only(
+def run_train(
     dataset_folder,
-    model_type="resnet50",
-    batch_size=16,
-    num_epochs=10,
-    lr=1e-4,
+    model_type,
+    batch_size,
+    num_epochs,
+    lr,
     pretrained_model_path=None,
     outputs_link=None,
 ):
-    import gc
-    import torch
-
-    gc.collect()
-    torch.cuda.empty_cache()
-
-    train_df, test_df = load_data(dataset_folder)
-    train_loader, test_loader = get_dataloaders(
-        train_df, test_df, dataset_folder, batch_size=batch_size
+    train_df, test_df, train_loader, test_loader, model, device = (
+        prepare_data_and_model(
+            dataset_folder, model_type, batch_size, pretrained_model_path
+        )
     )
-    model = get_model(model_type=model_type, num_classes=2)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
     trained_model = train_model(
         model,
         train_loader,
@@ -102,52 +80,30 @@ def train_only(
         output=outputs_link,
         dataset_folder=dataset_folder,
     )
-
     print("\nEvaluation on Test Set:")
     evaluate_model(trained_model, test_loader, device=device, mode="Test")
+    # Uncomment to evaluate on train set
     # print("\nEvaluation on Train Set:")
     # evaluate_model(trained_model, train_loader, device=device, mode="Train")
 
 
-def test_only(
+def run_test(
     dataset_folder,
-    model_type="resnet50",
-    batch_size=16,
+    model_type,
+    batch_size,
     pretrained_model_path=None,
     outputs_link=None,
     gradcam=False,
-    gradcam_num_images=None,
-    gradcam_random_state=None,
+    gradcam_num_images=3,
+    gradcam_random_state=29,
     dataset_name=None,
 ):
-    import torch
-    import os
-
-    # Load data
-    train_df, test_df = load_data(dataset_folder)
-    train_loader, test_loader = get_dataloaders(
-        train_df, test_df, dataset_folder, batch_size=batch_size
+    train_df, test_df, _, test_loader, model, device = prepare_data_and_model(
+        dataset_folder, model_type, batch_size, pretrained_model_path
     )
-    model = get_model(model_type=model_type, num_classes=2)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    # if not outputs or not isinstance(outputs, str):
-    #    outputs = "output"
-    # plot_dir = os.path.join(outputs, "plots")
-    # print(f"Plotting confusion matrix to {plot_dir}")
-
-    # Load pretrained weights
-    if pretrained_model_path:
-        model.load_state_dict(torch.load(pretrained_model_path, map_location=device))
-        print(f"Loaded pretrained model from {pretrained_model_path}")
-
-    model = model.to(device)
     model.eval()
-
-    # Evaluate on test set
     print("\nEvaluation on Test Set:")
-    all_labels = []
-    all_preds = []
+    all_labels, all_preds = [], []
     with torch.no_grad():
         for images, labels in test_loader:
             images = images.to(device)
@@ -157,106 +113,61 @@ def test_only(
             all_labels.extend(labels.cpu().numpy())
             all_preds.extend(predicted.cpu().numpy())
 
-    from sklearn.metrics import classification_report
-
     print(classification_report(all_labels, all_preds, digits=4, zero_division=0))
-
-    # Plot confusion matrix
     class_names = [str(i) for i in sorted(set(all_labels))]
-    # Fix: avoid ambiguous boolean check for torch.Tensor
-    # if isinstance(outputs, torch.Tensor):
-    #    outputs = outputs.item() if outputs.numel() == 1 else "output"
-    if outputs_link is None or outputs_link == "":
+    if not outputs_link:
         outputs_link = "output"
     plot_dir = os.path.join(str(outputs_link), "figures")
-    # print(f"Plotting confusion matrix to {plot_dir}")
     os.makedirs(plot_dir, exist_ok=True)
     cm_path = os.path.join(plot_dir, f"{model_type}_confusion_matrix.png")
     plot_confusion_matrix(all_labels, all_preds, class_names, save_path=cm_path)
     print(f"Confusion matrix saved to {cm_path}")
-
-    # GradCAM++ visualization
     if gradcam:
-        from visualization import plot_gradcam_plus
-
-        num_images = gradcam_num_images if gradcam_num_images is not None else 3
-        random_state = gradcam_random_state if gradcam_random_state is not None else 29
         print(
-            f"Running GradCAM++ on {num_images} images (random_state={random_state})..."
+            f"Running GradCAM++ on {gradcam_num_images} images (random_state={gradcam_random_state})..."
         )
-        # Ensure outputs_link is valid
-        if outputs_link is None or outputs_link == "":
-            outputs_link = "output"
-        gradcam_dir = os.path.join(str(outputs_link), "figures")
-        os.makedirs(gradcam_dir, exist_ok=True)
+        gradcam_dir = plot_dir
         plot_gradcam_plus(
             model,
             test_df,
             dataset_folder,
-            num_images=num_images,
-            random_state=random_state,
+            num_images=gradcam_num_images,
+            random_state=gradcam_random_state,
             save_dir=gradcam_dir,
             dataset_name=dataset_name,
         )
 
 
-def gradcam_only(
+def run_gradcam(
     dataset_folder,
-    model_type="resnet50",
-    batch_size=16,
+    model_type,
+    batch_size,
     pretrained_model_path=None,
     outputs_link=None,
-    gradcam_num_images=None,
-    gradcam_random_state=None,
+    gradcam_num_images=3,
+    gradcam_random_state=29,
     dataset_name=None,
 ):
-    import torch
-    import os
-
-    train_df, test_df = load_data(dataset_folder)
-    model = get_model(model_type=model_type, num_classes=2)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    if pretrained_model_path:
-        model.load_state_dict(torch.load(pretrained_model_path, map_location=device))
-        print(f"Loaded pretrained model from {pretrained_model_path}")
-
-    model = model.to(device)
-    model.eval()
-
-    from visualization import plot_gradcam_plus
-
-    num_images = gradcam_num_images if gradcam_num_images is not None else 3
-    random_state = gradcam_random_state if gradcam_random_state is not None else 29
-    print(
-        f"Running GradCAM++ only on {num_images} images (random_state={random_state})..."
+    _, test_df, _, _, model, device = prepare_data_and_model(
+        dataset_folder, model_type, batch_size, pretrained_model_path
     )
-
-    # Ensure outputs_link is valid
-    if outputs_link is None or outputs_link == "":
+    model.eval()
+    if not outputs_link:
         outputs_link = "output"
     gradcam_dir = os.path.join(str(outputs_link), "figures")
     os.makedirs(gradcam_dir, exist_ok=True)
-
-    # Truyền dataset_name nếu có
+    print(
+        f"Running GradCAM++ only on {gradcam_num_images} images (random_state={gradcam_random_state})..."
+    )
     plot_gradcam_plus(
         model,
         test_df,
         dataset_folder,
-        num_images=num_images,
-        random_state=random_state,
+        num_images=gradcam_num_images,
+        random_state=gradcam_random_state,
         save_dir=gradcam_dir,
         dataset_name=dataset_name,
     )
-
-
-def get_arg_or_config(arg_val, config_val, default_val):
-    # Trả về arg nếu hợp lệ, nếu không lấy từ config, nếu không lấy default
-    if arg_val is not None:
-        return arg_val
-    if config_val is not None:
-        return config_val
-    return default_val
 
 
 if __name__ == "__main__":
@@ -294,10 +205,6 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    # print("[INFO] Arguments from argparse:")
-    # for k, v in vars(args).items():
-    #    print(f"  {k}: {v}")
-
     config = load_config(args.config)
 
     dataset_folder = get_arg_or_config(
@@ -324,7 +231,7 @@ if __name__ == "__main__":
     dataset_name = os.path.basename(os.path.normpath(dataset_folder))
 
     if args.mode == "train":
-        train_only(
+        run_train(
             dataset_folder=dataset_folder,
             model_type=model_type,
             batch_size=batch_size,
@@ -334,7 +241,7 @@ if __name__ == "__main__":
             outputs_link=outputs_link,
         )
     elif args.mode == "test":
-        test_only(
+        run_test(
             dataset_folder=dataset_folder,
             model_type=model_type,
             batch_size=batch_size,
@@ -346,7 +253,7 @@ if __name__ == "__main__":
             dataset_name=dataset_name,
         )
     elif args.mode == "gradcam":
-        gradcam_only(
+        run_gradcam(
             dataset_folder=dataset_folder,
             model_type=model_type,
             batch_size=batch_size,
