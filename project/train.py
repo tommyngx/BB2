@@ -72,9 +72,12 @@ def train_model(
     scheduler = LambdaLR(optimizer, lr_lambda=warmup_lambda)
 
     if pretrained_model_path:
-        if not os.path.exists(pretrained_model_path):
+        # Chỉ kiểm tra nếu là file .pth và không tồn tại
+        if pretrained_model_path.endswith(".pth") and not os.path.exists(
+            pretrained_model_path
+        ):
             print(
-                f"Pretrained model path '{pretrained_model_path}' not found. Skipping loading."
+                f"Pretrained model file '{pretrained_model_path}' (.pth) not found. Skipping loading."
             )
         else:
             try:
