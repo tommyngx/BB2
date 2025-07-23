@@ -62,7 +62,7 @@ def plot_gradcam_plus(
     #    default_input_size = 224
     elif "convnextv2" in model_name.lower() or "ConvNeXt" in model_type:
         # target_layer = model.stages[-1][-1]
-        target_layer = model.stages[-1].blocks[-1].norm
+        target_layer = model.stages[-1].downsample[0]
         default_input_size = 224
     # elif 'efficientnetv2' in model_type.lower():
     # elif 'efficientnetv2' in model_name or 'EfficientNet' in model_type:
