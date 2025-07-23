@@ -92,7 +92,7 @@ def train_model(
 
     # Prepare directories
     model_dir = os.path.join(output, "models")
-    plot_dir = os.path.join(output, "plots")
+    plot_dir = os.path.join(output, "figures")
     os.makedirs(model_dir, exist_ok=True)
     os.makedirs(plot_dir, exist_ok=True)
     dataset = dataset_folder.split("/")[-1]

@@ -119,7 +119,8 @@ def run_test(
         outputs_link = "output"
     plot_dir = os.path.join(str(outputs_link), "figures")
     os.makedirs(plot_dir, exist_ok=True)
-    cm_path = os.path.join(plot_dir, f"{model_type}_confusion_matrix.png")
+    model_key = f"{dataset_name}_{model_type}".replace(" ", "")
+    cm_path = os.path.join(plot_dir, f"{model_key}_confusion_matrix.png")
     plot_confusion_matrix(all_labels, all_preds, class_names, save_path=cm_path)
     print(f"Confusion matrix saved to {cm_path}")
     if gradcam:
