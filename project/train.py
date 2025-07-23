@@ -51,6 +51,7 @@ def train_model(
     lr=1e-4,
     device="cpu",
     model_name="model",
+    pretrained_model_path=None,
     dataset="dataset",
     output="output",
     dataset_folder="None",
