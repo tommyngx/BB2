@@ -1,4 +1,4 @@
-#folder to ignore
+#folder to ignore 
 # This file is a template for a .gitignore file.
 /data/
 /models/
