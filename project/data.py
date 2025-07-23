@@ -71,6 +71,9 @@ def get_dataloaders(
     train_df, test_df, root_dir, batch_size=16, config_path="config/config.yaml"
 ):
     img_size = get_image_size_from_config(config_path)
+    # Đảm bảo img_size là tuple
+    if isinstance(img_size, int):
+        img_size = (img_size, img_size)
     train_transform = A.Compose(
         [
             A.RandomResizedCrop(*img_size, scale=(0.7, 1.0), ratio=(0.8, 1.2), p=0.4),
