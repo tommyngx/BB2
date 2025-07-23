@@ -51,7 +51,6 @@ def train_model(
     lr=1e-4,
     device="cpu",
     model_name="model",
-    pretrained_model_path=None,
     dataset="dataset",
     output="output",
     dataset_folder="None",
@@ -91,56 +90,6 @@ def train_model(
             except Exception:
                 print(f"Skipping invalid model file: {fname}")
                 continue
-
-    # Load and evaluate pretrained model if provided
-    pretrained_acc = None
-    if pretrained_model_path:
-        if pretrained_model_path.endswith(".pth") and not os.path.exists(
-            pretrained_model_path
-        ):
-            print(
-                f"Pretrained model file '{pretrained_model_path}' (.pth) not found. Skipping loading."
-            )
-        else:
-            try:
-                model.load_state_dict(
-                    torch.load(pretrained_model_path, map_location=device)
-                )
-                print(f"Loaded pretrained model from {pretrained_model_path}")
-                # Evaluate pretrained model performance
-                _, pretrained_acc = evaluate_model(
-                    model,
-                    test_loader,
-                    device=device,
-                    mode="Pretrained",
-                    return_loss=True,
-                )
-                print(f"Pretrained model accuracy: {pretrained_acc:.6f}")
-                # Add pretrained model to related_weights
-                try:
-                    acc_part = pretrained_model_path.replace(".pth", "").split("_")[-1]
-                    pretrained_acc_from_name = float(acc_part) / 10000
-                    related_weights.append(
-                        (pretrained_acc_from_name, pretrained_model_path)
-                    )
-                except Exception:
-                    # If filename doesn't contain valid accuracy, use evaluated accuracy
-                    acc4 = int(pretrained_acc * 10000)
-                    pretrained_weight_name = f"{model_key}_{acc4}.pth"
-                    pretrained_weight_path = os.path.join(
-                        model_dir, pretrained_weight_name
-                    )
-                    related_weights.append((pretrained_acc, pretrained_weight_path))
-                    # Save pretrained model with evaluated accuracy if needed
-                    if pretrained_weight_path != pretrained_model_path:
-                        torch.save(model.state_dict(), pretrained_weight_path)
-                        print(
-                            f"✅ Saved pretrained model with evaluated accuracy: {pretrained_weight_name} (acc = {pretrained_acc:.6f})"
-                        )
-            except Exception as e:
-                print(
-                    f"Error loading pretrained model: {e}. Starting training from scratch."
-                )
 
     train_losses, train_accs, test_losses, test_accs = [], [], [], []
 
