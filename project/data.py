@@ -23,9 +23,13 @@ def get_image_size_from_config(config_path="config/config.yaml"):
         config = config["config"]
     # Hỗ trợ cả kiểu int hoặc list/tuple
     img_size = config.get("image_size", 448)
+    # Luôn trả về tuple
+    if isinstance(img_size, int):
+        return (img_size, img_size)
     if isinstance(img_size, (list, tuple)):
         return tuple(img_size)
-    return (img_size, img_size)
+    # fallback nếu kiểu khác
+    return (448, 448)
 
 
 def load_data(data_folder):
@@ -71,9 +75,6 @@ def get_dataloaders(
     train_df, test_df, root_dir, batch_size=16, config_path="config/config.yaml"
 ):
     img_size = get_image_size_from_config(config_path)
-    # Đảm bảo img_size là tuple
-    if isinstance(img_size, int):
-        img_size = (img_size, img_size)
     train_transform = A.Compose(
         [
             A.RandomResizedCrop(*img_size, scale=(0.7, 1.0), ratio=(0.8, 1.2), p=0.4),
