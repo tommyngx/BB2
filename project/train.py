@@ -51,7 +51,7 @@ def train_model(
     lr=1e-4,
     device="cpu",
     model_name="model",
-    pretrained_model_path=None,  # keep arg for compatibility
+    pretrained_model_path=None,
     dataset="dataset",
     output="output",
     dataset_folder="None",
@@ -77,6 +77,70 @@ def train_model(
     os.makedirs(model_dir, exist_ok=True)
     os.makedirs(plot_dir, exist_ok=True)
     dataset = dataset_folder.split("/")[-1]
+    model_key = f"{dataset}_{model_name}"
+
+    # Check existing models in model_dir for similar models
+    related_weights = []
+    for fname in os.listdir(model_dir):
+        if fname.startswith(model_key) and fname.endswith(".pth"):
+            try:
+                acc_part = fname.replace(".pth", "").split("_")[-1]
+                acc_val = float(acc_part) / 10000  # Convert acc4 to float
+                related_weights.append((acc_val, os.path.join(model_dir, fname)))
+                print(f"Found existing model: {fname} (acc = {acc_val:.6f})")
+            except Exception:
+                print(f"Skipping invalid model file: {fname}")
+                continue
+
+    # Load and evaluate pretrained model if provided
+    pretrained_acc = None
+    if pretrained_model_path:
+        if pretrained_model_path.endswith(".pth") and not os.path.exists(
+            pretrained_model_path
+        ):
+            print(
+                f"Pretrained model file '{pretrained_model_path}' (.pth) not found. Skipping loading."
+            )
+        else:
+            try:
+                model.load_state_dict(
+                    torch.load(pretrained_model_path, map_location=device)
+                )
+                print(f"Loaded pretrained model from {pretrained_model_path}")
+                # Evaluate pretrained model performance
+                _, pretrained_acc = evaluate_model(
+                    model,
+                    test_loader,
+                    device=device,
+                    mode="Pretrained",
+                    return_loss=True,
+                )
+                print(f"Pretrained model accuracy: {pretrained_acc:.6f}")
+                # Add pretrained model to related_weights
+                try:
+                    acc_part = pretrained_model_path.replace(".pth", "").split("_")[-1]
+                    pretrained_acc_from_name = float(acc_part) / 10000
+                    related_weights.append(
+                        (pretrained_acc_from_name, pretrained_model_path)
+                    )
+                except Exception:
+                    # If filename doesn't contain valid accuracy, use evaluated accuracy
+                    acc4 = int(pretrained_acc * 10000)
+                    pretrained_weight_name = f"{model_key}_{acc4}.pth"
+                    pretrained_weight_path = os.path.join(
+                        model_dir, pretrained_weight_name
+                    )
+                    related_weights.append((pretrained_acc, pretrained_weight_path))
+                    # Save pretrained model with evaluated accuracy if needed
+                    if pretrained_weight_path != pretrained_model_path:
+                        torch.save(model.state_dict(), pretrained_weight_path)
+                        print(
+                            f"✅ Saved pretrained model with evaluated accuracy: {pretrained_weight_name} (acc = {pretrained_acc:.6f})"
+                        )
+            except Exception as e:
+                print(
+                    f"Error loading pretrained model: {e}. Starting training from scratch."
+                )
 
     train_losses, train_accs, test_losses, test_accs = [], [], [], []
 
@@ -116,24 +180,10 @@ def train_model(
         test_losses.append(test_loss)
         test_accs.append(test_acc)
 
-        # Save model with proper naming (keep original acc4 naming)
+        # Save model with proper naming (keep acc4 naming)
         acc4 = int(test_acc * 10000)
-        model_key = f"{dataset}_{model_name}"
         weight_name = f"{model_key}_{acc4}.pth"
         weight_path = os.path.join(model_dir, weight_name)
-
-        # Collect all existing models with their full accuracies
-        related_weights = []
-        for fname in os.listdir(model_dir):
-            if fname.startswith(model_key) and fname.endswith(".pth"):
-                try:
-                    acc_part = fname.replace(".pth", "").split("_")[-1]
-                    acc_val = (
-                        float(acc_part) / 10000
-                    )  # Convert back to float for precise comparison
-                    related_weights.append((acc_val, os.path.join(model_dir, fname)))
-                except Exception:
-                    continue
 
         # Add current epoch's model with full test_acc for precise sorting
         related_weights.append((test_acc, weight_path))
