@@ -4,6 +4,70 @@ from sklearn.metrics import confusion_matrix
 
 
 def plot_metrics(train_losses, train_accs, test_losses, test_accs, save_path):
+    """
+    Plot training and test loss/accuracy with highlighted best epochs in fivethirtyeight style.
+
+    Args:
+        train_losses: List of training losses per epoch
+        train_accs: List of training accuracies per epoch
+        test_losses: List of test/validation losses per epoch
+        test_accs: List of test/validation accuracies per epoch
+        save_path: Path to save the plot (e.g., 'output/figures/model.png')
+    """
+    # Set epoch range
+    epochs = list(range(1, len(train_losses) + 1))
+
+    # Find best epochs
+    index_loss = np.argmin(test_losses)  # Epoch with lowest test loss
+    val_lowest = test_losses[index_loss]
+    index_acc = np.argmax(test_accs)  # Epoch with highest test accuracy
+    acc_highest = test_accs[index_acc]
+
+    # Set plot style
+    plt.style.use("fivethirtyeight")
+    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(20, 8))
+
+    # Plot Loss
+    axes[0].plot(epochs, train_losses, "r", label="Training Loss")
+    axes[0].plot(epochs, test_losses, "g", label="Test Loss")
+    axes[0].scatter(
+        index_loss + 1,
+        val_lowest,
+        s=150,
+        c="blue",
+        label=f"Best Epoch = {index_loss + 1}",
+    )
+    axes[0].set_title("Training and Test Loss")
+    axes[0].set_xlabel("Epochs")
+    axes[0].set_ylabel("Loss")
+    legend = axes[0].legend()
+    legend.get_frame().set_facecolor("white")
+    legend.get_frame().set_edgecolor("black")
+
+    # Plot Accuracy
+    axes[1].plot(epochs, train_accs, "r", label="Training Accuracy")
+    axes[1].plot(epochs, test_accs, "g", label="Test Accuracy")
+    axes[1].scatter(
+        index_acc + 1,
+        acc_highest,
+        s=150,
+        c="blue",
+        label=f"Best Epoch = {index_acc + 1}",
+    )
+    axes[1].set_title("Training and Test Accuracy")
+    axes[1].set_xlabel("Epochs")
+    axes[1].set_ylabel("Accuracy")
+    legend = axes[1].legend()
+    legend.get_frame().set_facecolor("white")
+    legend.get_frame().set_edgecolor("black")
+
+    plt.tight_layout()
+    plt.savefig(save_path, bbox_inches="tight", pad_inches=0)
+    plt.close()
+    print(f"Saved training plot to {save_path}")
+
+
+def plot_metrics2(train_losses, train_accs, test_losses, test_accs, save_path):
     epochs = range(1, len(train_losses) + 1)
     plt.figure(figsize=(12, 5))
 
