@@ -286,15 +286,18 @@ if __name__ == "__main__":
     patience = get_arg_or_config(
         args.patience, config.get("patience"), 50
     )  # lấy patience từ arg/config/mặc định
+    print(f"[DEBUG] args.loss_type: {args.loss_type}")
+    print(f"[DEBUG] config.get('loss_type'): {config.get('loss_type')}")
     loss_type = get_arg_or_config(
         args.loss_type, config.get("loss_type"), "ce"
     )  # lấy loss_type từ arg/config/mặc định
+    print(f"[DEBUG] Final loss_type used: {loss_type}")
 
     dataset_name = os.path.basename(os.path.normpath(dataset_folder))
 
     config_path = os.path.join(os.path.dirname(__file__), "config", args.config)
 
-    print(f"Using loss_type: {loss_type}")  # Thêm dòng này để kiểm tra
+    print(f"Using loss_type: {loss_type}")  # Thêm dòng này để kiểm tra loss_type
 
     if args.mode == "train":
         run_train(
