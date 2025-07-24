@@ -99,6 +99,7 @@ def run_train(
             config_path=config_path,
         )
     )
+    print(f"Using loss_type: {loss_type}")  # Thêm dòng này để kiểm tra
     trained_model = train_model(
         model,
         train_loader,
