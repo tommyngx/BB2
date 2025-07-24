@@ -109,7 +109,7 @@ def train_model(
         )
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-2)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=25, min_lr=1e-6
+        optimizer, mode="min", factor=0.5, patience=20, min_lr=1e-5
     )
 
     # Prepare directories
