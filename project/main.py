@@ -47,11 +47,15 @@ def clear_cuda_memory():
 
 
 def prepare_data_and_model(
-    dataset_folder, model_type, batch_size, pretrained_model_path=None, num_classes=2
+    dataset_folder,
+    model_type,
+    batch_size,
+    pretrained_model_path=None,
+    num_classes=2,
+    config_path="config/config.yaml",
 ):
     clear_cuda_memory()  # Dọn dẹp bộ nhớ GPU trước khi bắt đầu
 
-    config_path = os.path.join(os.path.dirname(__file__), "config", "config.yaml")
     train_df, test_df = load_data(dataset_folder, config_path=config_path)
     train_loader, test_loader = get_dataloaders(
         train_df,
@@ -83,11 +87,16 @@ def run_train(
     pretrained_model_path=None,
     outputs_link=None,
     patience=50,
-    loss_type="ce",  # thêm loss_type
+    loss_type="ce",
+    config_path="config/config.yaml",  # thêm config_path
 ):
     train_df, test_df, train_loader, test_loader, model, device = (
         prepare_data_and_model(
-            dataset_folder, model_type, batch_size, pretrained_model_path
+            dataset_folder,
+            model_type,
+            batch_size,
+            pretrained_model_path,
+            config_path=config_path,
         )
     )
     trained_model = train_model(
@@ -103,7 +112,7 @@ def run_train(
         dataset_folder=dataset_folder,
         train_df=train_df,
         patience=patience,
-        loss_type=loss_type,  # truyền loss_type vào train_model
+        loss_type=loss_type,
     )
     print("\nEvaluation on Test Set:")
     evaluate_model(trained_model, test_loader, device=device, mode="Test")
@@ -122,9 +131,14 @@ def run_test(
     gradcam_num_images=3,
     gradcam_random_state=29,
     dataset_name=None,
+    config_path="config/config.yaml",  # thêm config_path
 ):
     train_df, test_df, _, test_loader, model, device = prepare_data_and_model(
-        dataset_folder, model_type, batch_size, pretrained_model_path
+        dataset_folder,
+        model_type,
+        batch_size,
+        pretrained_model_path,
+        config_path=config_path,
     )
     model.eval()
     print("\nEvaluation on Test Set:")
@@ -173,9 +187,14 @@ def run_gradcam(
     gradcam_num_images=3,
     gradcam_random_state=29,
     dataset_name=None,
+    config_path="config/config.yaml",  # thêm config_path
 ):
     _, test_df, _, _, model, device = prepare_data_and_model(
-        dataset_folder, model_type, batch_size, pretrained_model_path
+        dataset_folder,
+        model_type,
+        batch_size,
+        pretrained_model_path,
+        config_path=config_path,
     )
     model.eval()
     if not outputs_link:
@@ -272,6 +291,8 @@ if __name__ == "__main__":
 
     dataset_name = os.path.basename(os.path.normpath(dataset_folder))
 
+    config_path = os.path.join(os.path.dirname(__file__), "config", args.config)
+
     if args.mode == "train":
         run_train(
             dataset_folder=dataset_folder,
@@ -282,7 +303,8 @@ if __name__ == "__main__":
             pretrained_model_path=pretrained_model_path,
             outputs_link=outputs_link,
             patience=patience,
-            loss_type=loss_type,  # truyền loss_type vào run_train
+            loss_type=loss_type,
+            config_path=config_path,  # truyền config_path
         )
     elif args.mode == "test":
         run_test(
@@ -295,6 +317,7 @@ if __name__ == "__main__":
             gradcam_num_images=gradcam_num_images,
             gradcam_random_state=gradcam_random_state,
             dataset_name=dataset_name,
+            config_path=config_path,  # truyền config_path
         )
     elif args.mode == "gradcam":
         run_gradcam(
@@ -306,6 +329,7 @@ if __name__ == "__main__":
             gradcam_num_images=gradcam_num_images,
             gradcam_random_state=gradcam_random_state,
             dataset_name=dataset_name,
+            config_path=config_path,  # truyền config_path
         )
 
     # Ví dụ chạy train:
