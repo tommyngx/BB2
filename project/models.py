@@ -18,19 +18,47 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning, module="dinov2")
 
 
-class DinoVisionTransformerClassifier(nn.Module):
+class DinoVisionTransformerClassifier_orig(nn.Module):
     def __init__(self, num_classes=2):
         super(DinoVisionTransformerClassifier, self).__init__()
         self.transformer = hub.load("facebookresearch/dinov2", "dinov2_vitb14")
         self.classifier = nn.Sequential(
             nn.Linear(self.transformer.norm.normalized_shape[0], 256),
             nn.ReLU(),
+            # nn.Dropout(0.2),  # Thêm dropout để giảm overfit
             nn.Linear(256, num_classes),
         )
 
     def forward(self, x):
         x = self.transformer(x)
         x = self.transformer.norm(x)
+        x = self.classifier(x)
+        return x
+
+
+class DinoVisionTransformerClassifier(nn.Module):
+    def __init__(self, num_classes=2):
+        super(DinoVisionTransformerClassifier, self).__init__()
+        self.transformer = hub.load("facebookresearch/dinov2", "dinov2_vitb14")
+        for param in self.transformer.parameters():
+            param.requires_grad = False
+        feature_dim = self.transformer.norm.normalized_shape[0]  # 768
+        self.attention = nn.MultiheadAttention(embed_dim=feature_dim, num_heads=8)
+        self.classifier = nn.Sequential(
+            nn.Linear(feature_dim, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(512, num_classes),
+        )
+
+    def forward(self, x):
+        x = self.transformer(x)
+        x = self.transformer.norm(x)  # Shape: [batch_size, feature_dim]
+        # Thêm chiều sequence để dùng MultiheadAttention
+        x = x.unsqueeze(0)  # Shape: [1, batch_size, feature_dim]
+        attn_output, _ = self.attention(x, x, x)
+        x = attn_output.squeeze(0)  # Shape: [batch_size, feature_dim]
         x = self.classifier(x)
         return x
 

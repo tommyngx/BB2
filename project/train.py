@@ -2,28 +2,45 @@ import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
 from tqdm import tqdm
 from torch.optim.lr_scheduler import LambdaLR
 from sklearn.metrics import classification_report
 from utils import plot_metrics, plot_confusion_matrix
+
 import warnings
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 
 class FocalLoss(nn.Module):
-    def __init__(self, alpha=None, gamma=2, reduction="mean"):
+    def __init__(self, alpha=None, gamma=2.0, reduction="mean"):
         super(FocalLoss, self).__init__()
-        self.alpha = alpha
+        self.alpha = alpha  # alpha có thể là None, scalar, hoặc tensor [w_0, w_1, ...]
         self.gamma = gamma
         self.reduction = reduction
 
     def forward(self, inputs, targets):
-        ce_loss = nn.functional.cross_entropy(
-            inputs, targets, weight=self.alpha, reduction="none"
-        )
+        # Tính cross-entropy loss (không áp weight trực tiếp)
+        ce_loss = F.cross_entropy(inputs, targets, reduction="none")
+
+        # Tính xác suất lớp đúng (pt)
         pt = torch.exp(-ce_loss)
-        focal_loss = ((1 - pt) ** self.gamma) * ce_loss
+
+        # Tính focal loss
+        focal_loss = (1 - pt) ** self.gamma * ce_loss
+
+        # Áp dụng alpha nếu có
+        if self.alpha is not None:
+            if isinstance(self.alpha, (float, int)):
+                # Nếu alpha là scalar, nhân trực tiếp
+                focal_loss = self.alpha * focal_loss
+            else:
+                # Nếu alpha là tensor trọng số lớp
+                alpha_t = self.alpha[targets]  # Lấy alpha tương ứng với lớp
+                focal_loss = alpha_t * focal_loss
+
+        # Áp dụng reduction
         if self.reduction == "mean":
             return focal_loss.mean()
         elif self.reduction == "sum":
