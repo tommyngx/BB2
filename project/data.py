@@ -4,7 +4,7 @@ os.environ["NO_ALBUMENTATIONS_UPDATE"] = "1"
 import pandas as pd
 import numpy as np
 from PIL import Image
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
@@ -34,6 +34,10 @@ def load_data(data_folder):
     df = df.dropna()
     train_df = df[df["split"] == "train"]
     test_df = df[df["split"] == "test"]
+    print("Train set class distribution:")
+    print(train_df["cancer"].value_counts())
+    print("Test set class distribution:")
+    print(test_df["cancer"].value_counts())
     return train_df, test_df
 
 
@@ -100,11 +104,6 @@ def get_dataloaders(
                 hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.2
             ),
             A.GaussNoise(p=0.1),
-            # A.CoarseDropout(
-            #    max_holes=8,
-            #    fill_value=0,
-            #    p=0.15,
-            # ),
             A.Normalize([0.5] * 3, [0.5] * 3),
             ToTensorV2(),
         ]
@@ -114,8 +113,15 @@ def get_dataloaders(
     )
     train_dataset = CancerImageDataset(train_df, root_dir, train_transform)
     test_dataset = CancerImageDataset(test_df, root_dir, test_transform)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-    return train_loader, test_loader
+    # WeightedRandomSampler cho train_loader
+    class_counts = train_df["cancer"].value_counts()
+    total_samples = len(train_df)
+    weights = [
+        1.0 / class_counts[train_df.loc[i, "cancer"]] for i in range(total_samples)
+    ]
+    sampler = WeightedRandomSampler(
+        weights=weights, num_samples=total_samples, replacement=True
+    )
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     return train_loader, test_loader

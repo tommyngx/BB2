@@ -55,11 +55,27 @@ def train_model(
     output="output",
     dataset_folder="None",
     pretrained_model_path=None,
+    patience=25,
+    train_df=None,
 ):
     model = model.to(device)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.AdamW(model.parameters(), lr=lr)
-
+    # criterion = nn.CrossEntropyLoss()
+    # optimizer = optim.AdamW(model.parameters(), lr=lr)
+    if train_df is not None:
+        class_counts = train_df["cancer"].value_counts()
+        total_samples = len(train_df)
+        num_classes = len(class_counts)
+        weights = torch.tensor(
+            [
+                total_samples / (num_classes * class_counts[i])
+                for i in range(num_classes)
+            ],
+            dtype=torch.float,
+        ).to(device)
+        criterion = nn.CrossEntropyLoss(weight=weights)
+    else:
+        criterion = nn.CrossEntropyLoss()
+    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-2)
     warmup_epochs = 5
 
     def warmup_lambda(epoch):
@@ -69,7 +85,10 @@ def train_model(
             else 1.0
         )
 
-    scheduler = LambdaLR(optimizer, lr_lambda=warmup_lambda)
+    # scheduler = LambdaLR(optimizer, lr_lambda=warmup_lambda)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.5, patience=10, verbose=True
+    )
 
     # Prepare directories
     model_dir = os.path.join(output, "models")
@@ -80,6 +99,9 @@ def train_model(
     model_key = f"{dataset}_{model_name}"
 
     train_losses, train_accs, test_losses, test_accs = [], [], [], []
+    best_acc = 0.0
+    patience_counter = 0
+    last_lr = lr
 
     for epoch in range(num_epochs):
         model.train()
@@ -116,6 +138,25 @@ def train_model(
         )
         test_losses.append(test_loss)
         test_accs.append(test_acc)
+
+        # Check if learning rate was reduced
+        current_lr = optimizer.param_groups[0]["lr"]
+        if current_lr < last_lr:
+            print(
+                f"Learning rate reduced to {current_lr:.6f}, resetting patience counter"
+            )
+            patience_counter = 0
+            last_lr = current_lr
+        else:
+            # Early stopping
+            if test_acc > best_acc:
+                best_acc = test_acc
+                patience_counter = 0
+            else:
+                patience_counter += 1
+                if patience_counter >= patience:
+                    print(f"Early stopping at epoch {epoch + 1}")
+                    break
 
         # Save model with proper naming (keep acc4 naming)
         acc4 = int(test_acc * 10000)

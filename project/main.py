@@ -67,6 +67,7 @@ def run_train(
     lr,
     pretrained_model_path=None,
     outputs_link=None,
+    patience=25,  # thêm tham số patience
 ):
     train_df, test_df, train_loader, test_loader, model, device = (
         prepare_data_and_model(
@@ -84,6 +85,8 @@ def run_train(
         pretrained_model_path=pretrained_model_path,
         output=outputs_link,
         dataset_folder=dataset_folder,
+        train_df=train_df,
+        patience=patience,  # truyền patience vào train_model
     )
     print("\nEvaluation on Test Set:")
     evaluate_model(trained_model, test_loader, device=device, mode="Test")
@@ -209,6 +212,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--gradcam_random_state", type=int, help="Random state for GradCAM++"
     )
+    parser.add_argument(
+        "--patience", type=int, help="Early stopping patience"
+    )  # thêm arg patience
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -233,6 +239,9 @@ if __name__ == "__main__":
     gradcam_random_state = get_arg_or_config(
         args.gradcam_random_state, config.get("gradcam_random_state"), 29
     )
+    patience = get_arg_or_config(
+        args.patience, config.get("patience"), 25
+    )  # lấy patience từ arg/config/mặc định
 
     dataset_name = os.path.basename(os.path.normpath(dataset_folder))
 
@@ -245,6 +254,7 @@ if __name__ == "__main__":
             lr=lr,
             pretrained_model_path=pretrained_model_path,
             outputs_link=outputs_link,
+            patience=patience,  # truyền patience vào run_train
         )
     elif args.mode == "test":
         run_test(
