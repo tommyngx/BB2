@@ -77,8 +77,9 @@ def train_model(
     dataset_folder="None",
     train_df=None,
     patience=50,
-    loss_type="ce",  # thêm tham số loss_type
+    loss_type="ce",
 ):
+    # Không cần thay đổi gì ở đây, vì train_df["cancer"] đã là nhãn số liên tục
     model = model.to(device)
     # Tính trọng số cho loss
     if train_df is not None:

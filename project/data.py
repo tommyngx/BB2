@@ -7,6 +7,7 @@ from PIL import Image
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
+import yaml
 
 
 def get_image_size_from_config(config_path="config/config.yaml"):
@@ -28,16 +29,49 @@ def get_image_size_from_config(config_path="config/config.yaml"):
     return (img_size, img_size)
 
 
-def load_data(data_folder):
+def get_target_column_from_config(config_path="config/config.yaml"):
+    if not os.path.isabs(config_path):
+        config_path = os.path.join(os.path.dirname(__file__), config_path)
+    config_path = os.path.abspath(config_path)
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+    if isinstance(config, dict) and "config" in config:
+        config = config["config"]
+    return config.get("target_column", "cancer")
+
+
+def load_data(data_folder, config_path="config/config.yaml"):
+    target_column = get_target_column_from_config(config_path)
     metadata_path = os.path.join(data_folder, "metadata.csv")
     df = pd.read_csv(metadata_path)
     df = df.dropna()
-    train_df = df[df["split"] == "train"]
-    test_df = df[df["split"] == "test"]
+    # Nếu cột target là string (label), chuyển thành số nguyên liên tục
+    if not np.issubdtype(df[target_column].dtype, np.number):
+        df["target_label"], class_names = pd.factorize(df[target_column])
+        print(
+            f"Detected non-numeric target labels in column '{target_column}'. Mapping:"
+        )
+        for idx, name in enumerate(class_names):
+            print(f"  {idx}: {name}")
+        label_col = "target_label"
+    else:
+        label_col = target_column
+        class_names = sorted(df[target_column].unique())
+    train_df = df[df["split"] == "train"].copy()
+    test_df = df[df["split"] == "test"].copy()
     print("Train set class distribution:")
-    print(train_df["cancer"].value_counts())
+    print(train_df[label_col].value_counts())
     print("Test set class distribution:")
-    print(test_df["cancer"].value_counts())
+    print(test_df[label_col].value_counts())
+    # Nếu có nhiều hơn 2 class, in ra danh sách class
+    if train_df[label_col].nunique() > 2:
+        print(
+            "Detected multi-class classification. Classes:",
+            list(class_names),
+        )
+    # Đảm bảo downstream dùng đúng cột label số
+    train_df["cancer"] = train_df[label_col]
+    test_df["cancer"] = test_df[label_col]
     return train_df, test_df
 
 
@@ -114,11 +148,10 @@ def get_dataloaders(
     train_dataset = CancerImageDataset(train_df, root_dir, train_transform)
     test_dataset = CancerImageDataset(test_df, root_dir, test_transform)
     # WeightedRandomSampler cho train_loader
-    class_counts = train_df["cancer"].value_counts()
+    class_counts = train_df["cancer"].value_counts().sort_index()
     total_samples = len(train_df)
-    weights = [
-        1.0 / class_counts[train_df.loc[i, "cancer"]] for i in range(total_samples)
-    ]
+    class_weights = {cls: 1.0 / count for cls, count in class_counts.items()}
+    weights = [class_weights[train_df.iloc[i]["cancer"]] for i in range(total_samples)]
     sampler = WeightedRandomSampler(
         weights=weights, num_samples=total_samples, replacement=True
     )

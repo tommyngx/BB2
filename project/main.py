@@ -49,10 +49,16 @@ def clear_cuda_memory():
 def prepare_data_and_model(
     dataset_folder, model_type, batch_size, pretrained_model_path=None, num_classes=2
 ):
-    clear_cuda_memory()  # Giải phóng RAM trước khi load model
-    train_df, test_df = load_data(dataset_folder)
+    clear_cuda_memory()  # Dọn dẹp bộ nhớ GPU trước khi bắt đầu
+
+    config_path = os.path.join(os.path.dirname(__file__), "config", "config.yaml")
+    train_df, test_df = load_data(dataset_folder, config_path=config_path)
     train_loader, test_loader = get_dataloaders(
-        train_df, test_df, dataset_folder, batch_size=batch_size
+        train_df,
+        test_df,
+        dataset_folder,
+        batch_size=batch_size,
+        config_path=config_path,
     )
     model = get_model(model_type=model_type, num_classes=num_classes)
     device = "cuda" if torch.cuda.is_available() else "cpu"
