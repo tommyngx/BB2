@@ -54,13 +54,11 @@ def train_model(
     dataset="dataset",
     output="output",
     dataset_folder="None",
-    pretrained_model_path=None,
-    patience=25,
     train_df=None,
+    patience=25,
 ):
     model = model.to(device)
-    # criterion = nn.CrossEntropyLoss()
-    # optimizer = optim.AdamW(model.parameters(), lr=lr)
+    # Tính trọng số cho loss
     if train_df is not None:
         class_counts = train_df["cancer"].value_counts()
         total_samples = len(train_df)
@@ -76,18 +74,8 @@ def train_model(
     else:
         criterion = nn.CrossEntropyLoss()
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-2)
-    warmup_epochs = 5
-
-    def warmup_lambda(epoch):
-        return (
-            float(epoch) / float(max(1, warmup_epochs))
-            if epoch < warmup_epochs
-            else 1.0
-        )
-
-    # scheduler = LambdaLR(optimizer, lr_lambda=warmup_lambda)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=10, verbose=True
+        optimizer, mode="min", factor=0.5, patience=5, verbose=True, min_lr=1e-6
     )
 
     # Prepare directories
@@ -110,6 +98,8 @@ def train_model(
 
         for images, labels in loop:
             images, labels = images.to(device), labels.to(device)
+            # In phân phối class trong batch (tùy chọn, có thể bình luận nếu không cần)
+            # print(f"Batch class distribution: {torch.bincount(labels)}")
             optimizer.zero_grad()
             outputs = model(images)
             loss = criterion(outputs, labels)
@@ -122,14 +112,14 @@ def train_model(
             total += labels.size(0)
             loop.set_postfix(loss=loss.item())
 
-        scheduler.step()
         epoch_loss = running_loss / total
         epoch_acc = correct / total
         train_losses.append(epoch_loss)
         train_accs.append(epoch_acc)
 
         print(
-            f"\nEpoch [{epoch + 1}/{num_epochs}] Train Loss: {epoch_loss:.4f} Train Acc: {epoch_acc:.4f}"
+            f"\nEpoch [{epoch + 1}/{num_epochs}] Train Loss: {epoch_loss:.4f} Train Acc: {epoch_acc:.4f} "
+            f"Learning Rate: {optimizer.param_groups[0]['lr']:.6f}"
         )
 
         # Evaluate on test set
@@ -138,6 +128,9 @@ def train_model(
         )
         test_losses.append(test_loss)
         test_accs.append(test_acc)
+
+        # Update scheduler
+        scheduler.step(test_loss)
 
         # Check if learning rate was reduced
         current_lr = optimizer.param_groups[0]["lr"]
@@ -169,7 +162,7 @@ def train_model(
             if fname.startswith(model_key) and fname.endswith(".pth"):
                 try:
                     acc_part = fname.replace(".pth", "").split("_")[-1]
-                    acc_val = float(acc_part) / 10000  # Convert acc4 to float
+                    acc_val = float(acc_part) / 10000
                     related_weights.append((acc_val, os.path.join(model_dir, fname)))
                 except Exception:
                     print(f"Skipping invalid model file: {fname}")
@@ -186,7 +179,6 @@ def train_model(
         # Save current model if it's in top-2
         if weight_path in top2_paths:
             if os.path.exists(weight_path):
-                # Check if current test_acc is higher than existing file's accuracy
                 existing_acc = (
                     float(weight_path.split("_")[-1].replace(".pth", "")) / 10000
                 )

@@ -82,7 +82,7 @@ def run_train(
         lr=lr,
         device=device,
         model_name=model_type,
-        pretrained_model_path=pretrained_model_path,
+        # pretrained_model_path=pretrained_model_path,
         output=outputs_link,
         dataset_folder=dataset_folder,
         train_df=train_df,
