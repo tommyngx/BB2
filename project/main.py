@@ -2,6 +2,7 @@ import argparse
 import yaml
 import os
 import warnings
+import gc  # thêm import gc
 
 from data import load_data, get_dataloaders
 from models import get_model
@@ -38,9 +39,17 @@ def get_arg_or_config(arg_val, config_val, default_val):
     return default_val
 
 
+def clear_cuda_memory():
+    gc.collect()  # Thu gom rác Python
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
+
+
 def prepare_data_and_model(
     dataset_folder, model_type, batch_size, pretrained_model_path=None, num_classes=2
 ):
+    clear_cuda_memory()  # Giải phóng RAM trước khi load model
     train_df, test_df = load_data(dataset_folder)
     train_loader, test_loader = get_dataloaders(
         train_df, test_df, dataset_folder, batch_size=batch_size
