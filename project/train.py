@@ -86,6 +86,24 @@ def train_model(
     dataset = dataset_folder.split("/")[-1]
     model_key = f"{dataset}_{model_name}"
 
+    # Print existing weights in model_dir
+    print(f"Checking for existing weights in {model_dir} with model_key: {model_key}")
+    existing_weights = []
+    for fname in os.listdir(model_dir):
+        if fname.startswith(model_key) and fname.endswith(".pth"):
+            try:
+                acc_part = fname.replace(".pth", "").split("_")[-1]
+                acc_val = float(acc_part) / 10000
+                existing_weights.append((fname, acc_val))
+            except Exception:
+                print(f"Skipping invalid model file: {fname}")
+    if existing_weights:
+        print("Found existing weights:")
+        for fname, acc_val in existing_weights:
+            print(f"  - {fname} (accuracy: {acc_val:.4f})")
+    else:
+        print("No existing weights found.")
+
     train_losses, train_accs, test_losses, test_accs = [], [], [], []
     best_acc = 0.0
     patience_counter = 0
