@@ -48,6 +48,11 @@ def get_model(model_type="dinov2", num_classes=2):
             weights=models.ResNeXt50_32X4D_Weights.IMAGENET1K_V1
         )
         model.fc = nn.Linear(model.fc.in_features, num_classes)
+    elif model_type == "resnest50":
+        # Add ResNeSt support using timm
+        model = timm_models.create_model(
+            "resnest50d", pretrained=True, num_classes=num_classes
+        )
     elif model_type == "fastervit":
         try:
             model = create_model(
@@ -87,6 +92,6 @@ def get_model(model_type="dinov2", num_classes=2):
         )
     else:
         raise ValueError(
-            "model_type must be 'dinov2', 'resnet50', 'resnet101', 'resnext50', 'fastervit', 'convnextv2', or 'efficientnetv2'"
+            "model_type must be 'dinov2', 'resnet50', 'resnet101', 'resnext50', 'resnest50', 'fastervit', 'convnextv2', or 'efficientnetv2'"
         )
     return model
