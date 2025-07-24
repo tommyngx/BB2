@@ -102,6 +102,7 @@ def plot_confusion_matrix(
     cm = confusion_matrix(y_true, y_pred)
     plt.figure(figsize=(6, 5))
     plt.imshow(cm, interpolation="nearest", cmap=cmap)
+    plt.grid(False)  # Tắt grid nếu có
     plt.title(title)
     plt.colorbar()
     tick_marks = np.arange(len(class_names))
