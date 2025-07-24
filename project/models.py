@@ -80,7 +80,7 @@ def get_model(model_type="dinov2", num_classes=2):
     elif model_type == "resnest50":
         # Add ResNeSt support using timm
         model = timm_models.create_model(
-            "xception65.ra3_in1k", pretrained=True, num_classes=num_classes
+            "resnest50d", pretrained=True, num_classes=num_classes
         )
     elif model_type == "fastervit":
         try:
