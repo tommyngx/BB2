@@ -66,21 +66,31 @@ class DinoVisionTransformerClassifier(nn.Module):
 
 
 class ResNeSt50WithResize(nn.Module):
-    def __init__(self, num_classes=2, image_size=400):  # đổi mặc định thành 400
-        super().__init__()
+    def __init__(self, num_classes=2, image_size=400):
+        super(ResNeSt50WithResize, self).__init__()
         self.image_size = image_size
         self.model = timm_models.create_model(
             "resnest50d", pretrained=True, num_classes=num_classes
         )
 
     def forward(self, x):
-        # x: [B, C, H, W], resize về [B, C, image_size, image_size]
+        # Kiểm tra định dạng đầu vào
+        if not torch.is_tensor(x) or len(x.shape) != 4:
+            raise ValueError(
+                "Input must be a 4D tensor [batch_size, channels, height, width]"
+            )
+
+        # Resize tensor về [B, C, image_size, image_size]
         x = F.interpolate(
             x,
             size=(self.image_size, self.image_size),
             mode="bilinear",
             align_corners=False,
         )
+
+        # Đảm bảo tensor vẫn contiguous trong bộ nhớ
+        x = x.contiguous()
+
         return self.model(x)
 
 
