@@ -55,7 +55,7 @@ def train_model(
     output="output",
     dataset_folder="None",
     train_df=None,
-    patience=25,
+    patience=50,
 ):
     model = model.to(device)
     # Tính trọng số cho loss
@@ -75,7 +75,7 @@ def train_model(
         criterion = nn.CrossEntropyLoss()
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-2)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=5, verbose=True, min_lr=1e-6
+        optimizer, mode="min", factor=0.5, patience=25, verbose=True, min_lr=1e-6
     )
 
     # Prepare directories

@@ -67,7 +67,7 @@ def run_train(
     lr,
     pretrained_model_path=None,
     outputs_link=None,
-    patience=25,  # thêm tham số patience
+    patience=50,  # thêm tham số patience
 ):
     train_df, test_df, train_loader, test_loader, model, device = (
         prepare_data_and_model(
@@ -240,7 +240,7 @@ if __name__ == "__main__":
         args.gradcam_random_state, config.get("gradcam_random_state"), 29
     )
     patience = get_arg_or_config(
-        args.patience, config.get("patience"), 25
+        args.patience, config.get("patience"), 50
     )  # lấy patience từ arg/config/mặc định
 
     dataset_name = os.path.basename(os.path.normpath(dataset_folder))
