@@ -30,8 +30,10 @@ def load_config(config_name):
     return config
 
 
-def get_arg_or_config(arg_val, config_val, default_val):
-    # Trả về arg nếu hợp lệ, nếu không lấy từ config, nếu không lấy default
+def get_arg_or_config(arg_val, config_val, default_val, argparse_default=None):
+    # Ưu tiên: arg nếu khác None và khác default argparse -> config -> default
+    if argparse_default is not None and arg_val == argparse_default:
+        arg_val = None
     if arg_val is not None:
         return arg_val
     if config_val is not None:
@@ -283,14 +285,12 @@ if __name__ == "__main__":
     gradcam_random_state = get_arg_or_config(
         args.gradcam_random_state, config.get("gradcam_random_state"), 29
     )
-    patience = get_arg_or_config(
-        args.patience, config.get("patience"), 50
-    )  # lấy patience từ arg/config/mặc định
+    patience = get_arg_or_config(args.patience, config.get("patience"), 50)
     print(f"[DEBUG] args.loss_type: {args.loss_type}")
     print(f"[DEBUG] config.get('loss_type'): {config.get('loss_type')}")
     loss_type = get_arg_or_config(
-        args.loss_type, config.get("loss_type"), "ce"
-    )  # lấy loss_type từ arg/config/mặc định
+        args.loss_type, config.get("loss_type"), "ce", argparse_default="ce"
+    )
     print(f"[DEBUG] Final loss_type used: {loss_type}")
 
     dataset_name = os.path.basename(os.path.normpath(dataset_folder))
