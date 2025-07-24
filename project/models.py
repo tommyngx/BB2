@@ -12,8 +12,6 @@ import torch.hub as hub
 import torch.serialization
 import argparse
 import warnings
-import torch
-import torch.nn.functional as F
 
 torch.serialization.add_safe_globals([argparse.Namespace])
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -65,35 +63,6 @@ class DinoVisionTransformerClassifier(nn.Module):
         return x
 
 
-class ResNeSt50WithResize(nn.Module):
-    def __init__(self, num_classes=2, image_size=400):
-        super(ResNeSt50WithResize, self).__init__()
-        self.image_size = image_size
-        self.model = timm_models.create_model(
-            "resnest50d", pretrained=True, num_classes=num_classes
-        )
-
-    def forward(self, x):
-        # Kiểm tra định dạng đầu vào
-        if not torch.is_tensor(x) or len(x.shape) != 4:
-            raise ValueError(
-                "Input must be a 4D tensor [batch_size, channels, height, width]"
-            )
-
-        # Resize tensor về [B, C, image_size, image_size]
-        x = F.interpolate(
-            x,
-            size=(self.image_size, self.image_size),
-            mode="bilinear",
-            align_corners=False,
-        )
-
-        # Đảm bảo tensor vẫn contiguous trong bộ nhớ
-        x = x.contiguous()
-
-        return self.model(x)
-
-
 def get_model(model_type="dinov2", num_classes=2):
     if model_type == "dinov2":
         model = DinoVisionTransformerClassifier(num_classes=num_classes)
@@ -109,8 +78,10 @@ def get_model(model_type="dinov2", num_classes=2):
         )
         model.fc = nn.Linear(model.fc.in_features, num_classes)
     elif model_type == "resnest50":
-        # Sử dụng wrapper để resize ảnh đầu vào về 400x400
-        model = ResNeSt50WithResize(num_classes=num_classes, image_size=400)
+        # Add ResNeSt support using timm
+        model = timm_models.create_model(
+            "resnest50d_4s2x40d", pretrained=True, num_classes=num_classes
+        )
     elif model_type == "fastervit":
         try:
             model = create_model(
