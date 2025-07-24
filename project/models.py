@@ -15,6 +15,7 @@ import warnings
 
 torch.serialization.add_safe_globals([argparse.Namespace])
 warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning, module="dinov2")
 
 
 class DinoVisionTransformerClassifier(nn.Module):
