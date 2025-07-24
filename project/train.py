@@ -11,6 +11,27 @@ import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=None, gamma=2, reduction="mean"):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        ce_loss = nn.functional.cross_entropy(
+            inputs, targets, weight=self.alpha, reduction="none"
+        )
+        pt = torch.exp(-ce_loss)
+        focal_loss = ((1 - pt) ** self.gamma) * ce_loss
+        if self.reduction == "mean":
+            return focal_loss.mean()
+        elif self.reduction == "sum":
+            return focal_loss.sum()
+        else:
+            return focal_loss
+
+
 def evaluate_model(model, data_loader, device="cpu", mode="Test", return_loss=False):
     model = model.to(device)
     model.eval()
@@ -56,6 +77,7 @@ def train_model(
     dataset_folder="None",
     train_df=None,
     patience=50,
+    loss_type="ce",  # thêm tham số loss_type
 ):
     model = model.to(device)
     # Tính trọng số cho loss
@@ -70,9 +92,20 @@ def train_model(
             ],
             dtype=torch.float,
         ).to(device)
-        criterion = nn.CrossEntropyLoss(weight=weights)
     else:
-        criterion = nn.CrossEntropyLoss()
+        weights = None
+
+    # Chọn loss function
+    if loss_type == "focal":
+        criterion = FocalLoss(alpha=weights)
+        print("Using Focal Loss")
+    else:
+        criterion = nn.CrossEntropyLoss(weight=weights)
+        print(
+            "Using CrossEntropyLoss (with weight)"
+            if weights is not None
+            else "Using CrossEntropyLoss"
+        )
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-2)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=0.5, patience=25, verbose=True, min_lr=1e-6

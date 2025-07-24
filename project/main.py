@@ -67,7 +67,8 @@ def run_train(
     lr,
     pretrained_model_path=None,
     outputs_link=None,
-    patience=50,  # thêm tham số patience
+    patience=50,
+    loss_type="ce",  # thêm loss_type
 ):
     train_df, test_df, train_loader, test_loader, model, device = (
         prepare_data_and_model(
@@ -86,7 +87,8 @@ def run_train(
         output=outputs_link,
         dataset_folder=dataset_folder,
         train_df=train_df,
-        patience=patience,  # truyền patience vào train_model
+        patience=patience,
+        loss_type=loss_type,  # truyền loss_type vào train_model
     )
     print("\nEvaluation on Test Set:")
     evaluate_model(trained_model, test_loader, device=device, mode="Test")
@@ -215,6 +217,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--patience", type=int, help="Early stopping patience"
     )  # thêm arg patience
+    parser.add_argument(
+        "--loss_type",
+        type=str,
+        choices=["ce", "focal"],
+        default="ce",
+        help="Loss function: ce (cross-entropy) or focal",
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -242,6 +251,9 @@ if __name__ == "__main__":
     patience = get_arg_or_config(
         args.patience, config.get("patience"), 50
     )  # lấy patience từ arg/config/mặc định
+    loss_type = get_arg_or_config(
+        args.loss_type, config.get("loss_type"), "ce"
+    )  # lấy loss_type từ arg/config/mặc định
 
     dataset_name = os.path.basename(os.path.normpath(dataset_folder))
 
@@ -254,7 +266,8 @@ if __name__ == "__main__":
             lr=lr,
             pretrained_model_path=pretrained_model_path,
             outputs_link=outputs_link,
-            patience=patience,  # truyền patience vào run_train
+            patience=patience,
+            loss_type=loss_type,  # truyền loss_type vào run_train
         )
     elif args.mode == "test":
         run_test(

@@ -10,3 +10,4 @@ gradcam: false
 gradcam_num_images: 3
 gradcam_random_state: 29
 patience: 100 #75
+loss_type: ce # ce (cross-entropy) hoặc focal, thêm option này để chọn loss function
