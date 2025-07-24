@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import confusion_matrix
+import seaborn as sns
 
 
 def plot_metrics(train_losses, train_accs, test_losses, test_accs, save_path):
