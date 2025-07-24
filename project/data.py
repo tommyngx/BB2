@@ -128,7 +128,7 @@ def get_dataloaders(
                 sigma=20,
                 p=0.1,
             ),
-            A.RandomCrop(height=img_size, width=img_size, p=0.2),
+            # A.RandomCrop(height=img_size, width=img_size, p=0.2),
             A.RandomGamma(gamma_limit=(80, 120), p=0.2),
             A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.2),
             A.GridDistortion(
