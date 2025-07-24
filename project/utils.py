@@ -40,7 +40,7 @@ def plot_metrics(train_losses, train_accs, test_losses, test_accs, save_path):
     axes[0].set_title("Training and Test Loss")
     axes[0].set_xlabel("Epochs")
     axes[0].set_ylabel("Loss")
-    axes[0].grid(True, linestyle="--", alpha=0.5)
+    axes[0].grid(True, linestyle="--", alpha=0.5, color="white")  # grid màu trắng
     legend = axes[0].legend()
     legend.get_frame().set_facecolor("white")
     legend.get_frame().set_edgecolor("black")
@@ -58,7 +58,7 @@ def plot_metrics(train_losses, train_accs, test_losses, test_accs, save_path):
     axes[1].set_title("Training and Test Accuracy")
     axes[1].set_xlabel("Epochs")
     axes[1].set_ylabel("Accuracy")
-    axes[1].grid(True, linestyle="--", alpha=0.5)
+    axes[1].grid(True, linestyle="--", alpha=0.5, color="white")  # grid màu trắng
     legend = axes[1].legend()
     legend.get_frame().set_facecolor("white")
     legend.get_frame().set_edgecolor("black")
