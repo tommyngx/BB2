@@ -63,6 +63,23 @@ class DinoVisionTransformerClassifier(nn.Module):
         return x
 
 
+class MyResNeSt50(nn.Module):
+    def __init__(self, num_classes=2):
+        super().__init__()
+        pretrained_model = timm_models.create_model(
+            "resnest50d_4s2x40d", pretrained=True, num_classes=1000
+        )
+        self.body = pretrained_model.forward_features
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.head = nn.Linear(pretrained_model.num_features, num_classes)
+
+    def forward(self, x):
+        x = self.body(x)  # [B, C, H, W]
+        x = self.pool(x)  # [B, C, 1, 1]
+        x = x.view(x.size(0), -1)
+        return self.head(x)
+
+
 def get_model(model_type="dinov2", num_classes=2):
     if model_type == "dinov2":
         model = DinoVisionTransformerClassifier(num_classes=num_classes)
@@ -78,10 +95,7 @@ def get_model(model_type="dinov2", num_classes=2):
         )
         model.fc = nn.Linear(model.fc.in_features, num_classes)
     elif model_type == "resnest50":
-        # Add ResNeSt support using timm
-        model = timm_models.create_model(
-            "resnest50d_4s2x40d", pretrained=True, num_classes=num_classes
-        )
+        model = MyResNeSt50(num_classes=num_classes)
     elif model_type == "fastervit":
         try:
             model = create_model(
