@@ -99,7 +99,7 @@ def run_train(
             config_path=config_path,
         )
     )
-    print(f"Using loss_type: {loss_type}")  # Thêm dòng này để kiểm tra
+
     trained_model = train_model(
         model,
         train_loader,
@@ -293,6 +293,8 @@ if __name__ == "__main__":
     dataset_name = os.path.basename(os.path.normpath(dataset_folder))
 
     config_path = os.path.join(os.path.dirname(__file__), "config", args.config)
+
+    print(f"Using loss_type: {loss_type}")  # Thêm dòng này để kiểm tra
 
     if args.mode == "train":
         run_train(
