@@ -87,7 +87,7 @@ def plot_metrics(train_losses, train_accs, test_losses, test_accs, save_path):
 
     # Điều chỉnh vị trí và kích thước để hai ảnh cover 95% chiều rộng, subplot phải không sát viền phải
     fig.subplots_adjust(
-        left=0.07, right=0.84, wspace=0.10
+        left=0.07, right=0.84, wspace=0.15
     )  # giảm right xuống để subplot phải cách viền
 
     plt.savefig(save_path, bbox_inches="tight", pad_inches=0.1)
