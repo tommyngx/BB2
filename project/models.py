@@ -122,6 +122,12 @@ def get_model(model_type="dinov2", num_classes=2):
             pretrained=True,
             num_classes=num_classes,
         )
+    elif model_type == "convnextv2_tiny":
+        model = timm_models.create_model(
+            "convnextv2_tiny.fcmae_ft_in22k_in1k",
+            pretrained=True,
+            num_classes=num_classes,
+        )
     elif model_type == "efficientnetv2":
         model = timm_models.create_model(
             "efficientnetv2_m", pretrained=False, num_classes=num_classes
