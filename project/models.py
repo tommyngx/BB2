@@ -134,6 +134,6 @@ def get_model(model_type="dinov2", num_classes=2):
         )
     else:
         raise ValueError(
-            "model_type must be 'dinov2', 'resnet50', 'resnet101', 'resnext50', 'resnest50',resnest50s2, regnety, 'fastervit', 'convnextv2', or 'efficientnetv2'"
+            "model_type must be 'dinov2', 'resnet50', 'resnet101', 'resnext50', 'resnest50',resnest50s2, regnety, 'fastervit', 'convnextv2', 'convnextv2_tiny', or 'efficientnetv2'"
         )
     return model
