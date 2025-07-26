@@ -117,8 +117,8 @@ def run_train(
         patience=patience,
         loss_type=loss_type,
     )
-    print("\nEvaluation on Test Set:")
-    evaluate_model(trained_model, test_loader, device=device, mode="Test")
+    # print("\nEvaluation on Test Set:")
+    # evaluate_model(trained_model, test_loader, device=device, mode="Test")
     # Uncomment to evaluate on train set
     # print("\nEvaluation on Train Set:")
     # evaluate_model(trained_model, train_loader, device=device, mode="Train")
