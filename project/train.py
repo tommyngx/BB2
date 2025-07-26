@@ -221,7 +221,9 @@ def train_model(
                     break
 
         # Save model with proper naming (keep acc4 naming)
-        acc4 = int(test_acc * 10000)
+        acc4 = int(
+            round(test_acc * 10000)
+        )  # Sử dụng round thay vì chỉ int để làm tròn đúng
         weight_name = f"{model_key}_{acc4}.pth"
         weight_path = os.path.join(model_dir, weight_name)
 
