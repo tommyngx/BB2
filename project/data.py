@@ -116,44 +116,38 @@ def get_dataloaders(
             A.Resize(*img_size),
             A.OneOf(
                 [
+                    # Sửa lại tham số cho Downscale: chỉ dùng scale và interpolation (tham khảo tài liệu albumentations)
                     A.Downscale(
                         scale_min=0.75,
                         scale_max=0.95,
-                        interpolation=dict(
-                            upscale=cv2.INTER_LINEAR, downscale=cv2.INTER_AREA
-                        ),
+                        interpolation=cv2.INTER_LINEAR,
                         p=0.1,
                     ),
                     A.Downscale(
                         scale_min=0.75,
                         scale_max=0.95,
-                        interpolation=dict(
-                            upscale=cv2.INTER_LANCZOS4, downscale=cv2.INTER_AREA
-                        ),
+                        interpolation=cv2.INTER_LANCZOS4,
                         p=0.1,
                     ),
                     A.Downscale(
                         scale_min=0.75,
                         scale_max=0.95,
-                        interpolation=dict(
-                            upscale=cv2.INTER_LINEAR, downscale=cv2.INTER_LINEAR
-                        ),
+                        interpolation=cv2.INTER_LINEAR,
                         p=0.8,
                     ),
                 ],
                 p=0.125,
             ),
-            # Bổ sung coarse dropout nhẹ, ít ảnh hưởng
+            # Sửa lại tham số cho CoarseDropout: chỉ dùng các tham số hợp lệ
             A.CoarseDropout(
-                max_holes=3,  # ít holes hơn
-                max_height=0.08,  # nhỏ hơn
-                max_width=0.15,  # nhỏ hơn
+                max_holes=3,
+                max_height=int(img_size[0] * 0.08),
+                max_width=int(img_size[1] * 0.15),
                 min_holes=1,
-                min_height=0.03,
-                min_width=0.05,
+                min_height=1,
+                min_width=1,
                 fill_value=0,
-                mask_fill_value=None,
-                p=0.1,  # phần trăm thấp hơn
+                p=0.1,
             ),
             A.HorizontalFlip(p=0.5),
             A.VerticalFlip(p=0.5),
@@ -198,6 +192,12 @@ def get_dataloaders(
     total_samples = len(train_df)
     class_weights = {cls: 1.0 / count for cls, count in class_counts.items()}
     weights = [class_weights[train_df.iloc[i]["cancer"]] for i in range(total_samples)]
+    sampler = WeightedRandomSampler(
+        weights=weights, num_samples=total_samples, replacement=True
+    )
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    return train_loader, test_loader
     sampler = WeightedRandomSampler(
         weights=weights, num_samples=total_samples, replacement=True
     )
