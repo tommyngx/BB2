@@ -117,24 +117,27 @@ def get_dataloaders(
             A.OneOf(
                 [
                     A.Downscale(
-                        scale_min=0.75,
-                        scale_max=0.75,
-                        downscale_interpolation=cv2.INTER_AREA,
-                        upscale_interpolation=cv2.INTER_LINEAR,
+                        scale_range=(0.75, 0.75),
+                        interpolation_pair={
+                            "downscale": cv2.INTER_AREA,
+                            "upscale": cv2.INTER_LINEAR,
+                        },
                         p=0.1,
                     ),
                     A.Downscale(
-                        scale_min=0.75,
-                        scale_max=0.75,
-                        downscale_interpolation=cv2.INTER_AREA,
-                        upscale_interpolation=cv2.INTER_LANCZOS4,
+                        scale_range=(0.75, 0.75),
+                        interpolation_pair={
+                            "downscale": cv2.INTER_AREA,
+                            "upscale": cv2.INTER_LANCZOS4,
+                        },
                         p=0.1,
                     ),
                     A.Downscale(
-                        scale_min=0.95,
-                        scale_max=0.95,
-                        downscale_interpolation=cv2.INTER_AREA,
-                        upscale_interpolation=cv2.INTER_LINEAR,
+                        scale_range=(0.95, 0.95),
+                        interpolation_pair={
+                            "downscale": cv2.INTER_AREA,
+                            "upscale": cv2.INTER_LINEAR,
+                        },
                         p=0.8,
                     ),
                 ],
@@ -143,10 +146,10 @@ def get_dataloaders(
             # Sử dụng đúng tham số cho CoarseDropout (albumentations >=1.3.0)
             # Chỉ dùng max_holes, max_height, max_width, min_holes, min_height, min_width, fill_value, mask_fill_value, p
             A.CoarseDropout(
-                max_holes=3,
-                max_height=int(img_size[0] * 0.08),
-                max_width=int(img_size[1] * 0.15),
-                fill_value=0,
+                num_holes_range=(1, 3),
+                hole_height_range=(0.01, 0.08),
+                hole_width_range=(0.01, 0.15),
+                fill=0,
                 p=0.1,
             ),
             A.HorizontalFlip(p=0.5),
