@@ -190,7 +190,13 @@ def plot_metrics2(train_losses, train_accs, test_losses, test_accs, save_path):
 def plot_confusion_matrix(y_true, y_pred, class_names, save_path=None, title=None):
     cm = confusion_matrix(y_true, y_pred)
     # Normalize the confusion matrix
-    cm_normalized = cm.astype("float") / cm.sum(axis=1)[:, np.newaxis]
+    row_sums = cm.sum(axis=1, keepdims=True)
+    cm_normalized = np.divide(
+        cm.astype("float"),
+        row_sums,
+        out=np.zeros_like(cm, dtype=float),
+        where=row_sums != 0,
+    )
 
     # Create an annotation matrix with both counts and percentages
     annot = np.empty_like(cm).astype(str)
