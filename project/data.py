@@ -108,10 +108,53 @@ class CancerImageDataset(Dataset):
 def get_dataloaders(
     train_df, test_df, root_dir, batch_size=16, config_path="config/config.yaml"
 ):
+    import cv2  # Bổ sung import cv2 cho augment dùng interpolation
+
     img_size = get_image_size_from_config(config_path)
     train_transform = A.Compose(
         [
             A.Resize(*img_size),
+            A.OneOf(
+                [
+                    A.Downscale(
+                        scale_min=0.75,
+                        scale_max=0.95,
+                        interpolation=dict(
+                            upscale=cv2.INTER_LINEAR, downscale=cv2.INTER_AREA
+                        ),
+                        p=0.1,
+                    ),
+                    A.Downscale(
+                        scale_min=0.75,
+                        scale_max=0.95,
+                        interpolation=dict(
+                            upscale=cv2.INTER_LANCZOS4, downscale=cv2.INTER_AREA
+                        ),
+                        p=0.1,
+                    ),
+                    A.Downscale(
+                        scale_min=0.75,
+                        scale_max=0.95,
+                        interpolation=dict(
+                            upscale=cv2.INTER_LINEAR, downscale=cv2.INTER_LINEAR
+                        ),
+                        p=0.8,
+                    ),
+                ],
+                p=0.125,
+            ),
+            # Bổ sung coarse dropout nhẹ, ít ảnh hưởng
+            A.CoarseDropout(
+                max_holes=3,  # ít holes hơn
+                max_height=0.08,  # nhỏ hơn
+                max_width=0.15,  # nhỏ hơn
+                min_holes=1,
+                min_height=0.03,
+                min_width=0.05,
+                fill_value=0,
+                mask_fill_value=None,
+                p=0.1,  # phần trăm thấp hơn
+            ),
             A.HorizontalFlip(p=0.5),
             A.VerticalFlip(p=0.5),
             A.RandomRotate90(p=0.5),
