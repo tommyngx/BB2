@@ -116,29 +116,19 @@ def get_dataloaders(
             A.Resize(*img_size),
             A.OneOf(
                 [
-                    # Sửa lại tham số cho Downscale: chỉ dùng scale và interpolation (tham khảo tài liệu albumentations)
-                    A.Downscale(
-                        scale_min=0.75,
-                        scale_max=0.95,
-                        interpolation=cv2.INTER_LINEAR,
-                        p=0.1,
-                    ),
-                    A.Downscale(
-                        scale_min=0.75,
-                        scale_max=0.95,
-                        interpolation=cv2.INTER_LANCZOS4,
-                        p=0.1,
-                    ),
-                    A.Downscale(
-                        scale_min=0.75,
-                        scale_max=0.95,
-                        interpolation=cv2.INTER_LINEAR,
-                        p=0.8,
-                    ),
+                    # Sử dụng đúng tham số cho Downscale (albumentations >=1.3.0)
+                    # Downscale chỉ nhận scale và interpolation (không nhận scale_min/scale_max)
+                    # Nếu muốn random scale, dùng A.Downscale(scale=0.75, interpolation=cv2.INTER_LINEAR, p=0.1)
+                    # hoặc dùng A.Downscale(scale=0.95, interpolation=cv2.INTER_LINEAR, p=0.1)
+                    # Nếu muốn random hóa, bạn cần tự chọn 1 giá trị scale ngẫu nhiên trước khi truyền vào Compose.
+                    A.Downscale(scale=0.75, interpolation=cv2.INTER_LINEAR, p=0.1),
+                    A.Downscale(scale=0.75, interpolation=cv2.INTER_LANCZOS4, p=0.1),
+                    A.Downscale(scale=0.95, interpolation=cv2.INTER_LINEAR, p=0.8),
                 ],
                 p=0.125,
             ),
-            # Sửa lại tham số cho CoarseDropout: chỉ dùng các tham số hợp lệ
+            # Sử dụng đúng tham số cho CoarseDropout (albumentations >=1.3.0)
+            # Chỉ dùng max_holes, max_height, max_width, min_holes, min_height, min_width, fill_value, mask_fill_value, p
             A.CoarseDropout(
                 max_holes=3,
                 max_height=int(img_size[0] * 0.08),
@@ -147,6 +137,7 @@ def get_dataloaders(
                 min_height=1,
                 min_width=1,
                 fill_value=0,
+                mask_fill_value=None,
                 p=0.1,
             ),
             A.HorizontalFlip(p=0.5),
@@ -192,12 +183,6 @@ def get_dataloaders(
     total_samples = len(train_df)
     class_weights = {cls: 1.0 / count for cls, count in class_counts.items()}
     weights = [class_weights[train_df.iloc[i]["cancer"]] for i in range(total_samples)]
-    sampler = WeightedRandomSampler(
-        weights=weights, num_samples=total_samples, replacement=True
-    )
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-    return train_loader, test_loader
     sampler = WeightedRandomSampler(
         weights=weights, num_samples=total_samples, replacement=True
     )
