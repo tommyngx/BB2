@@ -66,6 +66,7 @@ def prepare_data_and_model(
         batch_size=batch_size,
         config_path=config_path,
     )
+    num_classes = train_df["cancer"].nunique()
     model = get_model(model_type=model_type, num_classes=num_classes)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if pretrained_model_path:
