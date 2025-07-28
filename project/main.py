@@ -30,10 +30,10 @@ def load_config(config_name):
     return config
 
 
-def get_arg_or_config(arg_val, config_val, default_val, argparse_default=None):
-    # Ưu tiên: arg nếu khác None và khác default argparse -> config -> default
-    if argparse_default is not None and arg_val == argparse_default:
-        arg_val = None
+def get_arg_or_config(arg_val, config_val, default_val):
+    # Nếu arg_val là None hoặc không được truyền (argparse.SUPPRESS), thì lấy từ config hoặc default
+    # Nếu arg_val được truyền (dù là "ce" hay "focal"), thì lấy arg_val
+    # Nếu muốn bỏ qua giá trị mặc định của argparse, chỉ set default=None trong add_argument
     if arg_val is not None:
         return arg_val
     if config_val is not None:
@@ -291,9 +291,7 @@ if __name__ == "__main__":
     )
     patience = get_arg_or_config(args.patience, config.get("patience"), 50)
 
-    loss_type = get_arg_or_config(
-        args.loss_type, config.get("loss_type"), "ce", argparse_default="ce"
-    )
+    loss_type = get_arg_or_config(args.loss_type, config.get("loss_type"), "ce")
 
     print("Parsed arguments after:")
     print("model_type:", model_type)
