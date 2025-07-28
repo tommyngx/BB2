@@ -290,11 +290,6 @@ if __name__ == "__main__":
         args.gradcam_random_state, config.get("gradcam_random_state"), 29
     )
     patience = get_arg_or_config(args.patience, config.get("patience"), 50)
-    # Sau đó kiểm tra
-    if hasattr(args, "loss_type"):
-        arg_val = args.loss_type  # người dùng đã truyền
-    else:
-        arg_val = None  # người dùng KHÔNG truyền gì
 
     loss_type = get_arg_or_config(
         args.loss_type, config.get("loss_type"), "ce", argparse_default="ce"
