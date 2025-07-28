@@ -259,7 +259,7 @@ if __name__ == "__main__":
         "--loss_type",
         type=str,
         choices=["ce", "focal"],
-        default="ce",
+        default=argparse.SUPPRESS,  # ⚠️ không gán default ở đây
         help="Loss function: ce (cross-entropy) or focal",
     )
     args = parser.parse_args()
