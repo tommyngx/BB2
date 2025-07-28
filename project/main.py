@@ -263,6 +263,9 @@ if __name__ == "__main__":
         help="Loss function: ce (cross-entropy) or focal",
     )
     args = parser.parse_args()
+    print("Parsed arguments:")
+    for arg, value in vars(args).items():
+        print(f"{arg}: {value}")
 
     config = load_config(args.config)
 
