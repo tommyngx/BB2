@@ -264,10 +264,6 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    print("Parsed arguments:")
-    for arg, value in vars(args).items():
-        print(f"{arg}: {value}")
-
     config = load_config(args.config)
 
     dataset_folder = get_arg_or_config(
@@ -294,6 +290,10 @@ if __name__ == "__main__":
     loss_type = get_arg_or_config(
         args.loss_type, config.get("loss_type"), "ce", argparse_default="ce"
     )
+
+    print("Parsed arguments:")
+    for arg, value in vars(args).items():
+        print(f"{arg}: {value}")
 
     dataset_name = os.path.basename(os.path.normpath(dataset_folder))
 
