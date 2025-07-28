@@ -45,6 +45,7 @@ def load_data(data_folder, config_path="config/config.yaml"):
     metadata_path = os.path.join(data_folder, "metadata.csv")
     df = pd.read_csv(metadata_path)
     df = df.dropna()
+    df = df.drop_duplicates(subset=["link"])
     # Nếu cột target là string (label), chuyển thành số nguyên liên tục
     if not np.issubdtype(df[target_column].dtype, np.number):
         df["target_label"], class_names = pd.factorize(df[target_column])
