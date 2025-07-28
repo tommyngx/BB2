@@ -294,9 +294,18 @@ if __name__ == "__main__":
         args.loss_type, config.get("loss_type"), "ce", argparse_default="ce"
     )
 
-    print("Parsed arguments:")
-    for arg, value in vars(args).items():
-        print(f"{arg}: {value}")
+    print("Parsed arguments after:")
+    print("model_type:", model_type)
+    print("batch_size:", batch_size)
+    print("num_epochs:", num_epochs)
+    print("lr:", lr)
+    print("pretrained_model_path:", pretrained_model_path)
+    print("outputs_link:", outputs_link)
+    print("gradcam:", gradcam)
+    print("gradcam_num_images:", gradcam_num_images)
+    print("gradcam_random_state:", gradcam_random_state)
+    print("patience:", patience)
+    print("loss_type:", loss_type)
 
     dataset_name = os.path.basename(os.path.normpath(dataset_folder))
 
