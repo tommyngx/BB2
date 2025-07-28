@@ -264,6 +264,10 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    print("Parsed arguments:")
+    for arg, value in vars(args).items():
+        print(f"{arg}: {value}")
+
     config = load_config(args.config)
 
     dataset_folder = get_arg_or_config(
