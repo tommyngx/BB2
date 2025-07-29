@@ -125,7 +125,18 @@ def train_model(
             else "Using CrossEntropyLoss"
         )
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-2)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+
+    # Warm-up scheduler: linearly increase lr for first 5 epochs
+    warmup_epochs = 5
+
+    def lr_lambda(epoch):
+        if epoch < warmup_epochs:
+            return float(epoch + 1) / warmup_epochs
+        else:
+            return 1.0
+
+    warmup_scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
+    plateau_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=0.5, patience=20, min_lr=1e-5
     )
 
@@ -199,7 +210,10 @@ def train_model(
         test_accs.append(test_acc)
 
         # Update scheduler
-        scheduler.step(test_loss)
+        if epoch < warmup_epochs:
+            warmup_scheduler.step()
+        else:
+            plateau_scheduler.step(test_loss)
 
         # Check if learning rate was reduced
         current_lr = optimizer.param_groups[0]["lr"]
