@@ -13,18 +13,9 @@ import argparse
 import os
 import yaml
 
+from data import get_num_patches_from_config  # Import from data.py
+
 torch.serialization.add_safe_globals([argparse.Namespace])
-
-
-def get_num_patches_from_config(config_path="config/config.yaml"):
-    if not os.path.isabs(config_path):
-        config_path = os.path.join(os.path.dirname(__file__), "..", config_path)
-    config_path = os.path.abspath(config_path)
-    with open(config_path, "r") as f:
-        config = yaml.safe_load(f)
-    if isinstance(config, dict) and "config" in config:
-        config = config["config"]
-    return config.get("num_patches", 2)
 
 
 class DinoVisionTransformerClassifier(nn.Module):
@@ -63,8 +54,39 @@ class DinoVisionTransformerClassifier(nn.Module):
         return x
 
 
-def get_model(model_type="dinov2", num_classes=2, config_path="config/config.yaml"):
-    num_patches = get_num_patches_from_config(config_path)
+class PatchResNet(nn.Module):
+    def __init__(self, base_model, feature_dim, num_classes, num_patches):
+        print(f"Using PatchResNet with {num_patches} patches")
+        super(PatchResNet, self).__init__()
+        self.base_model = base_model
+        self.layer4 = getattr(base_model, "layer4", None)  # For Grad-CAM
+        self.classifier = nn.Sequential(
+            nn.Linear(feature_dim * num_patches, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(512, num_classes),
+        )
+        self.num_patches = num_patches
+
+    def forward(self, x):
+        batch_size, num_patches, C, H, W = x.size()
+        x = x.view(-1, C, H, W)  # [batch_size * num_patches, C, H, W]
+        x = self.base_model(x)  # [batch_size * num_patches, feature_dim]
+        x = x.view(
+            batch_size, num_patches * x.size(-1)
+        )  # [batch_size, num_patches * feature_dim]
+        x = self.classifier(x)
+        return x
+
+
+def get_model(
+    model_type="dinov2",
+    num_classes=2,
+    config_path="config/config.yaml",
+    num_patches=None,
+):
+    num_patches = get_num_patches_from_config(config_path, num_patches)
     if model_type == "dinov2":
         model = DinoVisionTransformerClassifier(
             num_classes=num_classes, num_patches=num_patches
@@ -139,29 +161,3 @@ def get_model(model_type="dinov2", num_classes=2, config_path="config/config.yam
     else:
         raise ValueError("Unsupported model type")
     return model
-
-
-class PatchResNet(nn.Module):
-    def __init__(self, base_model, feature_dim, num_classes, num_patches):
-        print(f"Using PatchResNet with {num_patches} patches")
-        super(PatchResNet, self).__init__()
-        self.base_model = base_model
-        self.layer4 = getattr(base_model, "layer4", None)  # For Grad-CAM
-        self.classifier = nn.Sequential(
-            nn.Linear(feature_dim * num_patches, 512),
-            nn.BatchNorm1d(512),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(512, num_classes),
-        )
-        self.num_patches = num_patches
-
-    def forward(self, x):
-        batch_size, num_patches, C, H, W = x.size()
-        x = x.view(-1, C, H, W)  # [batch_size * num_patches, C, H, W]
-        x = self.base_model(x)  # [batch_size * num_patches, feature_dim]
-        x = x.view(
-            batch_size, num_patches * x.size(-1)
-        )  # [batch_size, num_patches * feature_dim]
-        x = self.classifier(x)
-        return x
