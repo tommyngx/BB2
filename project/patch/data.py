@@ -48,7 +48,7 @@ def get_num_patches_from_config(config_path="config/config.yaml"):
         config = yaml.safe_load(f)
     if isinstance(config, dict) and "config" in config:
         config = config["config"]
-    return config.get("num_patches", 2)  # Mặc định 2 patch
+    return config.get("num_patches", 2)  # Default 2 patches
 
 
 def load_data(data_folder, config_path="config/config.yaml"):
@@ -81,15 +81,27 @@ def load_data(data_folder, config_path="config/config.yaml"):
 
 
 def split_image_into_patches(image, num_patches=2):
-    """Chia ảnh gốc thành num_patches theo chiều height."""
+    """Split the original image into num_patches along the height with equal sizes."""
     image = np.array(image)
     height, width = image.shape[:2]
     patch_height = height // num_patches
     patches = []
     for i in range(num_patches):
         start_h = i * patch_height
-        end_h = (i + 1) * patch_height if i < num_patches - 1 else height
-        patch = image[start_h:end_h, :]
+        end_h = (i + 1) * patch_height
+        # Ensure the last patch includes any remaining pixels
+        if i == num_patches - 1:
+            end_h = height
+        patch = image[start_h:end_h, :, :]
+        # Pad the patch if its height is smaller than patch_height
+        if patch.shape[0] < patch_height:
+            pad_height = patch_height - patch.shape[0]
+            patch = np.pad(
+                patch,
+                ((0, pad_height), (0, 0), (0, 0)),
+                mode="constant",
+                constant_values=0,
+            )
         patches.append(patch)
     return patches
 
@@ -100,6 +112,9 @@ class CancerPatchDataset(Dataset):
         self.root_dir = root_dir
         self.transform = transform
         self.num_patches = num_patches
+        self.img_size = (
+            get_image_size_from_config()
+        )  # Load image_size once during initialization
 
     def __len__(self):
         return len(self.df)
@@ -113,7 +128,11 @@ class CancerPatchDataset(Dataset):
         for patch in patches:
             patch = np.array(patch)
             if self.transform:
-                patch = self.transform(image=patch)["image"]
+                # Apply resize and other transformations to each patch
+                transform_with_resize = A.Compose(
+                    [A.Resize(*self.img_size), *self.transform]
+                )
+                patch = transform_with_resize(image=patch)["image"]
             patch_tensors.append(patch)
         patch_tensors = torch.stack(patch_tensors)  # [num_patches, C, H, W]
         return patch_tensors, label
@@ -126,7 +145,7 @@ def get_dataloaders(
     num_patches = get_num_patches_from_config(config_path)
     train_transform = A.Compose(
         [
-            # Resize di chuyển vào xử lý từng patch trong __getitem__
+            # Resize moved to __getitem__ for each patch
             A.OneOf(
                 [
                     A.Downscale(
@@ -189,7 +208,7 @@ def get_dataloaders(
     )
     test_transform = A.Compose(
         [
-            # Resize di chuyển vào xử lý từng patch trong __getitem__
+            # Resize moved to __getitem__ for each patch
             A.Normalize([0.5] * 3, [0.5] * 3),
             ToTensorV2(),
         ]
