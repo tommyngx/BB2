@@ -261,10 +261,8 @@ def train_model(
         top2 = related_weights[:2]
         top2_paths = set([path for _, path in top2])
 
-        # Nếu weight_path đã nằm trong top2_paths thì bỏ qua việc lưu và không xoá các weight trong top2
+        # Save current model if it's in top-2
         if weight_path in top2_paths:
-            print(f"⏩ Skipped saving {weight_name} (path already in top 2)")
-        else:
             if os.path.exists(weight_path):
                 existing_acc = (
                     float(weight_path.split("_")[-1].replace(".pth", "")) / 10000
@@ -276,14 +274,14 @@ def train_model(
                 torch.save(model.state_dict(), weight_path)
                 print(f"✅ Saved new best model: {weight_name} (acc = {test_acc:.6f})")
 
-            # Chỉ xoá các weight ngoài top2 nếu weight mới KHÔNG nằm trong top2
-            for _, path_to_delete in related_weights[2:]:
-                if os.path.exists(path_to_delete) and path_to_delete not in top2_paths:
-                    try:
-                        os.remove(path_to_delete)
-                        print(f"🗑️ Deleted model: {path_to_delete}")
-                    except Exception as e:
-                        print(f"⚠️ Could not delete {path_to_delete}: {e}")
+        # Remove all models outside top-2
+        for _, path_to_delete in related_weights[2:]:
+            if os.path.exists(path_to_delete) and path_to_delete not in top2_paths:
+                try:
+                    os.remove(path_to_delete)
+                    print(f"🗑️ Deleted model: {path_to_delete}")
+                except Exception as e:
+                    print(f"⚠️ Could not delete {path_to_delete}: {e}")
 
         # Save plot after every epoch
         plot_path = os.path.join(plot_dir, f"{model_key}.png")
