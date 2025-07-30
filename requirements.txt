@@ -27,3 +27,4 @@ pycocotools
 torchmetrics
 pyyaml
 fastervit
+ultralytics
