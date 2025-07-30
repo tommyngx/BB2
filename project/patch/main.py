@@ -1,6 +1,7 @@
 import argparse
 import yaml
 import os
+import shutil
 import warnings
 import gc
 import torch
@@ -11,7 +12,7 @@ from train import train_model, evaluate_model
 from visualization import plot_gradcam_plus
 import sys
 
-# sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils import plot_confusion_matrix
 
 torch.serialization.add_safe_globals([argparse.Namespace])
@@ -53,6 +54,7 @@ def prepare_data_and_model(
     pretrained_model_path=None,
     num_classes=2,
     config_path="config/config.yaml",
+    num_patches=None,
 ):
     clear_cuda_memory()
     train_df, test_df = load_data(dataset_folder, config_path=config_path)
@@ -62,10 +64,14 @@ def prepare_data_and_model(
         dataset_folder,
         batch_size=batch_size,
         config_path=config_path,
+        num_patches=num_patches,
     )
     num_classes = train_df["cancer"].nunique()
     model = get_model(
-        model_type=model_type, num_classes=num_classes, config_path=config_path
+        model_type=model_type,
+        num_classes=num_classes,
+        config_path=config_path,
+        num_patches=num_patches,
     )
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if pretrained_model_path:
@@ -76,6 +82,30 @@ def prepare_data_and_model(
             print(f"Loaded pretrained model from {pretrained_model_path}")
         except Exception as e:
             print(f"⚠️ Error loading pretrained model: {e}. Training from scratch.")
+    else:
+        # If no pretrained path provided, try loading the best weight for the model_key
+        model_dir = os.path.join("output", "models")
+        dataset_name = os.path.basename(os.path.normpath(dataset_folder))
+        model_key = f"{dataset_name}_{model_type}_p{num_patches or 2}"
+        weight_files = [
+            f
+            for f in os.listdir(model_dir)
+            if f.startswith(model_key) and f.endswith(".pth")
+        ]
+        if weight_files:
+            weight_files = sorted(
+                weight_files,
+                key=lambda x: float(x.replace(".pth", "").split("_")[-1]) / 10000,
+                reverse=True,
+            )
+            weight_path = os.path.join(model_dir, weight_files[0])
+            try:
+                model.load_state_dict(torch.load(weight_path, map_location=device))
+                print(f"Loaded best model weight: {weight_path}")
+            except Exception as e:
+                print(
+                    f"⚠️ Error loading best model weight {weight_path}: {e}. Using untrained model."
+                )
     model = model.to(device)
     return train_df, test_df, train_loader, test_loader, model, device
 
@@ -91,6 +121,7 @@ def run_train(
     patience=50,
     loss_type="ce",
     config_path="config/config.yaml",
+    num_patches=None,
 ):
     train_df, test_df, train_loader, test_loader, model, device = (
         prepare_data_and_model(
@@ -99,6 +130,7 @@ def run_train(
             batch_size,
             pretrained_model_path,
             config_path=config_path,
+            num_patches=num_patches,
         )
     )
     trained_model = train_model(
@@ -114,6 +146,8 @@ def run_train(
         train_df=train_df,
         patience=patience,
         loss_type=loss_type,
+        config_path=config_path,
+        num_patches=num_patches,
     )
 
 
@@ -128,6 +162,7 @@ def run_test(
     gradcam_random_state=29,
     dataset_name=None,
     config_path="config/config.yaml",
+    num_patches=None,
 ):
     train_df, test_df, _, test_loader, model, device = prepare_data_and_model(
         dataset_folder,
@@ -135,6 +170,7 @@ def run_test(
         batch_size,
         pretrained_model_path,
         config_path=config_path,
+        num_patches=num_patches,
     )
     model.eval()
     print("\nEvaluation on Test Set:")
@@ -153,7 +189,7 @@ def run_test(
         outputs_link = "output"
     plot_dir = os.path.join(str(outputs_link), "figures")
     os.makedirs(plot_dir, exist_ok=True)
-    model_key = f"{dataset_name}_{model_type}".replace(" ", "")
+    model_key = f"{dataset_name}_{model_type}_p{num_patches or 2}".replace(" ", "")
     cm_path = os.path.join(plot_dir, f"{model_key}_confusion_matrix.png")
     plot_confusion_matrix(all_labels, all_preds, class_names, save_path=cm_path)
     print(f"Confusion matrix saved to {cm_path}")
@@ -184,6 +220,7 @@ def run_gradcam(
     gradcam_random_state=29,
     dataset_name=None,
     config_path="config/config.yaml",
+    num_patches=None,
 ):
     _, test_df, _, _, model, device = prepare_data_and_model(
         dataset_folder,
@@ -191,6 +228,7 @@ def run_gradcam(
         batch_size,
         pretrained_model_path,
         config_path=config_path,
+        num_patches=num_patches,
     )
     model.eval()
     if not outputs_link:
@@ -248,6 +286,15 @@ if __name__ == "__main__":
         choices=["ce", "focal"],
         help="Loss function: ce or focal",
     )
+    parser.add_argument(
+        "--num_patches",
+        type=int,
+        default=None,
+        help="Number of patches (e.g., 2, 3, 4)",
+    )
+    parser.add_argument(
+        "--clear", action="store_true", help="Clear output directory before training"
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -273,8 +320,15 @@ if __name__ == "__main__":
     )
     patience = get_arg_or_config(args.patience, config.get("patience"), 50)
     loss_type = get_arg_or_config(args.loss_type, config.get("loss_type"), "ce")
+    num_patches = get_arg_or_config(args.num_patches, config.get("num_patches"), 2)
     dataset_name = os.path.basename(os.path.normpath(dataset_folder))
     config_path = os.path.join(os.path.dirname(__file__), "..", "config", args.config)
+
+    # Clear output directory if --clear is specified
+    if args.clear and os.path.exists(outputs_link):
+        shutil.rmtree(outputs_link)
+        print(f"Cleared output directory: {outputs_link}")
+    os.makedirs(outputs_link, exist_ok=True)
 
     if args.mode == "train":
         run_train(
@@ -288,6 +342,7 @@ if __name__ == "__main__":
             patience=patience,
             loss_type=loss_type,
             config_path=config_path,
+            num_patches=num_patches,
         )
     elif args.mode == "test":
         run_test(
@@ -301,6 +356,7 @@ if __name__ == "__main__":
             gradcam_random_state=gradcam_random_state,
             dataset_name=dataset_name,
             config_path=config_path,
+            num_patches=num_patches,
         )
     elif args.mode == "gradcam":
         run_gradcam(
@@ -313,4 +369,5 @@ if __name__ == "__main__":
             gradcam_random_state=gradcam_random_state,
             dataset_name=dataset_name,
             config_path=config_path,
+            num_patches=num_patches,
         )
