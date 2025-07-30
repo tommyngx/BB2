@@ -143,6 +143,7 @@ def get_model(model_type="dinov2", num_classes=2, config_path="config/config.yam
 
 class PatchResNet(nn.Module):
     def __init__(self, base_model, feature_dim, num_classes, num_patches):
+        print(f"Using PatchResNet with {num_patches} patches")
         super(PatchResNet, self).__init__()
         self.base_model = base_model
         self.layer4 = getattr(base_model, "layer4", None)  # For Grad-CAM

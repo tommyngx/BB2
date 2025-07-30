@@ -81,7 +81,7 @@ def load_data(data_folder, config_path="config/config.yaml"):
 
 
 def split_image_into_patches(image, num_patches=2):
-    """Chia ảnh thành num_patches theo chiều height."""
+    """Chia ảnh gốc thành num_patches theo chiều height."""
     image = np.array(image)
     height, width = image.shape[:2]
     patch_height = height // num_patches
@@ -126,7 +126,7 @@ def get_dataloaders(
     num_patches = get_num_patches_from_config(config_path)
     train_transform = A.Compose(
         [
-            A.Resize(*img_size),
+            # Resize di chuyển vào xử lý từng patch trong __getitem__
             A.OneOf(
                 [
                     A.Downscale(
@@ -188,7 +188,11 @@ def get_dataloaders(
         ]
     )
     test_transform = A.Compose(
-        [A.Resize(*img_size), A.Normalize([0.5] * 3, [0.5] * 3), ToTensorV2()]
+        [
+            # Resize di chuyển vào xử lý từng patch trong __getitem__
+            A.Normalize([0.5] * 3, [0.5] * 3),
+            ToTensorV2(),
+        ]
     )
     train_dataset = CancerPatchDataset(train_df, root_dir, train_transform, num_patches)
     test_dataset = CancerPatchDataset(test_df, root_dir, test_transform, num_patches)
