@@ -9,6 +9,6 @@ image_size: [448, 448]
 gradcam: false
 gradcam_num_images: 3
 gradcam_random_state: 29
-patience: 100 #75
+patience: 50 #75
 loss_type: focal # ce # ce (cross-entropy) hoặc focal, thêm option này để chọn loss function
 target_column: cancer
