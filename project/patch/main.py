@@ -87,6 +87,7 @@ def prepare_data_and_model(
         model_dir = os.path.join("output", "models")
         dataset_name = os.path.basename(os.path.normpath(dataset_folder))
         model_key = f"{dataset_name}_{model_type}_p{num_patches or 2}"
+        os.makedirs(model_dir, exist_ok=True)  # Create model_dir if it doesn't exist
         weight_files = [
             f
             for f in os.listdir(model_dir)
