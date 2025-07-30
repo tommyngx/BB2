@@ -16,7 +16,9 @@ import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 
-def get_num_patches_from_config(config_path="config/config.yaml"):
+def get_num_patches_from_config(config_path="config/config.yaml", num_patches=None):
+    if num_patches is not None:
+        return num_patches
     if not os.path.isabs(config_path):
         config_path = os.path.join(os.path.dirname(__file__), "..", config_path)
     config_path = os.path.abspath(config_path)
@@ -97,6 +99,7 @@ def train_model(
     patience=50,
     loss_type="ce",
     config_path="config/config.yaml",
+    num_patches=None,
 ):
     model = model.to(device)
     if train_df is not None:
@@ -143,7 +146,7 @@ def train_model(
     os.makedirs(model_dir, exist_ok=True)
     os.makedirs(plot_dir, exist_ok=True)
     dataset = dataset_folder.split("/")[-1]
-    num_patches = get_num_patches_from_config(config_path)
+    num_patches = get_num_patches_from_config(config_path, num_patches)
     model_key = f"{dataset}_{model_name}_p{num_patches}"
 
     print(f"Checking for existing weights in {model_dir} with model_key: {model_key}")

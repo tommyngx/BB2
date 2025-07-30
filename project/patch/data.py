@@ -40,7 +40,9 @@ def get_target_column_from_config(config_path="config/config.yaml"):
     return config.get("target_column", "cancer")
 
 
-def get_num_patches_from_config(config_path="config/config.yaml"):
+def get_num_patches_from_config(config_path="config/config.yaml", num_patches=None):
+    if num_patches is not None:
+        return num_patches
     if not os.path.isabs(config_path):
         config_path = os.path.join(os.path.dirname(__file__), "..", config_path)
     config_path = os.path.abspath(config_path)
@@ -49,6 +51,14 @@ def get_num_patches_from_config(config_path="config/config.yaml"):
     if isinstance(config, dict) and "config" in config:
         config = config["config"]
     return config.get("num_patches", 2)  # Default 2 patches
+
+
+def get_model_key(
+    config_path="config/config.yaml", base_model_key="dataset", num_patches=None
+):
+    num_patches = get_num_patches_from_config(config_path, num_patches)
+    patch_suffix = f"p{num_patches}"
+    return f"{base_model_key}_{patch_suffix}"
 
 
 def load_data(data_folder, config_path="config/config.yaml"):
@@ -89,11 +99,9 @@ def split_image_into_patches(image, num_patches=2):
     for i in range(num_patches):
         start_h = i * patch_height
         end_h = (i + 1) * patch_height
-        # Ensure the last patch includes any remaining pixels
         if i == num_patches - 1:
             end_h = height
         patch = image[start_h:end_h, :, :]
-        # Pad the patch if its height is smaller than patch_height
         if patch.shape[0] < patch_height:
             pad_height = patch_height - patch.shape[0]
             patch = np.pad(
@@ -112,9 +120,7 @@ class CancerPatchDataset(Dataset):
         self.root_dir = root_dir
         self.transform = transform
         self.num_patches = num_patches
-        self.img_size = (
-            get_image_size_from_config()
-        )  # Load image_size once during initialization
+        self.img_size = get_image_size_from_config()
 
     def __len__(self):
         return len(self.df)
@@ -128,7 +134,6 @@ class CancerPatchDataset(Dataset):
         for patch in patches:
             patch = np.array(patch)
             if self.transform:
-                # Apply resize and other transformations to each patch
                 transform_with_resize = A.Compose(
                     [A.Resize(*self.img_size), *self.transform]
                 )
@@ -139,13 +144,17 @@ class CancerPatchDataset(Dataset):
 
 
 def get_dataloaders(
-    train_df, test_df, root_dir, batch_size=16, config_path="config/config.yaml"
+    train_df,
+    test_df,
+    root_dir,
+    batch_size=16,
+    config_path="config/config.yaml",
+    num_patches=None,
 ):
     img_size = get_image_size_from_config(config_path)
-    num_patches = get_num_patches_from_config(config_path)
+    num_patches = get_num_patches_from_config(config_path, num_patches)
     train_transform = A.Compose(
         [
-            # Resize moved to __getitem__ for each patch
             A.OneOf(
                 [
                     A.Downscale(
@@ -206,13 +215,7 @@ def get_dataloaders(
             ToTensorV2(),
         ]
     )
-    test_transform = A.Compose(
-        [
-            # Resize moved to __getitem__ for each patch
-            A.Normalize([0.5] * 3, [0.5] * 3),
-            ToTensorV2(),
-        ]
-    )
+    test_transform = A.Compose([A.Normalize([0.5] * 3, [0.5] * 3), ToTensorV2()])
     train_dataset = CancerPatchDataset(train_df, root_dir, train_transform, num_patches)
     test_dataset = CancerPatchDataset(test_df, root_dir, test_transform, num_patches)
     class_counts = train_df["cancer"].value_counts().sort_index()
