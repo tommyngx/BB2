@@ -7,12 +7,24 @@ from tqdm import tqdm
 from torch.optim.lr_scheduler import LambdaLR
 from sklearn.metrics import classification_report
 import sys
+import yaml
 
-# ys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils import plot_metrics, plot_confusion_matrix
 import warnings
 
 warnings.filterwarnings("ignore", category=FutureWarning)
+
+
+def get_num_patches_from_config(config_path="config/config.yaml"):
+    if not os.path.isabs(config_path):
+        config_path = os.path.join(os.path.dirname(__file__), "..", config_path)
+    config_path = os.path.abspath(config_path)
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+    if isinstance(config, dict) and "config" in config:
+        config = config["config"]
+    return config.get("num_patches", 2)  # Default 2 patches
 
 
 class FocalLoss(nn.Module):
@@ -84,6 +96,7 @@ def train_model(
     train_df=None,
     patience=50,
     loss_type="ce",
+    config_path="config/config.yaml",
 ):
     model = model.to(device)
     if train_df is not None:
@@ -130,7 +143,8 @@ def train_model(
     os.makedirs(model_dir, exist_ok=True)
     os.makedirs(plot_dir, exist_ok=True)
     dataset = dataset_folder.split("/")[-1]
-    model_key = f"{dataset}_{model_name}"
+    num_patches = get_num_patches_from_config(config_path)
+    model_key = f"{dataset}_{model_name}_p{num_patches}"
 
     print(f"Checking for existing weights in {model_dir} with model_key: {model_key}")
     existing_weights = []
@@ -225,30 +239,28 @@ def train_model(
                     print(f"Skipping invalid model file: {fname}")
                     continue
 
-        related_weights.append((test_acc, weight_path))
         related_weights = sorted(related_weights, key=lambda x: x[0], reverse=True)
-        top2 = related_weights[:2]
-        top2_paths = set([path for _, path in top2])
+        top2_accs = set(acc for acc, _ in related_weights[:2])
 
-        if weight_path in top2_paths:
-            if os.path.exists(weight_path):
-                existing_acc = (
-                    float(weight_path.split("_")[-1].replace(".pth", "")) / 10000
-                )
-                if test_acc > existing_acc:
-                    torch.save(model.state_dict(), weight_path)
-                    print(f"✅ Overwrote model: {weight_name} (acc = {test_acc:.6f})")
-            else:
-                torch.save(model.state_dict(), weight_path)
-                print(f"✅ Saved new best model: {weight_name} (acc = {test_acc:.6f})")
+        if test_acc in top2_accs:
+            print(
+                f"⏩ Skipped saving {weight_name} (accuracy {test_acc:.6f} already in top 2)"
+            )
+        else:
+            torch.save(model.state_dict(), weight_path)
+            print(f"✅ Saved new model: {weight_name} (acc = {test_acc:.6f})")
 
-        for _, path_to_delete in related_weights[2:]:
-            if os.path.exists(path_to_delete) and path_to_delete not in top2_paths:
-                try:
-                    os.remove(path_to_delete)
-                    print(f"🗑️ Deleted model: {path_to_delete}")
-                except Exception as e:
-                    print(f"⚠️ Could not delete {path_to_delete}: {e}")
+            related_weights.append((test_acc, weight_path))
+            related_weights = sorted(related_weights, key=lambda x: x[0], reverse=True)
+            top2_paths = set(path for _, path in related_weights[:2])
+
+            for _, fname_path in related_weights:
+                if fname_path not in top2_paths:
+                    try:
+                        os.remove(fname_path)
+                        print(f"🗑️ Deleted model: {fname_path}")
+                    except Exception as e:
+                        print(f"⚠️ Could not delete {fname_path}: {e}")
 
         plot_path = os.path.join(plot_dir, f"{model_key}.png")
         plot_metrics(train_losses, train_accs, test_losses, test_accs, plot_path)
