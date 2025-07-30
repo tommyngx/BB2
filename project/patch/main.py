@@ -9,7 +9,10 @@ from data import load_data, get_dataloaders
 from models import get_model
 from train import train_model, evaluate_model
 from visualization import plot_gradcam_plus
-from ..utils import plot_confusion_matrix
+import sys
+
+# sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from utils import plot_confusion_matrix
 
 torch.serialization.add_safe_globals([argparse.Namespace])
 warnings.filterwarnings("ignore", category=FutureWarning)
