@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from tqdm import tqdm
 from torch.optim.lr_scheduler import LambdaLR
 from sklearn.metrics import classification_report
-from utils import plot_metrics, plot_confusion_matrix
+from ..utils import plot_metrics, plot_confusion_matrix
 import warnings
 
 warnings.filterwarnings("ignore", category=FutureWarning)

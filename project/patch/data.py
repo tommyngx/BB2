@@ -1,4 +1,7 @@
 import os
+
+os.environ["NO_ALBUMENTATIONS_UPDATE"] = "1"
+
 import pandas as pd
 import numpy as np
 from PIL import Image
