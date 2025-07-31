@@ -134,15 +134,15 @@ class TokenMixerClassifier(nn.Module):
         # Convolutional tokenizer to reduce patch tokens
         self.tokenizer = nn.Sequential(
             nn.Conv2d(
-                feature_dim, feature_dim // 2, kernel_size=3, stride=2, padding=1
+                feature_dim, feature_dim // 4, kernel_size=3, stride=2, padding=1
             ),
-            nn.BatchNorm2d(feature_dim // 2),
+            nn.BatchNorm2d(feature_dim // 4),
             nn.ReLU(),
             nn.AdaptiveAvgPool2d((1, 1)),
         )
 
         # Reduced feature dimension after tokenizer
-        self.reduced_dim = feature_dim // 2
+        self.reduced_dim = feature_dim // 4
 
         # Positional embedding
         self.pos_embed = nn.Parameter(torch.randn(1, num_patches, self.reduced_dim))
@@ -150,7 +150,7 @@ class TokenMixerClassifier(nn.Module):
         # Lightweight Transformer encoder
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=self.reduced_dim,
-            nhead=nhead,
+            nhead=4,  # Reduced number of heads
             dim_feedforward=self.reduced_dim,
             dropout=0.1,
             batch_first=True,
