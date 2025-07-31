@@ -250,15 +250,14 @@ def train_model(
                 f"⏩ Skipped saving {weight_name} (accuracy {test_acc:.6f} already in top 2)"
             )
         else:
-            torch.save(model.state_dict(), weight_path)
-            print(f"✅ Saved new model: {weight_name} (acc = {test_acc:.6f})")
-
             related_weights.append((test_acc, weight_path))
             related_weights = sorted(related_weights, key=lambda x: x[0], reverse=True)
             top2_paths = set(path for _, path in related_weights[:2])
-
+            if weight_path in top2_paths:
+                torch.save(model.state_dict(), weight_path)
+                print(f"✅ Saved new model: {weight_name} (acc = {test_acc:.6f})")
             for _, fname_path in related_weights:
-                if fname_path not in top2_paths:
+                if fname_path not in top2_paths and os.path.exists(fname_path):
                     try:
                         os.remove(fname_path)
                         print(f"🗑️ Deleted model: {fname_path}")
