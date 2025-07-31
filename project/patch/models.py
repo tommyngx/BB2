@@ -112,16 +112,91 @@ class PatchTransformerClassifier(nn.Module):
 
     def forward(self, x):
         batch_size, num_patches, C, H, W = x.size()
+        x = x.view(-1, C, H, W)
+        x = self.base_model(x)
+        x = x.view(batch_size, num_patches, self.feature_dim)
+        x = x + self.pos_embed
+        x = self.transformer_encoder(x)
+        x = x.contiguous().view(batch_size, -1)
+        x = self.classifier(x)
+        return x
+
+
+class TokenMixerClassifier(nn.Module):
+    def __init__(
+        self, base_model, feature_dim, num_classes, num_patches, nhead=4, num_layers=2
+    ):
+        super(TokenMixerClassifier, self).__init__()
+        self.base_model = base_model
+        self.feature_dim = feature_dim
+        self.num_patches = num_patches
+
+        # Convolutional tokenizer to reduce patch tokens
+        self.tokenizer = nn.Sequential(
+            nn.Conv2d(
+                feature_dim, feature_dim // 2, kernel_size=3, stride=2, padding=1
+            ),
+            nn.BatchNorm2d(feature_dim // 2),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d((1, 1)),
+        )
+
+        # Reduced feature dimension after tokenizer
+        self.reduced_dim = feature_dim // 2
+
+        # Positional embedding
+        self.pos_embed = nn.Parameter(torch.randn(1, num_patches, self.reduced_dim))
+
+        # Lightweight Transformer encoder
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=self.reduced_dim,
+            nhead=nhead,
+            dim_feedforward=self.reduced_dim,
+            dropout=0.1,
+            batch_first=True,
+        )
+        self.transformer_encoder = nn.TransformerEncoder(
+            encoder_layer, num_layers=num_layers
+        )
+
+        # Classifier
+        self.classifier = nn.Sequential(
+            nn.Linear(self.reduced_dim * num_patches, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(512, num_classes),
+        )
+
+    def forward(self, x):
+        batch_size, num_patches, C, H, W = x.size()
         x = x.view(-1, C, H, W)  # [batch_size * num_patches, C, H, W]
+
+        # Extract features using CNN base model
         x = self.base_model(x)  # [batch_size * num_patches, feature_dim]
+
+        # Reshape to apply tokenizer
+        if x.dim() == 2:  # If base_model outputs flat features
+            x = x.view(batch_size * num_patches, self.feature_dim, 1, 1)
+        elif x.dim() == 4:  # If base_model outputs feature maps
+            pass  # Already in [batch_size * num_patches, feature_dim, H', W']
+
+        # Apply tokenizer
+        x = self.tokenizer(x)  # [batch_size * num_patches, reduced_dim, 1, 1]
         x = x.view(
-            batch_size, num_patches, self.feature_dim
-        )  # [batch_size, num_patches, feature_dim]
-        x = x + self.pos_embed  # Add positional encoding
-        x = self.transformer_encoder(x)  # [batch_size, num_patches, feature_dim]
+            batch_size, num_patches, self.reduced_dim
+        )  # [batch_size, num_patches, reduced_dim]
+
+        # Add positional embedding
+        x = x + self.pos_embed
+
+        # Apply Transformer encoder
+        x = self.transformer_encoder(x)  # [batch_size, num_patches, reduced_dim]
+
+        # Flatten and classify
         x = x.contiguous().view(
             batch_size, -1
-        )  # [batch_size, num_patches * feature_dim]
+        )  # [batch_size, num_patches * reduced_dim]
         x = self.classifier(x)
         return x
 
@@ -214,6 +289,10 @@ def get_model(
         elif arch_type == "patch_transformer":
             model = PatchTransformerClassifier(
                 base_model, feature_dim, num_classes, num_patches
+            )
+        elif arch_type == "token_mixer":
+            model = TokenMixerClassifier(
+                base_model, feature_dim, num_classes, num_patches, nhead=4, num_layers=2
             )
         else:
             raise ValueError(f"Unsupported arch_type: {arch_type}")
