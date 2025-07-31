@@ -140,14 +140,14 @@ class CancerPatchDataset(Dataset):
         label = int(self.df.loc[idx, "cancer"])
 
         if self.augment_before_split:
-            # Augment before splitting (first code)
+            # Augment before splitting
             if self.transform:
                 image_np = np.array(image)
                 transform_with_resize = A.Compose(
                     [A.Resize(*self.img_size), *self.transform]
                 )
                 augmented = transform_with_resize(image=image_np)
-                image = augmented["image"]  # [C, H, W] tensor
+                image = augmented["image"]
             else:
                 image_np = np.array(image)
                 image_np = cv2.resize(image_np, self.img_size)
@@ -165,16 +165,17 @@ class CancerPatchDataset(Dataset):
             # Split first, then augment
             patches = split_image_into_patches(
                 image, self.num_patches
-            )  # image là PIL.Image
+            )  # Returns list of [C, H_patch, W] tensors
             patch_tensors = []
             for patch in patches:
-                patch_np = np.array(patch)  # Chuyển PIL.Image thành [H, W, C]
+                # Convert tensor [C, H_patch, W] to NumPy [H_patch, W, C]
+                patch_np = patch.permute(1, 2, 0).numpy()  # [H_patch, W, C]
                 if self.transform:
                     transform_with_resize = A.Compose(
                         [A.Resize(*self.img_size), *self.transform]
                     )
                     augmented = transform_with_resize(image=patch_np)
-                    patch = augmented["image"]  # [H, W, C]
+                    patch = augmented["image"]  # [H, W, C] or tensor after ToTensorV2
                 else:
                     patch_np = cv2.resize(patch_np, self.img_size)
                     patch = A.Normalize(mean=[0.5] * 3, std=[0.5] * 3)(image=patch_np)[
