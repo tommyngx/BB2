@@ -151,30 +151,36 @@ class CancerPatchDataset(Dataset):
             else:
                 image_np = np.array(image)
                 image_np = cv2.resize(image_np, self.img_size)
-                image = A.Normalize([0.5] * 3, [0.5] * 3)(image=image_np)["image"]
-                image = ToTensorV2()(image=image)["image"]  # [C, H, W] tensor
+                image = A.Normalize(mean=[0.5] * 3, std=[0.5] * 3)(image=image_np)[
+                    "image"
+                ]
+                image = ToTensorV2()(image=image)["image"]
 
-            # Split the augmented image into patches
             patch_height = self.img_size[0] // self.num_patches
             patches = split_image_into_patches(
                 image, self.num_patches, patch_size=(patch_height, self.img_size[1])
             )
             patch_tensors = torch.stack(patches)  # [num_patches, C, H_patch, W]
         else:
-            # Split first, then augment (second code)
-            patches = split_image_into_patches(image, self.num_patches)
+            # Split first, then augment
+            patches = split_image_into_patches(
+                image, self.num_patches
+            )  # image là PIL.Image
             patch_tensors = []
             for patch in patches:
-                patch = np.array(patch)
+                patch_np = np.array(patch)  # Chuyển PIL.Image thành [H, W, C]
                 if self.transform:
                     transform_with_resize = A.Compose(
                         [A.Resize(*self.img_size), *self.transform]
                     )
-                    patch = transform_with_resize(image=patch)["image"]
+                    augmented = transform_with_resize(image=patch_np)
+                    patch = augmented["image"]  # [H, W, C]
                 else:
-                    patch = cv2.resize(patch, self.img_size)
-                    patch = A.Normalize([0.5] * 3, [0.5] * 3)(image=patch)["image"]
-                    patch = ToTensorV2()(image=patch)["image"]
+                    patch_np = cv2.resize(patch_np, self.img_size)
+                    patch = A.Normalize(mean=[0.5] * 3, std=[0.5] * 3)(image=patch_np)[
+                        "image"
+                    ]
+                    patch = ToTensorV2()(image=patch)["image"]  # [C, H, W]
                 patch_tensors.append(patch)
             patch_tensors = torch.stack(patch_tensors)  # [num_patches, C, H, W]
 
