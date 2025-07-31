@@ -92,7 +92,12 @@ def load_data(data_folder, config_path="config/config.yaml"):
 
 def split_image_into_patches(image, num_patches=2):
     """Split the original image into num_patches along the height with equal sizes."""
-    image = np.array(image)
+    # Handle both numpy.ndarray and torch.Tensor
+    if isinstance(image, torch.Tensor):
+        image = image.permute(1, 2, 0).numpy()  # Convert [C, H, W] to [H, W, C]
+    else:
+        image = np.array(image)
+
     height, width = image.shape[:2]
     patch_height = height // num_patches
     patches = []
@@ -110,6 +115,8 @@ def split_image_into_patches(image, num_patches=2):
                 mode="constant",
                 constant_values=0,
             )
+        # Convert patch to tensor
+        patch = torch.from_numpy(patch).permute(2, 0, 1).float()  # [C, H, W]
         patches.append(patch)
     return patches
 
@@ -137,17 +144,16 @@ class CancerPatchDataset(Dataset):
                 [A.Resize(*self.img_size), *self.transform]
             )
             augmented = transform_with_resize(image=image_np)
-            image = augmented["image"]
+            image = augmented["image"]  # [C, H, W] tensor
         else:
-            image = np.array(image)
-            image = cv2.resize(image, self.img_size)
-            image = A.Normalize([0.5] * 3, [0.5] * 3)(image=image)["image"]
-            image = ToTensorV2()(image=image)["image"]
+            image_np = np.array(image)
+            image_np = cv2.resize(image_np, self.img_size)
+            image = A.Normalize([0.5] * 3, [0.5] * 3)(image=image_np)["image"]
+            image = ToTensorV2()(image=image)["image"]  # [C, H, W] tensor
 
         # Split the augmented image into patches
         patches = split_image_into_patches(image, self.num_patches)
-        patch_tensors = [patch for patch in patches]  # Already in tensor form
-        patch_tensors = torch.stack(patch_tensors)  # [num_patches, C, H, W]
+        patch_tensors = torch.stack(patches)  # [num_patches, C, H, W]
         return patch_tensors, label
 
 
