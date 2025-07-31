@@ -278,6 +278,18 @@ def get_dataloaders(
     sampler = WeightedRandomSampler(
         weights=weights, num_samples=total_samples, replacement=True
     )
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        sampler=sampler,
+        num_workers=8,  # Thử với 8 workers
+        pin_memory=True,  # Tăng tốc chuyển dữ liệu sang GPU
+    )
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=8,  # Thử với 8 workers
+        pin_memory=True,  # Tăng tốc chuyển dữ liệu sang GPU
+    )
     return train_loader, test_loader
