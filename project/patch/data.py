@@ -90,7 +90,7 @@ def load_data(data_folder, config_path="config/config.yaml"):
     return train_df, test_df
 
 
-def split_image_into_patches(image, num_patches=2):
+def split_image_into_patches(image, num_patches=2, patch_size=None):
     """Split the original image into num_patches along the height with equal sizes."""
     # Handle both numpy.ndarray and torch.Tensor
     if isinstance(image, torch.Tensor):
@@ -100,23 +100,22 @@ def split_image_into_patches(image, num_patches=2):
 
     height, width = image.shape[:2]
     patch_height = height // num_patches
+    if patch_size is None:
+        patch_size = (patch_height, width)  # Default patch size
+
     patches = []
     for i in range(num_patches):
         start_h = i * patch_height
         end_h = (i + 1) * patch_height
         if i == num_patches - 1:
-            end_h = height
+            end_h = height  # Include remaining pixels in the last patch
         patch = image[start_h:end_h, :, :]
-        if patch.shape[0] < patch_height:
-            pad_height = patch_height - patch.shape[0]
-            patch = np.pad(
-                patch,
-                ((0, pad_height), (0, 0), (0, 0)),
-                mode="constant",
-                constant_values=0,
-            )
+        # Resize patch to ensure consistent size
+        patch = cv2.resize(
+            patch, (patch_size[1], patch_size[0]), interpolation=cv2.INTER_LINEAR
+        )
         # Convert patch to tensor
-        patch = torch.from_numpy(patch).permute(2, 0, 1).float()  # [C, H, W]
+        patch = torch.from_numpy(patch).permute(2, 0, 1).float()  # [C, H_patch, W]
         patches.append(patch)
     return patches
 
@@ -151,9 +150,12 @@ class CancerPatchDataset(Dataset):
             image = A.Normalize([0.5] * 3, [0.5] * 3)(image=image_np)["image"]
             image = ToTensorV2()(image=image)["image"]  # [C, H, W] tensor
 
-        # Split the augmented image into patches
-        patches = split_image_into_patches(image, self.num_patches)
-        patch_tensors = torch.stack(patches)  # [num_patches, C, H, W]
+        # Split the augmented image into patches with consistent size
+        patch_height = self.img_size[0] // self.num_patches
+        patches = split_image_into_patches(
+            image, self.num_patches, patch_size=(patch_height, self.img_size[1])
+        )
+        patch_tensors = torch.stack(patches)  # [num_patches, C, H_patch, W]
         return patch_tensors, label
 
 
