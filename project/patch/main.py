@@ -55,6 +55,7 @@ def prepare_data_and_model(
     num_classes=2,
     config_path="config/config.yaml",
     num_patches=None,
+    arch_type="patch_resnet",
 ):
     clear_cuda_memory()
     train_df, test_df = load_data(dataset_folder, config_path=config_path)
@@ -72,6 +73,7 @@ def prepare_data_and_model(
         num_classes=num_classes,
         config_path=config_path,
         num_patches=num_patches,
+        arch_type=arch_type,
     )
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if pretrained_model_path:
@@ -86,7 +88,7 @@ def prepare_data_and_model(
         # If no pretrained path provided, try loading the best weight for the model_key
         model_dir = os.path.join("output", "models")
         dataset_name = os.path.basename(os.path.normpath(dataset_folder))
-        model_key = f"{dataset_name}_{model_type}_p{num_patches or 2}"
+        model_key = f"{dataset_name}_{model_type}_{arch_type}_p{num_patches or 2}"
         os.makedirs(model_dir, exist_ok=True)  # Create model_dir if it doesn't exist
         weight_files = [
             f
@@ -123,6 +125,7 @@ def run_train(
     loss_type="ce",
     config_path="config/config.yaml",
     num_patches=None,
+    arch_type="patch_resnet",
 ):
     train_df, test_df, train_loader, test_loader, model, device = (
         prepare_data_and_model(
@@ -132,6 +135,7 @@ def run_train(
             pretrained_model_path,
             config_path=config_path,
             num_patches=num_patches,
+            arch_type=arch_type,
         )
     )
     trained_model = train_model(
@@ -149,6 +153,7 @@ def run_train(
         loss_type=loss_type,
         config_path=config_path,
         num_patches=num_patches,
+        arch_type=arch_type,
     )
 
 
@@ -164,6 +169,7 @@ def run_test(
     dataset_name=None,
     config_path="config/config.yaml",
     num_patches=None,
+    arch_type="patch_resnet",
 ):
     train_df, test_df, _, test_loader, model, device = prepare_data_and_model(
         dataset_folder,
@@ -172,6 +178,7 @@ def run_test(
         pretrained_model_path,
         config_path=config_path,
         num_patches=num_patches,
+        arch_type=arch_type,
     )
     model.eval()
     print("\nEvaluation on Test Set:")
@@ -190,7 +197,9 @@ def run_test(
         outputs_link = "output"
     plot_dir = os.path.join(str(outputs_link), "figures")
     os.makedirs(plot_dir, exist_ok=True)
-    model_key = f"{dataset_name}_{model_type}_p{num_patches or 2}".replace(" ", "")
+    model_key = f"{dataset_name}_{model_type}_{arch_type}_p{num_patches or 2}".replace(
+        " ", ""
+    )
     cm_path = os.path.join(plot_dir, f"{model_key}_confusion_matrix.png")
     plot_confusion_matrix(all_labels, all_preds, class_names, save_path=cm_path)
     print(f"Confusion matrix saved to {cm_path}")
@@ -222,6 +231,7 @@ def run_gradcam(
     dataset_name=None,
     config_path="config/config.yaml",
     num_patches=None,
+    arch_type="patch_resnet",
 ):
     _, test_df, _, _, model, device = prepare_data_and_model(
         dataset_folder,
@@ -230,6 +240,7 @@ def run_gradcam(
         pretrained_model_path,
         config_path=config_path,
         num_patches=num_patches,
+        arch_type=arch_type,
     )
     model.eval()
     if not outputs_link:
@@ -296,6 +307,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--clear", action="store_true", help="Clear output directory before training"
     )
+    parser.add_argument(
+        "--arch_type",
+        type=str,
+        choices=["patch_resnet", "patch_transformer"],
+        default=None,
+        help="Architecture type: patch_resnet or patch_transformer",
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -322,6 +340,9 @@ if __name__ == "__main__":
     patience = get_arg_or_config(args.patience, config.get("patience"), 50)
     loss_type = get_arg_or_config(args.loss_type, config.get("loss_type"), "ce")
     num_patches = get_arg_or_config(args.num_patches, config.get("num_patches"), 2)
+    arch_type = get_arg_or_config(
+        args.arch_type, config.get("arch_type"), "patch_resnet"
+    )
     dataset_name = os.path.basename(os.path.normpath(dataset_folder))
     config_path = os.path.join(os.path.dirname(__file__), "..", "config", args.config)
 
@@ -344,6 +365,7 @@ if __name__ == "__main__":
             loss_type=loss_type,
             config_path=config_path,
             num_patches=num_patches,
+            arch_type=arch_type,
         )
     elif args.mode == "test":
         run_test(
@@ -358,6 +380,7 @@ if __name__ == "__main__":
             dataset_name=dataset_name,
             config_path=config_path,
             num_patches=num_patches,
+            arch_type=arch_type,
         )
     elif args.mode == "gradcam":
         run_gradcam(
@@ -371,4 +394,5 @@ if __name__ == "__main__":
             dataset_name=dataset_name,
             config_path=config_path,
             num_patches=num_patches,
+            arch_type=arch_type,
         )

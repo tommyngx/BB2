@@ -14,7 +14,6 @@ import os
 import yaml
 import sys
 
-
 from data import get_num_patches_from_config  # Import from data.py
 
 torch.serialization.add_safe_globals([argparse.Namespace])
@@ -128,79 +127,92 @@ def get_model(
     num_classes=2,
     config_path="config/config.yaml",
     num_patches=None,
+    arch_type="patch_resnet",
 ):
     num_patches = get_num_patches_from_config(config_path, num_patches)
     if model_type == "dinov2":
         model = DinoVisionTransformerClassifier(
             num_classes=num_classes, num_patches=num_patches
         )
-    elif model_type == "resnet50":
-        base_model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
-        feature_dim = base_model.fc.in_features
-        base_model.fc = nn.Identity()
-        model = PatchResNet(base_model, feature_dim, num_classes, num_patches)
-    elif model_type == "resnet101":
-        base_model = models.resnet101(weights=models.ResNet101_Weights.IMAGENET1K_V1)
-        feature_dim = base_model.fc.in_features
-        base_model.fc = nn.Identity()
-        model = PatchResNet(base_model, feature_dim, num_classes, num_patches)
-    elif model_type == "resnext50":
-        base_model = models.resnext50_32x4d(
-            weights=models.ResNeXt50_32X4D_Weights.IMAGENET1K_V1
-        )
-        feature_dim = base_model.fc.in_features
-        base_model.fc = nn.Identity()
-        model = PatchResNet(base_model, feature_dim, num_classes, num_patches)
-    elif model_type == "resnest50":
-        base_model = timm_models.create_model("resnest50d", pretrained=True)
-        feature_dim = base_model.fc.in_features
-        base_model.fc = nn.Identity()
-        model = PatchResNet(base_model, feature_dim, num_classes, num_patches)
-    elif model_type == "resnest50s2":
-        base_model = timm_models.create_model("resnest50d_4s2x40d", pretrained=True)
-        feature_dim = base_model.fc.in_features
-        base_model.fc = nn.Identity()
-        model = PatchResNet(base_model, feature_dim, num_classes, num_patches)
-    elif model_type == "regnety":
-        base_model = timm_models.create_model("regnety_080_tv", pretrained=True)
-        feature_dim = base_model.head.fc.in_features
-        base_model.head.fc = nn.Identity()
-        model = PatchResNet(base_model, feature_dim, num_classes, num_patches)
-    elif model_type == "fastervit":
-        try:
-            base_model = create_model(
-                "faster_vit_0_any_res", pretrained=False, resolution=[448, 448]
+    elif model_type in [
+        "resnet50",
+        "resnet101",
+        "resnext50",
+        "resnest50",
+        "resnest50s2",
+        "regnety",
+        "fastervit",
+        "convnextv2",
+        "convnextv2_tiny",
+        "efficientnetv2",
+    ]:
+        if model_type == "resnet50":
+            base_model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
+            feature_dim = base_model.fc.in_features
+            base_model.fc = nn.Identity()
+        elif model_type == "resnet101":
+            base_model = models.resnet101(
+                weights=models.ResNet101_Weights.IMAGENET1K_V1
             )
-            feature_dim = base_model.head.in_features
-            base_model.head = nn.Identity()
-            model = PatchResNet(base_model, feature_dim, num_classes, num_patches)
-        except Exception as e:
-            print(f"Warning: Failed to load 'faster_vit_0_any_res': {str(e)}")
-            base_model = create_model(
-                "faster_vit_0_224", pretrained=True, checkpoint_path=None
+            feature_dim = base_model.fc.in_features
+            base_model.fc = nn.Identity()
+        elif model_type == "resnext50":
+            base_model = models.resnext50_32x4d(
+                weights=models.ResNeXt50_32X4D_Weights.IMAGENET1K_V1
             )
-            feature_dim = base_model.head.in_features
-            base_model.head = nn.Identity()
+            feature_dim = base_model.fc.in_features
+            base_model.fc = nn.Identity()
+        elif model_type == "resnest50":
+            base_model = timm_models.create_model("resnest50d", pretrained=True)
+            feature_dim = base_model.fc.in_features
+            base_model.fc = nn.Identity()
+        elif model_type == "resnest50s2":
+            base_model = timm_models.create_model("resnest50d_4s2x40d", pretrained=True)
+            feature_dim = base_model.fc.in_features
+            base_model.fc = nn.Identity()
+        elif model_type == "regnety":
+            base_model = timm_models.create_model("regnety_080_tv", pretrained=True)
+            feature_dim = base_model.head.fc.in_features
+            base_model.head.fc = nn.Identity()
+        elif model_type == "fastervit":
+            try:
+                base_model = create_model(
+                    "faster_vit_0_any_res", pretrained=False, resolution=[448, 448]
+                )
+                feature_dim = base_model.head.in_features
+                base_model.head = nn.Identity()
+            except Exception as e:
+                print(f"Warning: Failed to load 'faster_vit_0_any_res': {str(e)}")
+                base_model = create_model(
+                    "faster_vit_0_224", pretrained=True, checkpoint_path=None
+                )
+                feature_dim = base_model.head.in_features
+                base_model.head = nn.Identity()
+        elif model_type == "convnextv2":
+            base_model = timm_models.create_model(
+                "convnextv2_base.fcmae_ft_in22k_in1k", pretrained=True
+            )
+            feature_dim = base_model.head.fc.in_features
+            base_model.head.fc = nn.Identity()
+        elif model_type == "convnextv2_tiny":
+            base_model = timm_models.create_model(
+                "convnextv2_tiny.fcmae_ft_in22k_in1k", pretrained=True
+            )
+            feature_dim = base_model.head.fc.in_features
+            base_model.head.fc = nn.Identity()
+        elif model_type == "efficientnetv2":
+            base_model = timm_models.create_model("efficientnetv2_m", pretrained=False)
+            feature_dim = base_model.classifier.in_features
+            base_model.classifier = nn.Identity()
+
+        if arch_type == "patch_resnet":
             model = PatchResNet(base_model, feature_dim, num_classes, num_patches)
-    elif model_type == "convnextv2":
-        base_model = timm_models.create_model(
-            "convnextv2_base.fcmae_ft_in22k_in1k", pretrained=True
-        )
-        feature_dim = base_model.head.fc.in_features
-        base_model.head.fc = nn.Identity()
-        model = PatchResNet(base_model, feature_dim, num_classes, num_patches)
-    elif model_type == "convnextv2_tiny":
-        base_model = timm_models.create_model(
-            "convnextv2_tiny.fcmae_ft_in22k_in1k", pretrained=True
-        )
-        feature_dim = base_model.head.fc.in_features
-        base_model.head.fc = nn.Identity()
-        model = PatchResNet(base_model, feature_dim, num_classes, num_patches)
-    elif model_type == "efficientnetv2":
-        base_model = timm_models.create_model("efficientnetv2_m", pretrained=False)
-        feature_dim = base_model.classifier.in_features
-        base_model.classifier = nn.Identity()
-        model = PatchResNet(base_model, feature_dim, num_classes, num_patches)
+        elif arch_type == "patch_transformer":
+            model = PatchTransformerClassifier(
+                base_model, feature_dim, num_classes, num_patches
+            )
+        else:
+            raise ValueError(f"Unsupported arch_type: {arch_type}")
     else:
-        raise ValueError("Unsupported model type")
+        raise ValueError(f"Unsupported model_type: {model_type}")
     return model

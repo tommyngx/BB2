@@ -11,22 +11,10 @@ import yaml
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils import plot_metrics, plot_confusion_matrix
+from data import get_num_patches_from_config
 import warnings
 
 warnings.filterwarnings("ignore", category=FutureWarning)
-
-
-def get_num_patches_from_config(config_path="config/config.yaml", num_patches=None):
-    if num_patches is not None:
-        return num_patches
-    if not os.path.isabs(config_path):
-        config_path = os.path.join(os.path.dirname(__file__), "..", config_path)
-    config_path = os.path.abspath(config_path)
-    with open(config_path, "r") as f:
-        config = yaml.safe_load(f)
-    if isinstance(config, dict) and "config" in config:
-        config = config["config"]
-    return config.get("num_patches", 2)  # Default 2 patches
 
 
 class FocalLoss(nn.Module):
@@ -100,6 +88,7 @@ def train_model(
     loss_type="ce",
     config_path="config/config.yaml",
     num_patches=None,
+    arch_type="patch_resnet",
 ):
     model = model.to(device)
     if train_df is not None:
@@ -147,7 +136,7 @@ def train_model(
     os.makedirs(plot_dir, exist_ok=True)
     dataset = dataset_folder.split("/")[-1]
     num_patches = get_num_patches_from_config(config_path, num_patches)
-    model_key = f"{dataset}_{model_name}_p{num_patches}"
+    model_key = f"{dataset}_{model_name}_{arch_type}_p{num_patches}"
 
     print(f"Checking for existing weights in {model_dir} with model_key: {model_key}")
     existing_weights = []
