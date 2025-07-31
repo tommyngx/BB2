@@ -121,12 +121,15 @@ def split_image_into_patches(image, num_patches=2, patch_size=None):
 
 
 class CancerPatchDataset(Dataset):
-    def __init__(self, df, root_dir, transform=None, num_patches=2):
+    def __init__(
+        self, df, root_dir, transform=None, num_patches=2, augment_before_split=True
+    ):
         self.df = df.reset_index(drop=True)
         self.root_dir = root_dir
         self.transform = transform
         self.num_patches = num_patches
         self.img_size = get_image_size_from_config()
+        self.augment_before_split = augment_before_split
 
     def __len__(self):
         return len(self.df)
@@ -136,26 +139,45 @@ class CancerPatchDataset(Dataset):
         image = Image.open(img_path).convert("RGB")
         label = int(self.df.loc[idx, "cancer"])
 
-        # Apply augmentation to the whole image
-        if self.transform:
-            image_np = np.array(image)
-            transform_with_resize = A.Compose(
-                [A.Resize(*self.img_size), *self.transform]
-            )
-            augmented = transform_with_resize(image=image_np)
-            image = augmented["image"]  # [C, H, W] tensor
-        else:
-            image_np = np.array(image)
-            image_np = cv2.resize(image_np, self.img_size)
-            image = A.Normalize([0.5] * 3, [0.5] * 3)(image=image_np)["image"]
-            image = ToTensorV2()(image=image)["image"]  # [C, H, W] tensor
+        if self.augment_before_split:
+            # Augment before splitting (first code)
+            if self.transform:
+                image_np = np.array(image)
+                transform_with_resize = A.Compose(
+                    [A.Resize(*self.img_size), *self.transform]
+                )
+                augmented = transform_with_resize(image=image_np)
+                image = augmented["image"]  # [C, H, W] tensor
+            else:
+                image_np = np.array(image)
+                image_np = cv2.resize(image_np, self.img_size)
+                image = A.Normalize([0.5] * 3, [0.5] * 3)(image=image_np)["image"]
+                image = ToTensorV2()(image=image)["image"]  # [C, H, W] tensor
 
-        # Split the augmented image into patches with consistent size
-        patch_height = self.img_size[0] // self.num_patches
-        patches = split_image_into_patches(
-            image, self.num_patches, patch_size=(patch_height, self.img_size[1])
-        )
-        patch_tensors = torch.stack(patches)  # [num_patches, C, H_patch, W]
+            # Split the augmented image into patches
+            patch_height = self.img_size[0] // self.num_patches
+            patches = split_image_into_patches(
+                image, self.num_patches, patch_size=(patch_height, self.img_size[1])
+            )
+            patch_tensors = torch.stack(patches)  # [num_patches, C, H_patch, W]
+        else:
+            # Split first, then augment (second code)
+            patches = split_image_into_patches(image, self.num_patches)
+            patch_tensors = []
+            for patch in patches:
+                patch = np.array(patch)
+                if self.transform:
+                    transform_with_resize = A.Compose(
+                        [A.Resize(*self.img_size), *self.transform]
+                    )
+                    patch = transform_with_resize(image=patch)["image"]
+                else:
+                    patch = cv2.resize(patch, self.img_size)
+                    patch = A.Normalize([0.5] * 3, [0.5] * 3)(image=patch)["image"]
+                    patch = ToTensorV2()(image=patch)["image"]
+                patch_tensors.append(patch)
+            patch_tensors = torch.stack(patch_tensors)  # [num_patches, C, H, W]
+
         return patch_tensors, label
 
 
@@ -236,8 +258,12 @@ def get_dataloaders(
         ]
     )
     test_transform = A.Compose([A.Normalize([0.5] * 3, [0.5] * 3), ToTensorV2()])
-    train_dataset = CancerPatchDataset(train_df, root_dir, train_transform, num_patches)
-    test_dataset = CancerPatchDataset(test_df, root_dir, test_transform, num_patches)
+    train_dataset = CancerPatchDataset(
+        train_df, root_dir, train_transform, num_patches, augment_before_split=False
+    )
+    test_dataset = CancerPatchDataset(
+        test_df, root_dir, test_transform, num_patches, augment_before_split=False
+    )
     class_counts = train_df["cancer"].value_counts().sort_index()
     total_samples = len(train_df)
     class_weights = {cls: 1.0 / count for cls, count in class_counts.items()}
