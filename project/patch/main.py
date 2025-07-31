@@ -310,7 +310,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--arch_type",
         type=str,
-        choices=["patch_resnet", "patch_transformer"],
+        choices=["patch_resnet", "patch_transformer", "token_mixer"],
         default=None,
         help="Architecture type: patch_resnet or patch_transformer",
     )
