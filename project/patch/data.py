@@ -221,6 +221,10 @@ def get_dataloaders(
             A.ElasticTransform(alpha=1, sigma=20, p=0.1),
             A.RandomGamma(gamma_limit=(80, 120), p=0.2),
             A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.2),
+            A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.2),
+            A.ToGray(p=0.2),
+            A.Equalize(p=0.2),
+            A.HEStain(p=0.2),
             A.GridDistortion(num_steps=5, distort_limit=0.3, p=0.1),
             A.RandomBrightnessContrast(p=0.2),
             A.HueSaturationValue(
