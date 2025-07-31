@@ -129,16 +129,24 @@ class CancerPatchDataset(Dataset):
         img_path = os.path.join(self.root_dir, self.df.loc[idx, "link"])
         image = Image.open(img_path).convert("RGB")
         label = int(self.df.loc[idx, "cancer"])
+
+        # Apply augmentation to the whole image
+        if self.transform:
+            image_np = np.array(image)
+            transform_with_resize = A.Compose(
+                [A.Resize(*self.img_size), *self.transform]
+            )
+            augmented = transform_with_resize(image=image_np)
+            image = augmented["image"]
+        else:
+            image = np.array(image)
+            image = cv2.resize(image, self.img_size)
+            image = A.Normalize([0.5] * 3, [0.5] * 3)(image=image)["image"]
+            image = ToTensorV2()(image=image)["image"]
+
+        # Split the augmented image into patches
         patches = split_image_into_patches(image, self.num_patches)
-        patch_tensors = []
-        for patch in patches:
-            patch = np.array(patch)
-            if self.transform:
-                transform_with_resize = A.Compose(
-                    [A.Resize(*self.img_size), *self.transform]
-                )
-                patch = transform_with_resize(image=patch)["image"]
-            patch_tensors.append(patch)
+        patch_tensors = [patch for patch in patches]  # Already in tensor form
         patch_tensors = torch.stack(patch_tensors)  # [num_patches, C, H, W]
         return patch_tensors, label
 
