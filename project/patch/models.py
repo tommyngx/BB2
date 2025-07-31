@@ -89,10 +89,12 @@ class PatchTransformerClassifier(nn.Module):
         self.base_model = base_model
         self.num_patches = num_patches
         self.feature_dim = feature_dim
-        # Learnable positional encoding cho từng patch
+        # Learnable positional encoding for each patch
         self.pos_embed = nn.Parameter(torch.randn(1, num_patches, feature_dim))
-        # Transformer encoder
-        encoder_layer = nn.TransformerEncoderLayer(d_model=feature_dim, nhead=nhead)
+        # Transformer encoder with batch_first=True
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=feature_dim, nhead=nhead, batch_first=True
+        )
         self.transformer_encoder = nn.TransformerEncoder(
             encoder_layer, num_layers=num_layers
         )
@@ -112,11 +114,10 @@ class PatchTransformerClassifier(nn.Module):
         x = x.view(
             batch_size, num_patches, self.feature_dim
         )  # [batch_size, num_patches, feature_dim]
-        x = x + self.pos_embed  # Thêm positional encoding
-        x = x.transpose(0, 1)  # [num_patches, batch_size, feature_dim]
-        x = self.transformer_encoder(x)
-        x = (
-            x.transpose(0, 1).contiguous().view(batch_size, -1)
+        x = x + self.pos_embed  # Add positional encoding
+        x = self.transformer_encoder(x)  # [batch_size, num_patches, feature_dim]
+        x = x.contiguous().view(
+            batch_size, -1
         )  # [batch_size, num_patches * feature_dim]
         x = self.classifier(x)
         return x
