@@ -13,3 +13,4 @@ config:
   image_size: 448
   target_column: "cancer"
   num_patches: 2  # Số patch (2, 3, hoặc 4)
+  arch_type: patch_resnet # patch_transformer

@@ -83,7 +83,7 @@ class PatchResNet(nn.Module):
 
 class PatchTransformerClassifier(nn.Module):
     def __init__(
-        self, base_model, feature_dim, num_classes, num_patches, nhead=8, num_layers=2
+        self, base_model, feature_dim, num_classes, num_patches, nhead=8, num_layers=1
     ):
         super().__init__()
         self.base_model = base_model
@@ -91,9 +91,12 @@ class PatchTransformerClassifier(nn.Module):
         self.feature_dim = feature_dim
         # Learnable positional encoding for each patch
         self.pos_embed = nn.Parameter(torch.randn(1, num_patches, feature_dim))
-        # Transformer encoder with batch_first=True
+        # Transformer encoder with batch_first=True and reduced dim_feedforward
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=feature_dim, nhead=nhead, batch_first=True
+            d_model=feature_dim,
+            nhead=nhead,
+            dim_feedforward=feature_dim,  # Reduced from 4 * feature_dim
+            batch_first=True,
         )
         self.transformer_encoder = nn.TransformerEncoder(
             encoder_layer, num_layers=num_layers
