@@ -83,7 +83,7 @@ class PatchResNet(nn.Module):
 
 class PatchTransformerClassifier(nn.Module):
     def __init__(
-        self, base_model, feature_dim, num_classes, num_patches, nhead=8, num_layers=1
+        self, base_model, feature_dim, num_classes, num_patches, nhead=4, num_layers=1
     ):
         super().__init__()
         self.base_model = base_model
