@@ -12,6 +12,8 @@ import torch.serialization
 import argparse
 import os
 import yaml
+import sys
+
 
 from data import get_num_patches_from_config  # Import from data.py
 
@@ -75,6 +77,47 @@ class PatchResNet(nn.Module):
         x = self.base_model(x)  # [batch_size * num_patches, feature_dim]
         x = x.view(
             batch_size, num_patches * x.size(-1)
+        )  # [batch_size, num_patches * feature_dim]
+        x = self.classifier(x)
+        return x
+
+
+class PatchTransformerClassifier(nn.Module):
+    def __init__(
+        self, base_model, feature_dim, num_classes, num_patches, nhead=8, num_layers=2
+    ):
+        super().__init__()
+        self.base_model = base_model
+        self.num_patches = num_patches
+        self.feature_dim = feature_dim
+        # Learnable positional encoding cho từng patch
+        self.pos_embed = nn.Parameter(torch.randn(1, num_patches, feature_dim))
+        # Transformer encoder
+        encoder_layer = nn.TransformerEncoderLayer(d_model=feature_dim, nhead=nhead)
+        self.transformer_encoder = nn.TransformerEncoder(
+            encoder_layer, num_layers=num_layers
+        )
+        # Classifier
+        self.classifier = nn.Sequential(
+            nn.Linear(feature_dim * num_patches, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(512, num_classes),
+        )
+
+    def forward(self, x):
+        batch_size, num_patches, C, H, W = x.size()
+        x = x.view(-1, C, H, W)  # [batch_size * num_patches, C, H, W]
+        x = self.base_model(x)  # [batch_size * num_patches, feature_dim]
+        x = x.view(
+            batch_size, num_patches, self.feature_dim
+        )  # [batch_size, num_patches, feature_dim]
+        x = x + self.pos_embed  # Thêm positional encoding
+        x = x.transpose(0, 1)  # [num_patches, batch_size, feature_dim]
+        x = self.transformer_encoder(x)
+        x = (
+            x.transpose(0, 1).contiguous().view(batch_size, -1)
         )  # [batch_size, num_patches * feature_dim]
         x = self.classifier(x)
         return x
