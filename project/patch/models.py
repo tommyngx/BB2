@@ -124,7 +124,7 @@ class PatchTransformerClassifier(nn.Module):
 
 class TokenMixerClassifier(nn.Module):
     def __init__(
-        self, base_model, feature_dim, num_classes, num_patches, nhead=4, num_layers=2
+        self, base_model, feature_dim, num_classes, num_patches, nhead=4, num_layers=1
     ):
         super(TokenMixerClassifier, self).__init__()
         self.base_model = base_model
@@ -150,7 +150,7 @@ class TokenMixerClassifier(nn.Module):
         # Lightweight Transformer encoder
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=self.reduced_dim,
-            nhead=4,  # Reduced number of heads
+            nhead=nhead,  # Reduced number of heads
             dim_feedforward=self.reduced_dim,
             dropout=0.1,
             batch_first=True,
