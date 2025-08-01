@@ -283,14 +283,14 @@ def get_dataloaders(
         train_dataset,
         batch_size=batch_size,
         sampler=sampler,
-        #num_workers=16,  # Thử với 8 workers
-        #pin_memory=True,  # Tăng tốc chuyển dữ liệu sang GPU
+        num_workers=4,  # Thử với 8 workers
+        pin_memory=True,  # Tăng tốc chuyển dữ liệu sang GPU
     )
     test_loader = DataLoader(
         test_dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=16,  # Thử với 8 workers
+        num_workers=4,  # Thử với 8 workers
         pin_memory=True,  # Tăng tốc chuyển dữ liệu sang GPU
     )
     return train_loader, test_loader
