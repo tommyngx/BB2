@@ -90,31 +90,35 @@ def load_data(data_folder, config_path="config/config.yaml"):
     return train_df, test_df
 
 
-def split_image_into_patches(image, num_patches=2, patch_size=None):
-    """Split the original image into num_patches along the height with equal sizes."""
-    # Handle both numpy.ndarray and torch.Tensor
+def split_image_into_patches(image, num_patches=2, patch_size=None, overlap_ratio=0.1):
+    """
+    Split the original image into num_patches along the height with overlap.
+    overlap_ratio: phần trăm overlap giữa các patch (0.1 = 10%)
+    """
     if isinstance(image, torch.Tensor):
-        image = image.permute(1, 2, 0).numpy()  # Convert [C, H, W] to [H, W, C]
+        image = image.permute(1, 2, 0).numpy()  # [H, W, C]
     else:
         image = np.array(image)
 
     height, width = image.shape[:2]
-    patch_height = height // num_patches
     if patch_size is None:
-        patch_size = (patch_height, width)  # Default patch size
+        patch_height = height // num_patches
+        patch_size = (patch_height, width)
+    else:
+        patch_height = patch_size[0]
 
+    step = int(patch_height * (1 - overlap_ratio))
     patches = []
     for i in range(num_patches):
-        start_h = i * patch_height
-        end_h = (i + 1) * patch_height
-        if i == num_patches - 1:
-            end_h = height  # Include remaining pixels in the last patch
+        start_h = i * step
+        end_h = start_h + patch_height
+        if end_h > height:
+            end_h = height
+            start_h = max(0, end_h - patch_height)
         patch = image[start_h:end_h, :, :]
-        # Resize patch to ensure consistent size
         patch = cv2.resize(
             patch, (patch_size[1], patch_size[0]), interpolation=cv2.INTER_LINEAR
         )
-        # Convert patch to tensor
         patch = torch.from_numpy(patch).permute(2, 0, 1).float()  # [C, H_patch, W]
         patches.append(patch)
     return patches
@@ -249,17 +253,25 @@ def get_dataloaders(
             ),
             A.ElasticTransform(alpha=1, sigma=20, p=0.1),
             A.RandomGamma(gamma_limit=(80, 120), p=0.2),
-            A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.3),  # Increased for mammograms
+            A.CLAHE(
+                clip_limit=2.0, tile_grid_size=(8, 8), p=0.3
+            ),  # Increased for mammograms
             # A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.2),  # Not suitable for grayscale mammograms
             # A.ToGray(p=0.2),  # Mammograms are already grayscale
             A.Equalize(p=0.3),  # Increased probability - very useful for mammograms
             # A.HEStain(p=0.2),  # Only for histopathology, not X-ray images
             A.GridDistortion(num_steps=5, distort_limit=0.3, p=0.1),
-            A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.3),  # Modified for mammograms
+            A.RandomBrightnessContrast(
+                brightness_limit=0.2, contrast_limit=0.2, p=0.3
+            ),  # Modified for mammograms
             # A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.2),  # Not suitable for grayscale
             # Additional augmentations good for mammograms:
-            A.Sharpen(alpha=(0.1, 0.3), lightness=(0.8, 1.2), p=0.2),  # Enhance edges/calcifications
-            A.UnsharpMask(blur_limit=(3, 5), sigma_limit=(1.0, 2.0), alpha=(0.1, 0.3), p=0.2),  # Detail enhancement
+            A.Sharpen(
+                alpha=(0.1, 0.3), lightness=(0.8, 1.2), p=0.2
+            ),  # Enhance edges/calcifications
+            A.UnsharpMask(
+                blur_limit=(3, 5), sigma_limit=(1.0, 2.0), alpha=(0.1, 0.3), p=0.2
+            ),  # Detail enhancement
             A.GaussNoise(p=0.1),
             A.Normalize([0.5] * 3, [0.5] * 3),
             ToTensorV2(),
