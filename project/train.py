@@ -258,21 +258,26 @@ def train_model(
 
         # Sort by accuracy (using full float precision), descending, and keep top-2
         related_weights = sorted(related_weights, key=lambda x: x[0], reverse=True)
-        top2 = related_weights[:2]
-        top2_paths = set([path for _, path in top2])
+        top2_accs = set(acc for acc, _ in related_weights[:2])
 
-        # Save current model if it's in top-2
-        if weight_path in top2_paths:
-            if os.path.exists(weight_path):
-                existing_acc = (
-                    float(weight_path.split("_")[-1].replace(".pth", "")) / 10000
-                )
-                if test_acc > existing_acc:
-                    torch.save(model.state_dict(), weight_path)
-                    print(f"✅ Overwrote model: {weight_name} (acc = {test_acc:.6f})")
-            else:
+        if test_acc in top2_accs:
+            print(
+                f"⏩ Skipped saving {weight_name} (accuracy {test_acc:.6f} already in top 2)"
+            )
+        else:
+            related_weights.append((test_acc, weight_path))
+            related_weights = sorted(related_weights, key=lambda x: x[0], reverse=True)
+            top2_paths = set(path for _, path in related_weights[:2])
+            if weight_path in top2_paths:
                 torch.save(model.state_dict(), weight_path)
-                print(f"✅ Saved new best model: {weight_name} (acc = {test_acc:.6f})")
+                print(f"✅ Saved new model: {weight_name} (acc = {test_acc:.6f})")
+            for _, fname_path in related_weights:
+                if fname_path not in top2_paths and os.path.exists(fname_path):
+                    try:
+                        os.remove(fname_path)
+                        print(f"🗑️ Deleted model: {fname_path}")
+                    except Exception as e:
+                        print(f"⚠️ Could not delete {fname_path}: {e}")
 
         # Remove all models outside top-2
         for _, path_to_delete in related_weights[2:]:

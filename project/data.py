@@ -164,23 +164,27 @@ def get_dataloaders(
                 shear=(-10, 10),
                 p=0.3,
             ),
-            A.ElasticTransform(
-                alpha=1,
-                sigma=20,
-                p=0.1,
-            ),
-            # A.RandomCrop(height=img_size, width=img_size, p=0.2),
+            A.ElasticTransform(alpha=1, sigma=20, p=0.1),
             A.RandomGamma(gamma_limit=(80, 120), p=0.2),
-            A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.2),
-            A.GridDistortion(
-                num_steps=5,
-                distort_limit=0.3,
-                p=0.1,
-            ),
-            A.RandomBrightnessContrast(p=0.2),
-            A.HueSaturationValue(
-                hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.2
-            ),
+            A.CLAHE(
+                clip_limit=2.0, tile_grid_size=(8, 8), p=0.3
+            ),  # Increased for mammograms
+            # A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.2),  # Not suitable for grayscale mammograms
+            # A.ToGray(p=0.2),  # Mammograms are already grayscale
+            A.Equalize(p=0.3),  # Increased probability - very useful for mammograms
+            # A.HEStain(p=0.2),  # Only for histopathology, not X-ray images
+            A.GridDistortion(num_steps=5, distort_limit=0.3, p=0.1),
+            A.RandomBrightnessContrast(
+                brightness_limit=0.2, contrast_limit=0.2, p=0.3
+            ),  # Modified for mammograms
+            # A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.2),  # Not suitable for grayscale
+            # Additional augmentations good for mammograms:
+            A.Sharpen(
+                alpha=(0.1, 0.3), lightness=(0.8, 1.2), p=0.2
+            ),  # Enhance edges/calcifications
+            A.UnsharpMask(
+                blur_limit=(3, 5), sigma_limit=(1.0, 2.0), alpha=(0.1, 0.3), p=0.2
+            ),  # Detail enhancement
             A.GaussNoise(p=0.1),
             A.Normalize([0.5] * 3, [0.5] * 3),
             ToTensorV2(),
@@ -199,6 +203,18 @@ def get_dataloaders(
     sampler = WeightedRandomSampler(
         weights=weights, num_samples=total_samples, replacement=True
     )
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        sampler=sampler,
+        num_workers=4,  # Thử với 4 workers
+        pin_memory=True,  # Tăng tốc chuyển dữ liệu sang GPU
+    )
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=4,  # Thử với 4 workers
+        pin_memory=True,  # Tăng tốc chuyển dữ liệu sang GPU
+    )
     return train_loader, test_loader
