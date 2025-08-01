@@ -90,7 +90,7 @@ def load_data(data_folder, config_path="config/config.yaml"):
     return train_df, test_df
 
 
-def split_image_into_patches(image, num_patches=2, patch_size=None, overlap_ratio=0.1):
+def split_image_into_patches(image, num_patches=2, patch_size=None, overlap_ratio=0.2):
     """
     Split the original image into num_patches along the height with overlap.
     overlap_ratio: phần trăm overlap giữa các patch (0.1 = 10%)

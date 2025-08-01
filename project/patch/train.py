@@ -127,7 +127,7 @@ def train_model(
 
     warmup_scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
     plateau_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=20, min_lr=1e-5
+        optimizer, mode="min", factor=0.5, patience=30, min_lr=1e-5
     )
 
     model_dir = os.path.join(output, "models")
