@@ -271,6 +271,7 @@ def train_model(
             if weight_path in top2_paths:
                 torch.save(model.state_dict(), weight_path)
                 print(f"✅ Saved new model: {weight_name} (acc = {test_acc:.6f})")
+            # Remove all models outside top-2
             for _, fname_path in related_weights:
                 if fname_path not in top2_paths and os.path.exists(fname_path):
                     try:
@@ -278,15 +279,6 @@ def train_model(
                         print(f"🗑️ Deleted model: {fname_path}")
                     except Exception as e:
                         print(f"⚠️ Could not delete {fname_path}: {e}")
-
-        # Remove all models outside top-2
-        for _, path_to_delete in related_weights[2:]:
-            if os.path.exists(path_to_delete) and path_to_delete not in top2_paths:
-                try:
-                    os.remove(path_to_delete)
-                    print(f"🗑️ Deleted model: {path_to_delete}")
-                except Exception as e:
-                    print(f"⚠️ Could not delete {path_to_delete}: {e}")
 
         # Save plot after every epoch
         plot_path = os.path.join(plot_dir, f"{model_key}.png")
