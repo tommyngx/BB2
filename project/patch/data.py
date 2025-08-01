@@ -267,10 +267,10 @@ def get_dataloaders(
     )
     test_transform = A.Compose([A.Normalize([0.5] * 3, [0.5] * 3), ToTensorV2()])
     train_dataset = CancerPatchDataset(
-        train_df, root_dir, train_transform, num_patches, augment_before_split=True
+        train_df, root_dir, train_transform, num_patches, augment_before_split=False
     )
     test_dataset = CancerPatchDataset(
-        test_df, root_dir, test_transform, num_patches, augment_before_split=True
+        test_df, root_dir, test_transform, num_patches, augment_before_split=False
     )
     class_counts = train_df["cancer"].value_counts().sort_index()
     total_samples = len(train_df)
