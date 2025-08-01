@@ -254,7 +254,7 @@ def train_model(
                     continue
 
         # Add current epoch's model with full test_acc for precise sorting
-        related_weights.append((test_acc, weight_path))
+        # related_weights.append((test_acc, weight_path))
 
         # Sort by accuracy (using full float precision), descending, and keep top-2
         related_weights = sorted(related_weights, key=lambda x: x[0], reverse=True)
