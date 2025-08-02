@@ -146,17 +146,15 @@ def train_model(
     os.makedirs(model_dir, exist_ok=True)
     os.makedirs(plot_dir, exist_ok=True)
     dataset = dataset_folder.split("/")[-1]
-    # Thêm imgsize vào model_key
+    # Thêm imgsize vào model_key (lấy trực tiếp từ batch shape)
     img_size = None
-    if hasattr(train_loader.dataset, "transform") and hasattr(
-        train_loader.dataset.transform, "transforms"
-    ):
-        for t in train_loader.dataset.transform.transforms:
-            if isinstance(t, (A.Resize,)):
-                img_size = (t.height, t.width)
-                break
-    if img_size is None:
-        # fallback: lấy từ config nếu có
+    # Lấy kích thước ảnh từ một batch trong train_loader
+    try:
+        sample = next(iter(train_loader))
+        images, _ = sample
+        if images.ndim == 4:
+            img_size = (images.shape[2], images.shape[3])  # (H, W)
+    except Exception:
         img_size = (448, 448)
     imgsize_str = f"{img_size[0]}x{img_size[1]}"
     model_key = f"{dataset}_{model_name}_{imgsize_str}"
@@ -313,5 +311,7 @@ def train_model(
         class_names = [str(i) for i in sorted(set(all_labels))]
         plot_confusion_matrix(all_labels, all_preds, class_names, save_path=cm_path)
 
+    print(f"{model_name} training finished.")
+    return model
     print(f"{model_name} training finished.")
     return model
