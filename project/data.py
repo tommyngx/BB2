@@ -127,7 +127,7 @@ def get_dataloaders(
             height = width = int(img_size[0])
     else:
         height = width = int(img_size)
-    print(f"Using image size 2: {img_size}")
+    print(f"[get_dataloaders] Resize to (height, width): ({height}, {width})")
 
     # Đảm bảo height luôn là chiều lớn hơn width nếu bạn muốn resize về hình ngang
     # Nếu muốn resize về hình vuông, ép height = width = max(height, width)
@@ -137,6 +137,7 @@ def get_dataloaders(
 
     train_transform = A.Compose(
         [
+            # Đảm bảo Resize là augmentation cuối cùng để giữ kích thước đồng nhất
             A.Resize(height, width, always_apply=True),
             A.OneOf(
                 [
@@ -211,6 +212,7 @@ def get_dataloaders(
             A.GaussNoise(p=0.1),
             A.Normalize([0.5] * 3, [0.5] * 3),
             ToTensorV2(),
+            # Đặt Resize cuối cùng nếu bạn có crop/pad ở trên (nếu không thì giữ nguyên)
         ]
     )
     test_transform = A.Compose(
