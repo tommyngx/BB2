@@ -58,6 +58,7 @@ def prepare_data_and_model(
     img_size=None,  # thêm img_size
 ):
     clear_cuda_memory()  # Dọn dẹp bộ nhớ GPU trước khi bắt đầu
+    print(f"Image size: {img_size}")
 
     train_df, test_df = load_data(dataset_folder, config_path=config_path)
     train_loader, test_loader = get_dataloaders(
