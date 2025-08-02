@@ -309,7 +309,7 @@ def train_model(
                 all_preds.extend(predicted.cpu().numpy())
         cm_path = os.path.join(plot_dir, f"{model_key}_confusion_matrix.png")
         class_names = [str(i) for i in sorted(set(all_labels))]
-        plot_confusion_matrix(all_labels, all_preds, class_names, save_path=cm_path)
+        # plot_confusion_matrix(all_labels, all_preds, class_names, save_path=cm_path)
 
     print(f"{model_name} training finished.")
     return model
