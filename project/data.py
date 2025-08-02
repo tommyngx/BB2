@@ -127,7 +127,7 @@ def get_dataloaders(
             height = width = int(img_size[0])
     else:
         height = width = int(img_size)
-    print(f"[get_dataloaders] Resize to (height, width): ({height}, {width})")
+    # print(f"[get_dataloaders] Resize to (height, width): ({height}, {width})")
 
     # Đảm bảo height luôn là chiều lớn hơn width nếu bạn muốn resize về hình ngang
     # Nếu muốn resize về hình vuông, ép height = width = max(height, width)
