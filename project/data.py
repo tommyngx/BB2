@@ -138,7 +138,7 @@ def get_dataloaders(
     train_transform = A.Compose(
         [
             # Đảm bảo Resize là augmentation cuối cùng để giữ kích thước đồng nhất
-            A.Resize(height, width, always_apply=True),
+            A.Resize(height, width),
             A.OneOf(
                 [
                     A.Downscale(
@@ -210,6 +210,7 @@ def get_dataloaders(
                 blur_limit=(3, 5), sigma_limit=(1.0, 2.0), alpha=(0.1, 0.3), p=0.2
             ),  # Detail enhancement
             A.GaussNoise(p=0.1),
+            A.Resize(height, width),
             A.Normalize([0.5] * 3, [0.5] * 3),
             ToTensorV2(),
             # Đặt Resize cuối cùng nếu bạn có crop/pad ở trên (nếu không thì giữ nguyên)
@@ -217,7 +218,7 @@ def get_dataloaders(
     )
     test_transform = A.Compose(
         [
-            A.Resize(height, width, always_apply=True),
+            A.Resize(height, width),
             A.Normalize([0.5] * 3, [0.5] * 3),
             ToTensorV2(),
         ]
