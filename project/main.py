@@ -315,7 +315,7 @@ if __name__ == "__main__":
     )
     patience = get_arg_or_config(args.patience, config.get("patience"), 50)
     loss_type = get_arg_or_config(args.loss_type, config.get("loss_type"), "ce")
-    img_size = get_arg_or_config(args.img_size, config.get("img_size"), None)
+    img_size = get_arg_or_config(args.img_size, config.get("image_size"), None)
     if img_size is not None:
         if isinstance(img_size, str):
             img_size = parse_img_size(img_size)
