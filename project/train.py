@@ -313,5 +313,3 @@ def train_model(
 
     print(f"{model_name} training finished.")
     return model
-    print(f"{model_name} training finished.")
-    return model
