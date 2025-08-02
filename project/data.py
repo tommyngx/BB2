@@ -119,10 +119,17 @@ def get_dataloaders(
     if img_size is None:
         img_size = get_image_size_from_config(config_path)
     # img_size phải là tuple (H, W)
-    # ...existing code...
+    # Đảm bảo img_size là tuple (height, width)
+    if isinstance(img_size, (list, tuple)):
+        if len(img_size) == 2:
+            height, width = int(img_size[0]), int(img_size[1])
+        else:
+            height = width = int(img_size[0])
+    else:
+        height = width = int(img_size)
     train_transform = A.Compose(
         [
-            A.Resize(*img_size),
+            A.Resize(height, width),
             A.OneOf(
                 [
                     A.Downscale(
@@ -199,7 +206,7 @@ def get_dataloaders(
         ]
     )
     test_transform = A.Compose(
-        [A.Resize(*img_size), A.Normalize([0.5] * 3, [0.5] * 3), ToTensorV2()]
+        [A.Resize(height, width), A.Normalize([0.5] * 3, [0.5] * 3), ToTensorV2()]
     )
     train_dataset = CancerImageDataset(train_df, root_dir, train_transform)
     test_dataset = CancerImageDataset(test_df, root_dir, test_transform)
