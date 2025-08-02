@@ -81,6 +81,10 @@ def get_model(model_type="dinov2", num_classes=2):
         model = timm_models.create_model(
             "resnest50d", pretrained=True, num_classes=num_classes
         )
+    elif model_type == "resnest101":
+        model = timm_models.create_model(
+            "resnest101e", pretrained=True, num_classes=num_classes
+        )
     elif model_type == "resnest50s2":
         model = timm_models.create_model(
             "resnest50d_4s2x40d", pretrained=True, num_classes=num_classes
@@ -134,6 +138,6 @@ def get_model(model_type="dinov2", num_classes=2):
         )
     else:
         raise ValueError(
-            "model_type must be 'dinov2', 'resnet50', 'resnet101', 'resnext50', 'resnest50',resnest50s2, regnety, 'fastervit', 'convnextv2', 'convnextv2_tiny', or 'efficientnetv2'"
+            "model_type must be 'dinov2', 'resnet50', 'resnet101', 'resnext50', 'resnest50',resnest50s2, resnest101, regnety, 'fastervit', 'convnextv2', 'convnextv2_tiny', or 'efficientnetv2'"
         )
     return model
