@@ -127,9 +127,15 @@ def get_dataloaders(
             height = width = int(img_size[0])
     else:
         height = width = int(img_size)
+    # Đảm bảo height luôn là chiều lớn hơn width nếu bạn muốn resize về hình ngang
+    # Nếu muốn resize về hình vuông, ép height = width = max(height, width)
+    # Ví dụ ép về hình vuông lớn nhất:
+    # max_side = max(height, width)
+    # height, width = max_side, max_side
+
     train_transform = A.Compose(
         [
-            A.Resize(height, width),
+            A.Resize(height, width, always_apply=True),
             A.OneOf(
                 [
                     A.Downscale(
@@ -206,7 +212,7 @@ def get_dataloaders(
         ]
     )
     test_transform = A.Compose(
-        [A.Resize(height, width), A.Normalize([0.5] * 3, [0.5] * 3), ToTensorV2()]
+        [A.Resize(height, width, always_apply=True), A.Normalize([0.5] * 3, [0.5] * 3), ToTensorV2()]
     )
     train_dataset = CancerImageDataset(train_df, root_dir, train_transform)
     test_dataset = CancerImageDataset(test_df, root_dir, test_transform)
