@@ -146,7 +146,20 @@ def train_model(
     os.makedirs(model_dir, exist_ok=True)
     os.makedirs(plot_dir, exist_ok=True)
     dataset = dataset_folder.split("/")[-1]
-    model_key = f"{dataset}_{model_name}"
+    # Thêm imgsize vào model_key
+    img_size = None
+    if hasattr(train_loader.dataset, "transform") and hasattr(
+        train_loader.dataset.transform, "transforms"
+    ):
+        for t in train_loader.dataset.transform.transforms:
+            if isinstance(t, (A.Resize,)):
+                img_size = (t.height, t.width)
+                break
+    if img_size is None:
+        # fallback: lấy từ config nếu có
+        img_size = (448, 448)
+    imgsize_str = f"{img_size[0]}x{img_size[1]}"
+    model_key = f"{dataset}_{model_name}_{imgsize_str}"
 
     # Print existing weights in model_dir
     print(f"Checking for existing weights in {model_dir} with model_key: {model_key}")
