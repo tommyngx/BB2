@@ -212,7 +212,11 @@ def get_dataloaders(
         ]
     )
     test_transform = A.Compose(
-        [A.Resize(height, width, always_apply=True), A.Normalize([0.5] * 3, [0.5] * 3), ToTensorV2()]
+        [
+            A.Resize(height, width, always_apply=True),
+            A.Normalize([0.5] * 3, [0.5] * 3),
+            ToTensorV2(),
+        ]
     )
     train_dataset = CancerImageDataset(train_df, root_dir, train_transform)
     test_dataset = CancerImageDataset(test_df, root_dir, test_transform)
