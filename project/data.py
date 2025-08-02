@@ -107,11 +107,19 @@ class CancerImageDataset(Dataset):
 
 
 def get_dataloaders(
-    train_df, test_df, root_dir, batch_size=16, config_path="config/config.yaml"
+    train_df,
+    test_df,
+    root_dir,
+    batch_size=16,
+    config_path="config/config.yaml",
+    img_size=None,
 ):
     import cv2  # Bổ sung import cv2 cho augment dùng interpolation
 
-    img_size = get_image_size_from_config(config_path)
+    if img_size is None:
+        img_size = get_image_size_from_config(config_path)
+    # img_size phải là tuple (H, W)
+    # ...existing code...
     train_transform = A.Compose(
         [
             A.Resize(*img_size),

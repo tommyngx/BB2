@@ -55,6 +55,7 @@ def prepare_data_and_model(
     pretrained_model_path=None,
     num_classes=2,
     config_path="config/config.yaml",
+    img_size=None,  # thêm img_size
 ):
     clear_cuda_memory()  # Dọn dẹp bộ nhớ GPU trước khi bắt đầu
 
@@ -65,6 +66,7 @@ def prepare_data_and_model(
         dataset_folder,
         batch_size=batch_size,
         config_path=config_path,
+        img_size=img_size,  # truyền img_size
     )
     num_classes = train_df["cancer"].nunique()
     model = get_model(model_type=model_type, num_classes=num_classes)
@@ -91,7 +93,8 @@ def run_train(
     outputs_link=None,
     patience=50,
     loss_type="ce",
-    config_path="config/config.yaml",  # thêm config_path
+    config_path="config/config.yaml",
+    img_size=None,  # thêm img_size
 ):
     train_df, test_df, train_loader, test_loader, model, device = (
         prepare_data_and_model(
@@ -100,6 +103,7 @@ def run_train(
             batch_size,
             pretrained_model_path,
             config_path=config_path,
+            img_size=img_size,  # truyền img_size
         )
     )
 
@@ -135,7 +139,8 @@ def run_test(
     gradcam_num_images=3,
     gradcam_random_state=29,
     dataset_name=None,
-    config_path="config/config.yaml",  # thêm config_path
+    config_path="config/config.yaml",
+    img_size=None,  # thêm img_size
 ):
     train_df, test_df, _, test_loader, model, device = prepare_data_and_model(
         dataset_folder,
@@ -143,6 +148,7 @@ def run_test(
         batch_size,
         pretrained_model_path,
         config_path=config_path,
+        img_size=img_size,  # truyền img_size
     )
     model.eval()
     print("\nEvaluation on Test Set:")
@@ -191,7 +197,8 @@ def run_gradcam(
     gradcam_num_images=3,
     gradcam_random_state=29,
     dataset_name=None,
-    config_path="config/config.yaml",  # thêm config_path
+    config_path="config/config.yaml",
+    img_size=None,  # thêm img_size
 ):
     _, test_df, _, _, model, device = prepare_data_and_model(
         dataset_folder,
@@ -199,6 +206,7 @@ def run_gradcam(
         batch_size,
         pretrained_model_path,
         config_path=config_path,
+        img_size=img_size,  # truyền img_size
     )
     model.eval()
     if not outputs_link:
@@ -262,12 +270,27 @@ if __name__ == "__main__":
         # default=argparse.SUPPRESS,  # ⚠️ không gán default ở đây
         help="Loss function: ce (cross-entropy) or focal",
     )
+    parser.add_argument(
+        "--img_size",
+        type=str,
+        help="Image size, e.g. 448 or 448x448",
+    )
     args = parser.parse_args()
     # print("Parsed arguments:")
     # for arg, value in vars(args).items():
     #    print(f"{arg}: {value}")
 
     config = load_config(args.config)
+
+    def parse_img_size(val):
+        if val is None:
+            return None
+        if "x" in val:
+            h, w = val.lower().split("x")
+            return (int(h), int(w))
+        else:
+            s = int(val)
+            return (s, s)
 
     dataset_folder = get_arg_or_config(
         args.dataset_folder, config.get("dataset_folder"), "your_data_folder"
@@ -290,8 +313,15 @@ if __name__ == "__main__":
         args.gradcam_random_state, config.get("gradcam_random_state"), 29
     )
     patience = get_arg_or_config(args.patience, config.get("patience"), 50)
-
     loss_type = get_arg_or_config(args.loss_type, config.get("loss_type"), "ce")
+    img_size = get_arg_or_config(args.img_size, config.get("img_size"), None)
+    if img_size is not None:
+        if isinstance(img_size, str):
+            img_size = parse_img_size(img_size)
+        # Nếu là tuple/list dạng (h, w) thì giữ nguyên
+    else:
+        img_size = (224, 224)
+    config["img_size"] = img_size
 
     dataset_name = os.path.basename(os.path.normpath(dataset_folder))
 
@@ -308,7 +338,8 @@ if __name__ == "__main__":
             outputs_link=outputs_link,
             patience=patience,
             loss_type=loss_type,
-            config_path=config_path,  # truyền config_path
+            config_path=config_path,
+            img_size=img_size,  # truyền img_size
         )
     elif args.mode == "test":
         run_test(
@@ -321,7 +352,8 @@ if __name__ == "__main__":
             gradcam_num_images=gradcam_num_images,
             gradcam_random_state=gradcam_random_state,
             dataset_name=dataset_name,
-            config_path=config_path,  # truyền config_path
+            config_path=config_path,
+            img_size=img_size,  # truyền img_size
         )
     elif args.mode == "gradcam":
         run_gradcam(
@@ -333,7 +365,8 @@ if __name__ == "__main__":
             gradcam_num_images=gradcam_num_images,
             gradcam_random_state=gradcam_random_state,
             dataset_name=dataset_name,
-            config_path=config_path,  # truyền config_path
+            config_path=config_path,
+            img_size=img_size,  # truyền img_size
         )
 
     # Ví dụ chạy train:
@@ -345,6 +378,10 @@ if __name__ == "__main__":
     # Ví dụ chạy test với GradCAM++:
     # python main.py --mode test --gradcam --gradcam_num_images 5 --gradcam_random_state 42 --config config.yaml --dataset_folder /path/to/data --model_type resnet50 --pretrained_model_path output/models/your_dataset_resnet50_XXXX.pth --outputs output
     # Ví dụ chạy test:
+    # python main.py --mode test --config config.yaml --dataset_folder /path/to/data --model_type resnet50 --pretrained_model_path output/models/your_dataset_resnet50_XXXX.pth --outputs output
+
+    # Ví dụ chạy test với GradCAM++:
+    # python main.py --mode test --gradcam --gradcam_num_images 5 --gradcam_random_state 42 --config config.yaml --dataset_folder /path/to/data --model_type resnet50 --pretrained_model_path output/models/your_dataset_resnet50_XXXX.pth --outputs output
     # python main.py --mode test --config config.yaml --dataset_folder /path/to/data --model_type resnet50 --pretrained_model_path output/models/your_dataset_resnet50_XXXX.pth --outputs output
 
     # Ví dụ chạy test với GradCAM++:
