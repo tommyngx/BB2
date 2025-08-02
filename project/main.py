@@ -323,6 +323,7 @@ if __name__ == "__main__":
     else:
         img_size = (224, 224)
     config["img_size"] = img_size
+    print(f"Using image size 1: {img_size}")
 
     dataset_name = os.path.basename(os.path.normpath(dataset_folder))
 
