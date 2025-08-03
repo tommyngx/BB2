@@ -203,7 +203,7 @@ class TokenMixerClassifier(nn.Module):
 
 class PatchGlobalLocalClassifier(nn.Module):
     """
-    Nhận đầu vào gồm các patch cục bộ và một patch toàn ảnh (global patch là ảnh gốc ban đầu).
+    Nhận đầu vào gồm các patch cục bộ và một patch toàn ảnh (global patch là ảnh gốc).
     Đầu vào: [batch_size, num_patches, C, H, W] (num_patches = số patch cục bộ)
     Patch cuối cùng là ảnh gốc, không phải patch nhỏ.
     """
@@ -271,6 +271,105 @@ class PatchGlobalLocalClassifier(nn.Module):
         feats = self.transformer_encoder(feats)
         feats = feats.contiguous().view(batch_size, -1)
         out = self.classifier(feats)
+        return out
+
+
+class PatchGlobalLocalTokenMixerClassifier(nn.Module):
+    """
+    Nhận đầu vào gồm các patch cục bộ và một patch toàn ảnh (global patch là ảnh gốc).
+    Sử dụng token mixer (convolutional tokenizer + transformer encoder nhẹ) thay vì transformer encoder thuần.
+    """
+
+    def __init__(
+        self, base_model, feature_dim, num_classes, num_patches, nhead=4, num_layers=2
+    ):
+        super().__init__()
+        self.base_model = base_model
+        self.num_patches = num_patches
+        self.feature_dim = feature_dim
+        self.reduced_dim = feature_dim // 4
+
+        # Tokenizer cho từng patch (bao gồm global)
+        self.tokenizer = nn.Sequential(
+            nn.Conv2d(
+                feature_dim, self.reduced_dim, kernel_size=3, stride=2, padding=1
+            ),
+            nn.BatchNorm2d(self.reduced_dim),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d((1, 1)),
+        )
+
+        # Positional embedding cho tất cả patch (local + global)
+        self.pos_embed = nn.Parameter(torch.randn(1, num_patches + 1, self.reduced_dim))
+
+        # Transformer encoder nhẹ cho token mixer
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=self.reduced_dim,
+            nhead=nhead,
+            dim_feedforward=self.reduced_dim,
+            dropout=0.1,
+            batch_first=True,
+        )
+        self.transformer_encoder = nn.TransformerEncoder(
+            encoder_layer, num_layers=num_layers
+        )
+
+        # Classifier
+        self.classifier = nn.Sequential(
+            nn.Linear(self.reduced_dim * (num_patches + 1), 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(512, num_classes),
+        )
+
+    def forward(self, x):
+        # x: [batch_size, num_patches, C, H, W]
+        batch_size, num_patches, C, H, W = x.size()
+        # Local patch features
+        x_patches = x.view(-1, C, H, W)
+        feat_patches = self.base_model(
+            x_patches
+        )  # [batch_size * num_patches, feature_dim]
+        if feat_patches.dim() == 2:
+            feat_patches = feat_patches.view(
+                batch_size * num_patches, self.feature_dim, 1, 1
+            )
+        # Tokenize local patches
+        tokens_patches = self.tokenizer(
+            feat_patches
+        )  # [batch_size * num_patches, reduced_dim, 1, 1]
+        tokens_patches = tokens_patches.view(batch_size, num_patches, self.reduced_dim)
+
+        # Tạo lại ảnh gốc từ các patch local có overlap
+        overlap_ratio = 0.2
+        patch_height = H
+        step = int(patch_height * (1 - overlap_ratio))
+        full_height = step * (num_patches - 1) + patch_height
+        full_img = torch.zeros(batch_size, C, full_height, W, device=x.device)
+        count = torch.zeros(batch_size, 1, full_height, W, device=x.device)
+        for i in range(num_patches):
+            start_h = i * step
+            end_h = start_h + patch_height
+            full_img[:, :, start_h:end_h, :] += x[:, i]
+            count[:, :, start_h:end_h, :] += 1
+        full_img = full_img / count.clamp(min=1.0)
+        # Resize về kích thước patch (H, W)
+        global_patch_resized = nn.functional.interpolate(
+            full_img, size=(H, W), mode="bilinear", align_corners=False
+        )
+        feat_global = self.base_model(global_patch_resized)  # [batch_size, feature_dim]
+        if feat_global.dim() == 2:
+            feat_global = feat_global.view(batch_size, self.feature_dim, 1, 1)
+        tokens_global = self.tokenizer(feat_global)  # [batch_size, reduced_dim, 1, 1]
+        tokens_global = tokens_global.view(batch_size, 1, self.reduced_dim)
+
+        # Ghép lại: [batch_size, num_patches+1, reduced_dim]
+        tokens = torch.cat([tokens_patches, tokens_global], dim=1)
+        tokens = tokens + self.pos_embed
+        tokens = self.transformer_encoder(tokens)
+        tokens = tokens.contiguous().view(batch_size, -1)
+        out = self.classifier(tokens)
         return out
 
 
@@ -370,6 +469,10 @@ def get_model(
         elif arch_type == "global_local":
             model = PatchGlobalLocalClassifier(
                 base_model, feature_dim, num_classes, num_patches
+            )
+        elif arch_type == "global_local_token":
+            model = PatchGlobalLocalTokenMixerClassifier(
+                base_model, feature_dim, num_classes, num_patches, nhead=4, num_layers=2
             )
         else:
             raise ValueError(f"Unsupported arch_type: {arch_type}")
