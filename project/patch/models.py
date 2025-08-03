@@ -201,6 +201,79 @@ class TokenMixerClassifier(nn.Module):
         return x
 
 
+class PatchGlobalLocalClassifier(nn.Module):
+    """
+    Nhận đầu vào gồm các patch cục bộ và một patch toàn ảnh (global patch là ảnh gốc ban đầu).
+    Đầu vào: [batch_size, num_patches, C, H, W] (num_patches = số patch cục bộ)
+    Patch cuối cùng là ảnh gốc, không phải patch nhỏ.
+    """
+
+    def __init__(self, base_model, feature_dim, num_classes, num_patches):
+        super().__init__()
+        self.base_model = base_model
+        self.num_patches = num_patches
+        self.feature_dim = feature_dim
+        # +1 cho global patch (ảnh gốc)
+        self.pos_embed = nn.Parameter(torch.randn(1, num_patches + 1, feature_dim))
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=feature_dim,
+            nhead=8,
+            dim_feedforward=feature_dim,
+            batch_first=True,
+        )
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=1)
+        self.classifier = nn.Sequential(
+            nn.Linear(feature_dim * (num_patches + 1), 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(512, num_classes),
+        )
+
+    def forward(self, x):
+        # x: [batch_size, num_patches, C, H, W] (patch cục bộ)
+        batch_size, num_patches, C, H, W = x.size()
+        # Xử lý patch cục bộ
+        x_patches = x.view(-1, C, H, W)  # [batch_size * num_patches, C, H, W]
+        feat_patches = self.base_model(
+            x_patches
+        )  # [batch_size * num_patches, feature_dim]
+        feat_patches = feat_patches.view(batch_size, num_patches, self.feature_dim)
+
+        # Tạo lại ảnh gốc từ các patch local có overlap
+        # Giả sử chia dọc theo chiều cao, overlap mặc định là 0.2 (giống data.py)
+        overlap_ratio = 0.2
+        patch_height = H
+        step = int(patch_height * (1 - overlap_ratio))
+        full_height = step * (num_patches - 1) + patch_height
+        full_img = torch.zeros(batch_size, C, full_height, W, device=x.device)
+        count = torch.zeros(batch_size, 1, full_height, W, device=x.device)
+
+        for i in range(num_patches):
+            start_h = i * step
+            end_h = start_h + patch_height
+            full_img[:, :, start_h:end_h, :] += x[:, i]
+            count[:, :, start_h:end_h, :] += 1
+
+        # Trung bình cộng ở vùng overlap
+        full_img = full_img / count.clamp(min=1.0)
+
+        # Resize về kích thước patch (H, W)
+        global_patch_resized = nn.functional.interpolate(
+            full_img, size=(H, W), mode="bilinear", align_corners=False
+        )  # [batch_size, C, H, W]
+        feat_global = self.base_model(global_patch_resized)  # [batch_size, feature_dim]
+        feat_global = feat_global.unsqueeze(1)  # [batch_size, 1, feature_dim]
+
+        # Ghép lại: [batch_size, num_patches+1, feature_dim]
+        feats = torch.cat([feat_patches, feat_global], dim=1)
+        feats = feats + self.pos_embed
+        feats = self.transformer_encoder(feats)
+        feats = feats.contiguous().view(batch_size, -1)
+        out = self.classifier(feats)
+        return out
+
+
 def get_model(
     model_type="dinov2",
     num_classes=2,
@@ -293,6 +366,10 @@ def get_model(
         elif arch_type == "token_mixer":
             model = TokenMixerClassifier(
                 base_model, feature_dim, num_classes, num_patches, nhead=4, num_layers=2
+            )
+        elif arch_type == "global_local":
+            model = PatchGlobalLocalClassifier(
+                base_model, feature_dim, num_classes, num_patches
             )
         else:
             raise ValueError(f"Unsupported arch_type: {arch_type}")
