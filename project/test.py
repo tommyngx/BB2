@@ -179,6 +179,15 @@ def main():
             print(f"Best Threshold: {best_thresh:.4f}")
             print("Classification Report with Best Threshold:")
             print(report)
+            # Dự đoán lại với threshold mới và plot lại confusion matrix/ROC
+            new_preds = (np.array(all_probs)[:, 1] >= best_thresh).astype(int)
+            plot_cm_roc_multiclass(
+                np.array(all_labels),
+                new_preds,
+                np.array(all_probs),
+                class_names=class_names,
+                title=f"{model_type} - Confusion Matrix & ROC (Best Threshold {best_thresh:.3f})",
+            )
         else:
             # Multi-class: vẽ PR cho từng lớp
             for i, cname in enumerate(class_names):
