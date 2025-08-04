@@ -113,6 +113,8 @@ def get_dataloaders(
     batch_size=16,
     config_path="config/config.yaml",
     img_size=None,
+    num_workers=4,
+    pin_memory=True,
 ):
     import cv2  # Bổ sung import cv2 cho augment dùng interpolation
 
@@ -237,14 +239,14 @@ def get_dataloaders(
         train_dataset,
         batch_size=batch_size,
         sampler=sampler,
-        num_workers=4,  # Thử với 4 workers
-        pin_memory=True,  # Tăng tốc chuyển dữ liệu sang GPU
+        num_workers=num_workers,  # Thử với 4 workers
+        pin_memory=pin_memory,  # Tăng tốc chuyển dữ liệu sang GPU
     )
     test_loader = DataLoader(
         test_dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=4,  # Thử với 4 workers
-        pin_memory=True,  # Tăng tốc chuyển dữ liệu sang GPU
+        num_workers=num_workers,  # Thử với 4 workers
+        pin_memory=pin_memory,  # Tăng tốc chuyển dữ liệu sang GPU
     )
     return train_loader, test_loader

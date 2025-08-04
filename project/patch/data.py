@@ -199,6 +199,8 @@ def get_dataloaders(
     batch_size=16,
     config_path="config/config.yaml",
     num_patches=None,
+    num_workers=4,  # Thử với 8 workers
+    pin_memory=True,
 ):
     img_size = get_image_size_from_config(config_path)
     num_patches = get_num_patches_from_config(config_path, num_patches)
@@ -295,14 +297,14 @@ def get_dataloaders(
         train_dataset,
         batch_size=batch_size,
         sampler=sampler,
-        num_workers=4,  # Thử với 8 workers
-        pin_memory=True,  # Tăng tốc chuyển dữ liệu sang GPU
+        num_workers=num_workers,  # Thử với 8 workers
+        pin_memory=pin_memory,  # Tăng tốc chuyển dữ liệu sang GPU
     )
     test_loader = DataLoader(
         test_dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=4,  # Thử với 8 workers
-        pin_memory=True,  # Tăng tốc chuyển dữ liệu sang GPU
+        num_workers=num_workers,  # Thử với 8 workers
+        pin_memory=pin_memory,  # Tăng tốc chuyển dữ liệu sang GPU
     )
     return train_loader, test_loader
