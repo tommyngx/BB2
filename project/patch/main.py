@@ -316,6 +316,7 @@ if __name__ == "__main__":
             "token_mixer",
             "global_local",
             "global_local_token",
+            "mil",
         ],
         default=None,
         help="Architecture type: patch_resnet or patch_transformer",
