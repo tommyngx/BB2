@@ -373,6 +373,159 @@ class PatchGlobalLocalTokenMixerClassifier(nn.Module):
         return out
 
 
+class MILClassifier(nn.Module):
+    """
+    Globally-Aware Multiple Instance Learning Classifier
+    Treats patches as instances in a bag and uses attention mechanism
+    to aggregate patch features with global context awareness.
+    Based on PatchGlobalLocalTokenMixerClassifier structure.
+    """
+
+    def __init__(
+        self,
+        base_model,
+        feature_dim,
+        num_classes,
+        num_patches,
+        attention_dim=128,
+        nhead=4,
+        num_layers=2,
+    ):
+        super().__init__()
+        self.base_model = base_model
+        self.num_patches = num_patches
+        self.feature_dim = feature_dim
+        self.attention_dim = attention_dim
+        self.reduced_dim = feature_dim // 4
+
+        # Tokenizer for patch feature reduction (similar to PatchGlobalLocalTokenMixerClassifier)
+        self.tokenizer = nn.Sequential(
+            nn.Conv2d(
+                feature_dim, self.reduced_dim, kernel_size=3, stride=2, padding=1
+            ),
+            nn.BatchNorm2d(self.reduced_dim),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d((1, 1)),
+        )
+
+        # MIL Attention mechanism for patch aggregation
+        self.attention_V = nn.Sequential(
+            nn.Linear(self.reduced_dim, attention_dim), nn.Tanh()
+        )
+
+        self.attention_U = nn.Sequential(
+            nn.Linear(self.reduced_dim, attention_dim), nn.Sigmoid()
+        )
+
+        self.attention_weights = nn.Linear(attention_dim, 1)
+
+        # Global context feature processor
+        self.global_processor = nn.Sequential(
+            nn.Linear(self.reduced_dim, self.reduced_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(0.25),
+        )
+
+        # Fusion layer for combining local MIL features with global features
+        self.fusion_layer = nn.Sequential(
+            nn.Linear(self.reduced_dim + self.reduced_dim // 2, self.reduced_dim),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(self.reduced_dim, self.reduced_dim // 2),
+        )
+
+        # Final classifier
+        self.classifier = nn.Sequential(
+            nn.Linear(self.reduced_dim // 2, 128),
+            nn.BatchNorm1d(128),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(128, num_classes),
+        )
+
+    def forward(self, x):
+        # x: [batch_size, num_patches, C, H, W]
+        batch_size, num_patches, C, H, W = x.size()
+
+        # Local patch features extraction (similar to PatchGlobalLocalTokenMixerClassifier)
+        x_patches = x.view(-1, C, H, W)
+        feat_patches = self.base_model(
+            x_patches
+        )  # [batch_size * num_patches, feature_dim]
+
+        if feat_patches.dim() == 2:
+            feat_patches = feat_patches.view(
+                batch_size * num_patches, self.feature_dim, 1, 1
+            )
+
+        # Tokenize local patches
+        tokens_patches = self.tokenizer(
+            feat_patches
+        )  # [batch_size * num_patches, reduced_dim, 1, 1]
+        tokens_patches = tokens_patches.view(batch_size, num_patches, self.reduced_dim)
+
+        # MIL Attention mechanism for patch aggregation
+        A_V = self.attention_V(
+            tokens_patches
+        )  # [batch_size, num_patches, attention_dim]
+        A_U = self.attention_U(
+            tokens_patches
+        )  # [batch_size, num_patches, attention_dim]
+        A = self.attention_weights(A_V * A_U)  # [batch_size, num_patches, 1]
+        A = torch.transpose(A, 2, 1)  # [batch_size, 1, num_patches]
+        A = nn.functional.softmax(A, dim=2)  # Attention weights
+
+        # Weighted aggregation of patch features (MIL aggregation)
+        M = torch.bmm(A, tokens_patches)  # [batch_size, 1, reduced_dim]
+        M = M.view(batch_size, -1)  # [batch_size, reduced_dim]
+
+        # Global image reconstruction and feature extraction (from PatchGlobalLocalTokenMixerClassifier)
+        overlap_ratio = 0.2
+        patch_height = H
+        step = int(patch_height * (1 - overlap_ratio))
+        full_height = step * (num_patches - 1) + patch_height
+        full_img = torch.zeros(batch_size, C, full_height, W, device=x.device)
+        count = torch.zeros(batch_size, 1, full_height, W, device=x.device)
+
+        for i in range(num_patches):
+            start_h = i * step
+            end_h = start_h + patch_height
+            full_img[:, :, start_h:end_h, :] += x[:, i]
+            count[:, :, start_h:end_h, :] += 1
+
+        full_img = full_img / count.clamp(min=1.0)
+
+        # Resize global image to patch size and extract features
+        global_patch_resized = nn.functional.interpolate(
+            full_img, size=(H, W), mode="bilinear", align_corners=False
+        )
+        feat_global = self.base_model(global_patch_resized)  # [batch_size, feature_dim]
+
+        if feat_global.dim() == 2:
+            feat_global = feat_global.view(batch_size, self.feature_dim, 1, 1)
+
+        tokens_global = self.tokenizer(feat_global)  # [batch_size, reduced_dim, 1, 1]
+        tokens_global = tokens_global.view(batch_size, self.reduced_dim)
+
+        # Process global features
+        processed_global = self.global_processor(
+            tokens_global
+        )  # [batch_size, reduced_dim//2]
+
+        # Fuse local MIL features with global features (Globally-Aware)
+        fused_features = torch.cat(
+            [M, processed_global], dim=1
+        )  # [batch_size, reduced_dim + reduced_dim//2]
+        fused_features = self.fusion_layer(
+            fused_features
+        )  # [batch_size, reduced_dim//2]
+
+        # Final classification
+        logits = self.classifier(fused_features)
+
+        return logits
+
+
 def get_model(
     model_type="dinov2",
     num_classes=2,
@@ -473,6 +626,16 @@ def get_model(
         elif arch_type == "global_local_token":
             model = PatchGlobalLocalTokenMixerClassifier(
                 base_model, feature_dim, num_classes, num_patches, nhead=4, num_layers=2
+            )
+        elif arch_type == "mil":
+            model = MILClassifier(
+                base_model,
+                feature_dim,
+                num_classes,
+                num_patches,
+                attention_dim=128,
+                nhead=4,
+                num_layers=2,
             )
         else:
             raise ValueError(f"Unsupported arch_type: {arch_type}")
