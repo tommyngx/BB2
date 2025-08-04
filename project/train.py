@@ -251,9 +251,13 @@ def train_model(
                         loss.backward()
                         optimizer.step()
                 # For metrics
-                preds = (torch.sigmoid(outputs) > 0.5).long()
-                # Ensure preds and labels are [B]
-                preds = preds.view(-1)
+                # outputs: [B, 2] (multi-class) hoặc [B] (binary)
+                if outputs.dim() > 1 and outputs.size(1) == 2:
+                    # Multi-class (binary với 2 logits)
+                    preds = torch.argmax(outputs, dim=1)
+                else:
+                    # Binary (single logit)
+                    preds = (torch.sigmoid(outputs) > 0.5).long().view(-1)
                 labels_flat = labels.view(-1)
                 running_loss += loss.item() * images.size(0)
                 correct += (preds == labels_flat).sum().item()
