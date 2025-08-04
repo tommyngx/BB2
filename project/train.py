@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+from torch.cuda.amp import GradScaler, autocast
 from tqdm import tqdm
 from torch.optim.lr_scheduler import LambdaLR
 from sklearn.metrics import classification_report
@@ -126,6 +127,10 @@ def train_model(
         )
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-2)
 
+    # Initialize AMP scaler
+    scaler = GradScaler() if device != "cpu" else None
+    print(f"Using AMP: {scaler is not None}")
+
     # Warm-up scheduler: linearly increase lr for first 5 epochs
     warmup_epochs = 5
 
@@ -189,13 +194,23 @@ def train_model(
 
         for images, labels in loop:
             images, labels = images.to(device), labels.to(device)
-            # In phân phối class trong batch (tùy chọn, có thể bình luận nếu không cần)
-            # print(f"Batch class distribution: {torch.bincount(labels)}")
             optimizer.zero_grad()
-            outputs = model(images)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
+            
+            # Use autocast for forward pass
+            if scaler is not None:
+                with autocast():
+                    outputs = model(images)
+                    loss = criterion(outputs, labels)
+                
+                # Scale loss and backward
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                outputs = model(images)
+                loss = criterion(outputs, labels)
+                loss.backward()
+                optimizer.step()
 
             running_loss += loss.item() * images.size(0)
             _, predicted = torch.max(outputs, 1)
