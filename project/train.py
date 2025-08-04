@@ -223,9 +223,9 @@ def train_model(
                     torch.full_like(targets, 0.8),
                     torch.zeros_like(targets),
                 )
-                # BCEWithLogitsLoss expects float targets
                 outputs = model(images)
                 if loss_type == "focal":
+                    loss = criterion(outputs, labels)
                     # FocalLoss expects integer targets, so skip soft label for focal
                     loss = criterion(outputs, labels)
                 else:
@@ -234,21 +234,30 @@ def train_model(
                         if weights is not None
                         else nn.BCEWithLogitsLoss()
                     )
-                    loss = loss_fn(outputs.squeeze(), soft_targets)
-                if use_amp:
-                    with torch.cuda.amp.autocast():
-                        pass  # already computed above
-                    scaler.scale(loss).backward()
-                    scaler.step(optimizer)
-                    scaler.update()
-                else:
-                    loss.backward()
-                    optimizer.step()
+                    # outputs: [B, 1] or [B], soft_targets: [B]
+                    if outputs.dim() > 1:
+                        outputs = outputs.squeeze(1)
+                    if use_amp:
+                        with torch.cuda.amp.autocast():
+                            loss = loss_fn(outputs, soft_targets)
+                        scaler.scale(loss).backward()
+                        scaler.step(optimizer)
+                        scaler.update()
+                    else:
+                        if loss_type == "focal":
+                            loss = criterion(outputs, labels)
+                        else:
+                            loss = loss_fn(outputs, soft_targets)
+                        loss.backward()
+                        optimizer.step()
                 # For metrics
-                preds = (torch.sigmoid(outputs.squeeze()) > 0.5).long()
+                preds = (torch.sigmoid(outputs) > 0.5).long()
+                # Ensure preds and labels are [B]
+                preds = preds.view(-1)
+                labels_flat = labels.view(-1)
                 running_loss += loss.item() * images.size(0)
-                correct += (preds == labels).sum().item()
-                total += labels.size(0)
+                correct += (preds == labels_flat).sum().item()
+                total += labels_flat.size(0)
                 loop.set_postfix(loss=loss.item())
                 # EMA update
                 if use_ema:
