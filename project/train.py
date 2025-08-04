@@ -195,13 +195,13 @@ def train_model(
         for images, labels in loop:
             images, labels = images.to(device), labels.to(device)
             optimizer.zero_grad()
-            
+
             # Use autocast for forward pass
             if scaler is not None:
                 with autocast():
                     outputs = model(images)
                     loss = criterion(outputs, labels)
-                
+
                 # Scale loss and backward
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
