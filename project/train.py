@@ -12,6 +12,10 @@ import warnings
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
+# Add AMP import
+import torch.cuda.amp
+import copy
+
 
 class FocalLoss(nn.Module):
     def __init__(self, alpha=None, gamma=2.0, reduction="mean"):
@@ -95,6 +99,9 @@ def train_model(
     train_df=None,
     patience=50,
     loss_type="ce",
+    use_ema=True,  # <--- add argument to enable EMA
+    ema_decay=0.999,  # <--- EMA decay
+    soft_positive_label=True,  # <--- enable soft positive label
 ):
     # Không cần thay đổi gì ở đây, vì train_df["cancer"] đã là nhãn số liên tục
     model = model.to(device)
@@ -125,6 +132,10 @@ def train_model(
             else "Using CrossEntropyLoss"
         )
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-2)
+
+    # AMP: create scaler if using CUDA
+    use_amp = device.startswith("cuda")
+    scaler = torch.cuda.amp.GradScaler() if use_amp else None
 
     # Warm-up scheduler: linearly increase lr for first 5 epochs
     warmup_epochs = 5
@@ -182,6 +193,15 @@ def train_model(
     patience_counter = 0
     last_lr = lr
 
+    # Model EMA setup
+    if use_ema:
+        ema_model = copy.deepcopy(model)
+        for param in ema_model.parameters():
+            param.requires_grad_(False)
+        print("Model EMA enabled")
+    else:
+        ema_model = None
+
     for epoch in range(num_epochs):
         model.train()
         running_loss, correct, total = 0.0, 0, 0
@@ -189,19 +209,79 @@ def train_model(
 
         for images, labels in loop:
             images, labels = images.to(device), labels.to(device)
-            # In phân phối class trong batch (tùy chọn, có thể bình luận nếu không cần)
-            # print(f"Batch class distribution: {torch.bincount(labels)}")
             optimizer.zero_grad()
-            outputs = model(images)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
+            # --- Soft positive label ---
+            if (
+                soft_positive_label and model.module.num_classes == 2
+                if hasattr(model, "module")
+                else getattr(model, "num_classes", 2) == 2
+            ):
+                # Only for binary classification
+                targets = labels.float()
+                soft_targets = torch.where(
+                    targets == 1,
+                    torch.full_like(targets, 0.8),
+                    torch.zeros_like(targets),
+                )
+                # BCEWithLogitsLoss expects float targets
+                outputs = model(images)
+                if loss_type == "focal":
+                    # FocalLoss expects integer targets, so skip soft label for focal
+                    loss = criterion(outputs, labels)
+                else:
+                    loss_fn = (
+                        nn.BCEWithLogitsLoss(weight=weights)
+                        if weights is not None
+                        else nn.BCEWithLogitsLoss()
+                    )
+                    loss = loss_fn(outputs.squeeze(), soft_targets)
+                if use_amp:
+                    with torch.cuda.amp.autocast():
+                        pass  # already computed above
+                    scaler.scale(loss).backward()
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    loss.backward()
+                    optimizer.step()
+                # For metrics
+                preds = (torch.sigmoid(outputs.squeeze()) > 0.5).long()
+                running_loss += loss.item() * images.size(0)
+                correct += (preds == labels).sum().item()
+                total += labels.size(0)
+                loop.set_postfix(loss=loss.item())
+                # EMA update
+                if use_ema:
+                    with torch.no_grad():
+                        for ema_p, p in zip(ema_model.parameters(), model.parameters()):
+                            ema_p.data.mul_(ema_decay).add_(p.data, alpha=1 - ema_decay)
+                continue
+            # --- End soft positive label ---
+
+            if use_amp:
+                with torch.cuda.amp.autocast():
+                    outputs = model(images)
+                    loss = criterion(outputs, labels)
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                outputs = model(images)
+                loss = criterion(outputs, labels)
+                loss.backward()
+                optimizer.step()
 
             running_loss += loss.item() * images.size(0)
             _, predicted = torch.max(outputs, 1)
             correct += (predicted == labels).sum().item()
             total += labels.size(0)
             loop.set_postfix(loss=loss.item())
+
+            # EMA update
+            if use_ema:
+                with torch.no_grad():
+                    for ema_p, p in zip(ema_model.parameters(), model.parameters()):
+                        ema_p.data.mul_(ema_decay).add_(p.data, alpha=1 - ema_decay)
 
         epoch_loss = running_loss / total
         epoch_acc = correct / total
@@ -213,9 +293,10 @@ def train_model(
             f"Learning Rate: {optimizer.param_groups[0]['lr']:.6f}"
         )
 
-        # Evaluate on test set
+        # Evaluate on test set (use EMA model if enabled)
+        eval_model = ema_model if use_ema else model
         test_loss, test_acc = evaluate_model(
-            model, test_loader, device=device, mode="Test", return_loss=True
+            eval_model, test_loader, device=device, mode="Test", return_loss=True
         )
         test_losses.append(test_loss)
         test_accs.append(test_acc)
@@ -280,7 +361,10 @@ def train_model(
             related_weights = sorted(related_weights, key=lambda x: x[0], reverse=True)
             top2_paths = set(path for _, path in related_weights[:2])
             if weight_path in top2_paths:
-                torch.save(model.state_dict(), weight_path)
+                if use_ema:
+                    torch.save(ema_model.state_dict(), weight_path)
+                else:
+                    torch.save(model.state_dict(), weight_path)
                 print(f"✅ Saved new model: {weight_name} (acc = {test_acc:.6f})")
             # Remove all models outside top-2
             for _, fname_path in related_weights:
@@ -295,15 +379,15 @@ def train_model(
         plot_path = os.path.join(plot_dir, f"{model_key}.png")
         plot_metrics(train_losses, train_accs, test_losses, test_accs, plot_path)
 
-        # Save confusion matrix after every epoch
+        # Save confusion matrix after every epoch (use EMA model if enabled)
         all_labels = []
         all_preds = []
-        model.eval()
+        eval_model.eval()
         with torch.no_grad():
             for images, labels in test_loader:
                 images = images.to(device)
                 labels = labels.to(device)
-                outputs = model(images)
+                outputs = eval_model(images)
                 _, predicted = torch.max(outputs, 1)
                 all_labels.extend(labels.cpu().numpy())
                 all_preds.extend(predicted.cpu().numpy())
@@ -312,4 +396,4 @@ def train_model(
         # plot_confusion_matrix(all_labels, all_preds, class_names, save_path=cm_path)
 
     print(f"{model_name} training finished.")
-    return model
+    return ema_model if use_ema else model
