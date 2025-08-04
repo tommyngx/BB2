@@ -5,7 +5,9 @@ import torch
 import warnings
 from data import load_data, get_dataloaders
 from models import get_model
+import numpy as np
 from sklearn.metrics import classification_report
+from utils import plot_cm_roc_multiclass
 
 torch.serialization.add_safe_globals([argparse.Namespace])
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -107,24 +109,31 @@ def main():
     model.eval()
 
     all_labels, all_preds = [], []
+    all_probs = []
     with torch.no_grad():
         for images, labels in test_loader:
             images = images.to(device)
             labels = labels.to(device)
             outputs = model(images)
+            probs = torch.softmax(outputs, dim=1)
             _, predicted = torch.max(outputs, 1)
             all_labels.extend(labels.cpu().numpy())
             all_preds.extend(predicted.cpu().numpy())
+            all_probs.extend(probs.cpu().numpy())  # shape [batch, n_classes]
 
     report = classification_report(all_labels, all_preds, digits=4, zero_division=0)
     print(report)
-    # Save report if outputs_link is provided
     if outputs_link:
         os.makedirs(outputs_link, exist_ok=True)
-        report_path = os.path.join(outputs_link, "classification_report.txt")
-        with open(report_path, "w") as f:
-            f.write(report)
-        print(f"Classification report saved to {report_path}")
+        class_names = [str(i) for i in sorted(set(all_labels))]
+        cmroc_path = os.path.join(outputs_link, "cm_roc.png")
+        plot_cm_roc_multiclass(
+            np.array(all_labels),
+            np.array(all_preds),
+            np.array(all_probs),
+            class_names=class_names,
+            title=f"{model_type} - Confusion Matrix & ROC",
+        )
 
 
 if __name__ == "__main__":

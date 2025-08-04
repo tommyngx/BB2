@@ -265,3 +265,260 @@ def plot_confusion_matrix_orig(
         plt.close()
     else:
         plt.show()
+
+
+from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve
+import seaborn as sns
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+def plot_cm_roc(
+    y_true,
+    y_pred,
+    y_pred_proba,
+    class_names=None,
+    title="Confusion Matrix, Metrics & ROC Curve",
+):
+    """
+    Plots confusion matrix, metrics, and ROC curve for binary classification, all side by side.
+    Args:
+        y_true: Ground truth labels (1D array, shape [n_samples])
+        y_pred: Predicted labels (1D array, shape [n_samples])
+        y_pred_proba: Predicted probabilities for class 1 (1D array, shape [n_samples])
+        class_names: List of class names (default: None)
+        title: Title for confusion matrix plot
+    """
+    # Confusion Matrix
+    cm = confusion_matrix(y_true, y_pred)
+    cm_normalized = cm.astype("float") / cm.sum(axis=1)[:, np.newaxis]
+
+    # Create an annotation matrix with both counts and percentages
+    annot = np.empty_like(cm).astype(str)
+    nrows, ncols = cm.shape
+    for i in range(nrows):
+        for j in range(ncols):
+            count = cm[i, j]
+            percent = cm_normalized[i, j] * 100
+            annot[i, j] = f"{percent:.1f}%\n({count})"
+
+    true_positives = np.diag(cm)
+    false_positives = np.sum(cm, axis=0) - true_positives
+    false_negatives = np.sum(cm, axis=1) - true_positives
+    true_negatives = np.sum(cm) - (true_positives + false_positives + false_negatives)
+
+    precision = true_positives / (true_positives + false_positives + 1e-8)
+    sensitivity = true_positives / (true_positives + false_negatives + 1e-8)
+    specificity = true_negatives / (true_negatives + false_positives + 1e-8)
+    f1 = 2 * (precision * sensitivity) / (precision + sensitivity + 1e-8)
+
+    auc = roc_auc_score(y_true, y_pred_proba)
+
+    # ROC Curve
+    fpr, tpr, _ = roc_curve(y_true, y_pred_proba)
+
+    # Plot Confusion Matrix, Metrics, and ROC Curve side by side
+    fig = plt.figure(figsize=(15, 6))
+    gs = fig.add_gridspec(
+        1, 3, width_ratios=[1.4, 1.1, 0.8]
+    )  # Make metrics column narrower
+    plt.subplots_adjust(wspace=0.01)
+    ax0 = fig.add_subplot(gs[0])
+    ax1 = fig.add_subplot(gs[1])
+    ax2 = fig.add_subplot(gs[2])
+
+    # Confusion Matrix
+    sns.heatmap(
+        cm_normalized,
+        annot=annot,
+        fmt="",
+        cmap="Blues",
+        xticklabels=class_names,
+        yticklabels=class_names,
+        cbar=True,
+        vmin=0,
+        vmax=1,
+        annot_kws={"fontsize": 14},
+        ax=ax0,
+    )
+    # Customize the color bar
+    ticks = np.linspace(0, 1, 5)
+    cbar = ax0.collections[0].colorbar
+    cbar.set_ticks(ticks)
+    cbar.ax.set_yticklabels([f"{int(t * 100)}%" for t in ticks])
+
+    ax0.set_xlabel("Predicted", fontsize=15)
+    ax0.set_ylabel("Actual", fontsize=15)
+    ax0.set_title("Confusion Matrix", fontsize=16)
+
+    # Metrics text (percentages with 2 decimal places)
+    metrics_text = ""
+    for i, name in enumerate(
+        class_names if class_names is not None else range(len(cm))
+    ):
+        metrics_text += f"Class {name}:\n"
+        metrics_text += f"  Precision: {precision[i] * 100:.2f}%\n"
+        metrics_text += f"  Sensitivity (Recall): {sensitivity[i] * 100:.2f}%\n"
+        metrics_text += f"  Specificity: {specificity[i] * 100:.2f}%\n"
+        metrics_text += f"  F1 Score: {f1[i] * 100:.2f}%\n\n"
+    metrics_text += f"AUC: {auc * 100:.2f}%\n"
+
+    ax2.axis("off")
+    ax2.text(
+        0,
+        0.5,
+        metrics_text,
+        fontsize=12,
+        va="center",
+        ha="left",
+        family="monospace",
+        wrap=True,
+    )
+    ax2.set_title("Metrics", fontsize=12)
+
+    # ROC Curve (make square)
+    ax1.plot(
+        fpr, tpr, color="green", linewidth=2.5, label=f"ROC curve (AUC = {auc:.2f})"
+    )
+    ax1.plot([0, 1], [0, 1], "k--", linewidth=1.5)
+    ax1.set_xlim([0.0, 1.0])
+    ax1.set_ylim([0.0, 1.0])
+    ax1.set_aspect("equal", adjustable="box")
+    ax1.set_xlabel("False Positive Rate", fontsize=13)
+    ax1.set_ylabel("True Positive Rate", fontsize=13)
+    ax1.set_title("ROC Curve", fontsize=16)
+    ax1.legend(loc="lower right", prop={"size": 12})
+
+    plt.suptitle(title, fontsize=20, y=1.05)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_cm_roc_multiclass(
+    y_true,
+    y_pred,
+    y_pred_softmax,
+    class_names=None,
+    title="Confusion Matrix, Metrics & ROC Curve",
+):
+    """
+    Plots confusion matrix, metrics, and ROC curve for multi-class classification.
+    Args:
+        y_true: Ground truth labels (1D array, shape [n_samples])
+        y_pred: Predicted labels (1D array, shape [n_samples])
+        y_pred_softmax: Predicted probabilities for each class (2D array, shape [n_samples, n_classes])
+        class_names: List of class names (default: None)
+        title: Title for confusion matrix plot
+    """
+    n_classes = y_pred_softmax.shape[1]
+    cm = confusion_matrix(y_true, y_pred)
+    cm_normalized = cm.astype("float") / cm.sum(axis=1, keepdims=True)
+
+    # Annotation matrix
+    annot = np.empty_like(cm).astype(str)
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            count = cm[i, j]
+            percent = cm_normalized[i, j] * 100
+            annot[i, j] = f"{percent:.1f}%\n({count})"
+
+    # Metrics
+    true_positives = np.diag(cm)
+    false_positives = np.sum(cm, axis=0) - true_positives
+    false_negatives = np.sum(cm, axis=1) - true_positives
+    true_negatives = np.sum(cm) - (true_positives + false_positives + false_negatives)
+
+    precision = true_positives / (true_positives + false_positives + 1e-8)
+    sensitivity = true_positives / (true_positives + false_negatives + 1e-8)
+    specificity = true_negatives / (true_negatives + false_positives + 1e-8)
+    f1 = 2 * (precision * sensitivity) / (precision + sensitivity + 1e-8)
+
+    # ROC & AUC for each class
+    aucs = []
+    fpr_dict = {}
+    tpr_dict = {}
+    for i in range(n_classes):
+        y_true_bin = (y_true == i).astype(int)
+        y_score = y_pred_softmax[:, i]
+        fpr, tpr, _ = roc_curve(y_true_bin, y_score)
+        auc = roc_auc_score(y_true_bin, y_score)
+        aucs.append(auc)
+        fpr_dict[i] = fpr
+        tpr_dict[i] = tpr
+
+    # Plot
+    fig = plt.figure(figsize=(15, 6))
+    gs = fig.add_gridspec(1, 3, width_ratios=[1.4, 1.1, 0.8])
+    plt.subplots_adjust(wspace=0.01)
+    ax0 = fig.add_subplot(gs[0])
+    ax1 = fig.add_subplot(gs[1])
+    ax2 = fig.add_subplot(gs[2])
+
+    # Confusion Matrix
+    sns.heatmap(
+        cm_normalized,
+        annot=annot,
+        fmt="",
+        cmap="Blues",
+        xticklabels=class_names,
+        yticklabels=class_names,
+        cbar=True,
+        vmin=0,
+        vmax=1,
+        annot_kws={"fontsize": 14},
+        ax=ax0,
+    )
+    ticks = np.linspace(0, 1, 5)
+    cbar = ax0.collections[0].colorbar
+    cbar.set_ticks(ticks)
+    cbar.ax.set_yticklabels([f"{int(t * 100)}%" for t in ticks])
+    ax0.set_xlabel("Predicted", fontsize=15)
+    ax0.set_ylabel("Actual", fontsize=15)
+    ax0.set_title("Confusion Matrix", fontsize=16)
+
+    # Metrics text
+    metrics_text = ""
+    for i, name in enumerate(
+        class_names if class_names is not None else range(n_classes)
+    ):
+        metrics_text += f"Class {name}:\n"
+        metrics_text += f"  Precision: {precision[i] * 100:.2f}%\n"
+        metrics_text += f"  Sensitivity (Recall): {sensitivity[i] * 100:.2f}%\n"
+        metrics_text += f"  Specificity: {specificity[i] * 100:.2f}%\n"
+        metrics_text += f"  F1 Score: {f1[i] * 100:.2f}%\n"
+        metrics_text += f"  AUC: {aucs[i] * 100:.2f}%\n\n"
+
+    ax2.axis("off")
+    ax2.text(
+        0,
+        0.5,
+        metrics_text,
+        fontsize=12,
+        va="center",
+        ha="left",
+        family="monospace",
+        wrap=True,
+    )
+    ax2.set_title("Metrics", fontsize=12)
+
+    # ROC Curve for each class
+    for i in range(n_classes):
+        label = class_names[i] if class_names is not None else f"Class {i}"
+        ax1.plot(
+            fpr_dict[i],
+            tpr_dict[i],
+            linewidth=2.5,
+            label=f"{label} (AUC={aucs[i]:.2f})",
+        )
+    ax1.plot([0, 1], [0, 1], "k--", linewidth=1.5)
+    ax1.set_xlim([0.0, 1.0])
+    ax1.set_ylim([0.0, 1.0])
+    ax1.set_aspect("equal", adjustable="box")
+    ax1.set_xlabel("False Positive Rate", fontsize=13)
+    ax1.set_ylabel("True Positive Rate", fontsize=13)
+    ax1.set_title("ROC Curve", fontsize=16)
+    ax1.legend(loc="lower right", prop={"size": 12})
+
+    plt.suptitle(title, fontsize=20, y=1.05)
+    plt.tight_layout()
+    plt.show()
