@@ -565,7 +565,10 @@ def plot_pr_curve_full(y_true, y_prob, title="PR Curve"):
     ax.set_xlim([0, 1])
     ax.set_ylim([0, 1.05])
     plt.colorbar(s, label="threshold")
-    plt.title(f"MAX F1 {f1_max:.3f} @ th={threshold_max:.3f}\nPR AUC={pr_auc:.3f}")
+    # plt.title(f"MAX F1 {f1_max:.3f} @ th={threshold_max:.3f}\nPR AUC={pr_auc:.3f}")
+    plt.title(
+        f"MAX F1 {f1_max:.3f} @ th={threshold_max:.3f}\n prec={precision_max:0.3f}, recall={recall_max:0.3f}, PR AUC={pr_auc:.3f}"
+    )
     plt.xlabel("Recall")
     plt.ylabel("Precision")
     plt.legend()
