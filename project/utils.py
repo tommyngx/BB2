@@ -525,3 +525,48 @@ def plot_cm_roc_multiclass(
     plt.suptitle(title, fontsize=20, y=1.05)
     plt.tight_layout()
     plt.show()
+
+
+import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.metrics import precision_recall_curve, auc
+
+
+def plot_pr_curve_full(y_true, y_prob, title="PR Curve"):
+    precision, recall, thresholds = precision_recall_curve(y_true, y_prob)
+    pr_auc = auc(recall, precision)
+
+    f1_scores = 2 * precision * recall / (precision + recall + 1e-8)
+    i_max = np.argmax(f1_scores)
+    precision_max, recall_max = precision[i_max], recall[i_max]
+    threshold_max = thresholds[i_max] if i_max < len(thresholds) else 1.0
+    f1_max = f1_scores[i_max]
+
+    _, ax = plt.subplots(figsize=(8, 6))
+
+    # Đường đẳng F1
+    f_scores = [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
+    for f in f_scores:
+        x = np.linspace(0.01, 1)
+        y = (f * x) / (2 * x - f)
+        ax.plot(x[y >= 0], y[y >= 0], color="gray", alpha=0.2)
+        plt.annotate(f"f1={f:0.1f}", xy=(0.9, y[45] + 0.02))
+
+    # PR curve + threshold color
+    s = ax.scatter(recall[:-1], precision[:-1], c=thresholds, cmap="hsv")
+    ax.plot(recall, precision, color="blue", alpha=0.7)
+
+    # Chấm đen tại điểm F1 cao nhất
+    ax.scatter(recall_max, precision_max, s=30, c="k", label="Max F1")
+
+    # 🔗 Đường kết nối từ trục x
+    ax.plot([recall_max, recall_max], [0, precision_max], "k--", linewidth=1, alpha=0.6)
+
+    ax.set_xlim([0, 1])
+    ax.set_ylim([0, 1.05])
+    plt.colorbar(s, label="threshold")
+    plt.title(f"MAX F1 {f1_max:.3f} @ th={threshold_max:.3f}\nPR AUC={pr_auc:.3f}")
+    plt.xlabel("Recall")
+    plt.ylabel("Precision")
+    plt.legend()
+    plt.show()

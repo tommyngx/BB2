@@ -7,7 +7,7 @@ from data import load_data, get_dataloaders
 from models import get_model
 import numpy as np
 from sklearn.metrics import classification_report
-from utils import plot_cm_roc_multiclass
+from utils import plot_cm_roc_multiclass, plot_pr_curve_full
 
 torch.serialization.add_safe_globals([argparse.Namespace])
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -43,6 +43,37 @@ def parse_img_size(val):
     else:
         s = int(val)
         return (s, s)
+
+
+from sklearn.metrics import classification_report, precision_recall_curve, f1_score
+import numpy as np
+
+
+def generate_thresholded_classification_report(all_labels, all_probs, beta=1.0):
+    """
+    - Tìm threshold tối ưu (maximize F1-score)
+    - Chuyển xác suất thành nhãn dự đoán
+    - Tạo classification_report dựa trên threshold tối ưu
+    """
+    # Tính Precision, Recall và Threshold
+    precision, recall, thresholds = precision_recall_curve(all_labels, all_probs)
+    f1_scores = (
+        (1 + beta**2) * (precision * recall) / (beta**2 * precision + recall + 1e-8)
+    )
+
+    best_idx = np.argmax(f1_scores)
+    best_threshold = thresholds[best_idx] if best_idx < len(thresholds) else 0.5
+    best_f1 = f1_scores[best_idx]
+
+    # In threshold và F1 tối ưu
+    print(f"✅ Best Threshold: {best_threshold:.4f} | Max F1-score: {best_f1:.4f}")
+
+    # Tạo nhãn dự đoán theo threshold
+    all_preds = (all_probs >= best_threshold).astype(int)
+
+    # Tạo classification report
+    report = classification_report(all_labels, all_preds, digits=4, zero_division=0)
+    return best_threshold, report
 
 
 def main():
@@ -134,6 +165,28 @@ def main():
             class_names=class_names,
             title=f"{model_type} - Confusion Matrix & ROC",
         )
+        # PR Curve cho binary (class 1) hoặc đa lớp (macro)
+        pr_path = os.path.join(outputs_link, "pr_curve.png")
+        if np.array(all_probs).shape[1] == 2:
+            # Binary: lấy xác suất class 1
+            plot_pr_curve_full(
+                np.array(all_labels), np.array(all_probs)[:, 1], title="PR Curve"
+            )
+            # Sửa input cho hàm threshold: chỉ truyền xác suất class 1
+            best_thresh, report = generate_thresholded_classification_report(
+                np.array(all_labels), np.array(all_probs)[:, 1]
+            )
+            print(f"Best Threshold: {best_thresh:.4f}")
+            print("Classification Report with Best Threshold:")
+            print(report)
+        else:
+            # Multi-class: vẽ PR cho từng lớp
+            for i, cname in enumerate(class_names):
+                plot_pr_curve_full(
+                    (np.array(all_labels) == i).astype(int),
+                    np.array(all_probs)[:, i],
+                    title=f"PR Curve for class {cname}",
+                )
 
 
 if __name__ == "__main__":
