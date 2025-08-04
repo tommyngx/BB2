@@ -487,6 +487,9 @@ def plot_cm_roc_multiclass(
         metrics_text += f"  Specificity: {specificity[i] * 100:.2f}%\n"
         metrics_text += f"  F1 Score: {f1[i] * 100:.2f}%\n"
         metrics_text += f"  AUC: {aucs[i] * 100:.2f}%\n\n"
+        # Accuracy
+        accuracy = np.mean(y_true == y_pred)
+        metrics_text += f"Overall Accuracy: {accuracy * 100:.2f}%\n"
 
     ax2.axis("off")
     ax2.text(
