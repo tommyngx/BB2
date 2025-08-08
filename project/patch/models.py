@@ -693,6 +693,7 @@ class MILClassifierV3(nn.Module):
         self.global_size = global_size
         self.temperature = temperature
         self.reconstruct_fn = reconstruct_fn  # nếu None dùng _vertical_reconstruct
+        self.overlap_ratio = overlap_ratio  # <— NEW
 
         # MIL pooling
         self.mil_pool = _GatedAttnPool(
