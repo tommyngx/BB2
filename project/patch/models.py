@@ -849,43 +849,6 @@ class MILClassifierV3(nn.Module):
         return logits
 
 
-# ---------------- get_model hook ----------------
-def get_model(
-    name,
-    base_model=None,  # giữ tương thích với code cũ
-    feature_dim=512,
-    num_classes=1,
-    base_model_local=None,
-    base_model_global=None,
-    local_dim=None,
-    global_dim=None,
-    **kwargs,
-):
-    name = name.lower()
-
-    if name == "mil_v3":
-        # Ưu tiên tham số rõ ràng; nếu không truyền thì fallback từ feature_dim/base_model
-        b_local = base_model_local if base_model_local is not None else base_model
-        b_global = base_model_global if base_model_global is not None else base_model
-        dl = local_dim if local_dim is not None else feature_dim
-        dg = global_dim if global_dim is not None else feature_dim
-        return MILClassifierV3(
-            base_model_local=b_local,
-            base_model_global=b_global,
-            local_dim=dl,
-            global_dim=dg,
-            num_classes=num_classes,
-            **kwargs,
-        )
-
-    # ===== các nhánh model cũ của bạn ở dưới đây giữ nguyên =====
-    # elif name == "mil_v2": ...
-    # elif name == "mil": ...
-    # elif name == "patch_transformer": ...
-    else:
-        raise ValueError(f"Unknown model name: {name}")
-
-
 def get_model(
     model_type="dinov2",
     num_classes=2,
