@@ -318,6 +318,8 @@ if __name__ == "__main__":
             "global_local_token",
             "mil",
             "mil_v2",
+            "mil_v3",
+            "mil_v4",
         ],
         default=None,
         help="Architecture type: patch_resnet or patch_transformer",
