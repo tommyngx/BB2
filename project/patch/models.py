@@ -620,6 +620,272 @@ class MILClassifierV2(nn.Module):
         return logits
 
 
+# ---------------- Gated Attention Pool (MIL) ----------------
+class _GatedAttnPool(nn.Module):
+    def __init__(self, d_model: int, hidden: int = 256, dropout: float = 0.1):
+        super().__init__()
+        self.V = nn.Linear(d_model, hidden)
+        self.U = nn.Linear(d_model, hidden)
+        self.w = nn.Linear(hidden, 1)
+        self.drop = nn.Dropout(dropout)
+        nn.init.xavier_uniform_(self.V.weight)
+        nn.init.constant_(self.V.bias, 0.0)
+        nn.init.xavier_uniform_(self.U.weight)
+        nn.init.constant_(self.U.bias, 0.0)
+        nn.init.xavier_uniform_(self.w.weight)
+        nn.init.constant_(self.w.bias, 0.0)
+
+    def forward(
+        self, x: torch.Tensor, mask: torch.Tensor = None, temperature: float = 1.0
+    ):
+        """
+        x: [B, N, D]; mask: [B, N] (True = pad)
+        """
+        v = torch.tanh(self.V(x))
+        u = torch.sigmoid(self.U(x))
+        scores = self.w(self.drop(v * u)).squeeze(-1)  # [B, N]
+        if mask is not None:
+            scores = scores.masked_fill(mask, float("-inf"))
+        attn = torch.softmax(scores / max(temperature, 1e-6), dim=1)  # [B, N]
+        pooled = torch.bmm(attn.unsqueeze(1), x).squeeze(1)  # [B, D]
+        return pooled, attn
+
+
+# ---------------- MIL_v3: Local + Global + Fusion ----------------
+class MILClassifierV3(nn.Module):
+    """
+    MIL v3 (2-branch):
+      - Local MIL over patch features (gated attention).
+      - Global image reconstruction from patches + global backbone feature.
+      - Fusion: 'concat' (default) or 'gated' (learnable mixing).
+    Output:
+      - logits [B, num_classes]
+    Debug:
+      - self.last_attn_weights  -> [B, N]
+      - self.last_global_feat   -> [B, Dg]
+      - self.last_local_feat    -> [B, Dl]
+    """
+
+    def __init__(
+        self,
+        base_model_local: nn.Module,  # CNN cho patch
+        base_model_global: nn.Module,  # CNN cho ảnh global
+        local_dim: int,  # D_local (output của base_model_local)
+        global_dim: int,  # D_global (output của base_model_global)
+        num_classes: int = 1,
+        fusion: str = "concat",  # 'concat' | 'gated'
+        attn_hidden: int = 256,
+        attn_dropout: float = 0.1,
+        head_dropout: float = 0.1,
+        global_size: tuple = (448, 448),  # kích thước ảnh global sau reconstruct
+        reconstruct_fn=None,  # callable(patches[B,N,C,h,w]) -> [B,C,H,W]; nếu None dùng vertical concat
+        temperature: float = 1.0,
+        overlap_ratio: float = 0.2,  # <— NEW
+    ):
+        super().__init__()
+        assert fusion in ("concat", "gated"), "fusion must be 'concat' or 'gated'"
+        self.base_model_local = base_model_local
+        self.base_model_global = base_model_global
+        self.local_dim = local_dim
+        self.global_dim = global_dim
+        self.num_classes = num_classes
+        self.fusion = fusion
+        self.global_size = global_size
+        self.temperature = temperature
+        self.reconstruct_fn = reconstruct_fn  # nếu None dùng _vertical_reconstruct
+
+        # MIL pooling
+        self.mil_pool = _GatedAttnPool(
+            d_model=local_dim, hidden=attn_hidden, dropout=attn_dropout
+        )
+
+        # Nếu fusion='concat' -> head nhận (Dl + Dg)
+        # Nếu fusion='gated'  -> đưa Dg -> Dl và học gate để trộn (-> Dl)
+        if fusion == "concat":
+            fused_dim = local_dim + global_dim
+            self.head = nn.Sequential(
+                nn.LayerNorm(fused_dim),
+                nn.Dropout(head_dropout),
+                nn.Linear(fused_dim, num_classes),
+            )
+        else:
+            # Project global về local_dim rồi gated mix: y = g * local + (1-g) * proj(global)
+            self.global_to_local = nn.Linear(global_dim, local_dim)
+            self.gate = nn.Sequential(
+                nn.Linear(
+                    local_dim + local_dim, local_dim
+                ),  # concat(local, gproj) -> hidden (DL)
+                nn.ReLU(inplace=True),
+                nn.Linear(local_dim, 1),
+                nn.Sigmoid(),
+            )
+            self.head = nn.Sequential(
+                nn.LayerNorm(local_dim),
+                nn.Dropout(head_dropout),
+                nn.Linear(local_dim, num_classes),
+            )
+
+        # dbg holders
+        self.last_attn_weights = None
+        self.last_global_feat = None
+        self.last_local_feat = None
+
+        # init head
+        for m in self.head:
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                nn.init.constant_(m.bias, 0.0)
+        if fusion == "gated":
+            nn.init.xavier_uniform_(self.global_to_local.weight)
+            nn.init.constant_(self.global_to_local.bias, 0.0)
+
+    # --------- Local encoder: từ patch ảnh -> [B,N,Dl] ---------
+    def _encode_patches(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        x: [B, N, C, H, W] -> feats: [B, N, Dl]
+        """
+        B, N, C, H, W = x.shape
+        x_ = x.view(B * N, C, H, W)
+        feats = self.base_model_local(x_)
+        if feats.dim() == 4:
+            feats = (
+                F.adaptive_avg_pool2d(feats, 1).squeeze(-1).squeeze(-1)
+            )  # [B*N, Dl?]
+        feats = feats.view(B, N, -1)
+        return feats
+
+    # --------- Global reconstruct: từ patch -> ảnh global ---------
+    def _vertical_reconstruct(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Reconstruct ảnh theo chiều dọc có overlap (overlap-add).
+        x: [B, N, C, h, w] (patch theo chiều cao, full width)
+        """
+        B, N, C, h, w = x.shape
+        # step giống lúc cắt: step = patch_h * (1 - overlap_ratio)
+        step = max(1, int(round(h * (1.0 - self.overlap_ratio))))
+        # chiều cao canvas trước khi resize
+        H_full = step * (N - 1) + h
+
+        # canvas và weight để cộng chồng rồi chia
+        canvas = x.new_zeros(B, C, H_full, w)
+        weight = x.new_zeros(B, 1, H_full, w)
+
+        # độ dài phần chồng lấn giữa 2 patch liên tiếp
+        ovl = h - step  # có thể = 0 nếu overlap_ratio=0
+        # vector trọng số theo chiều dọc (tam giác: 0→1 ở đầu, 1→0 ở cuối)
+        base_w = torch.ones(h, device=x.device)
+        if ovl > 0:
+            ramp = torch.linspace(0.0, 1.0, steps=ovl, device=x.device)
+            base_w[:ovl] = ramp  # phần đầu patch (đè lên đuôi patch trước)
+            base_w[-ovl:] = 1.0 - ramp  # phần cuối patch (đè lên đầu patch sau)
+
+        for i in range(N):
+            y0 = i * step
+            y1 = y0 + h
+
+            # bản sao weight cho patch i, xử lý biên đầu/cuối
+            w_i = base_w.clone()
+            if ovl > 0:
+                if i == 0:
+                    w_i[:ovl] = 1.0  # không làm mờ ở mép trên ảnh
+                if i == N - 1:
+                    w_i[-ovl:] = 1.0  # không làm mờ ở mép dưới ảnh
+
+            # mở rộng thành [1,1,h,1] để broadcast
+            w_map = w_i.view(1, 1, h, 1)
+
+            # cộng chồng có trọng số
+            canvas[:, :, y0:y1, :] += x[:, i] * w_map
+            weight[:, :, y0:y1, :] += w_map
+
+        # tránh chia 0, rồi resize về global_size
+        recon = canvas / weight.clamp(min=1e-6)
+        recon = F.interpolate(
+            recon, size=self.global_size, mode="bilinear", align_corners=False
+        )
+        return recon
+
+    # --------- Global encoder: ảnh global -> [B, Dg] ---------
+    def _encode_global(self, global_img: torch.Tensor) -> torch.Tensor:
+        feats_g = self.base_model_global(global_img)  # [B, Dg] or [B, Dg, h', w']
+        if feats_g.dim() == 4:
+            feats_g = F.adaptive_avg_pool2d(feats_g, 1).squeeze(-1).squeeze(-1)
+        return feats_g  # [B, Dg]
+
+    def forward(self, x_patches: torch.Tensor, mask: torch.Tensor = None):
+        """
+        x_patches: [B, N, C, H, W]
+        mask     : [B, N] (True = pad/invalid patch)
+        return   : logits [B, num_classes]
+        """
+        # ----- Local MIL -----
+        feats_l = self._encode_patches(x_patches)  # [B, N, Dl]
+        pooled_l, attn = self.mil_pool(
+            feats_l, mask=mask, temperature=self.temperature
+        )  # [B, Dl], [B, N]
+
+        # ----- Global reconstruction + encoding -----
+        if self.reconstruct_fn is not None:
+            global_img = self.reconstruct_fn(x_patches)  # expect [B,C,H,W]
+        else:
+            global_img = self._vertical_reconstruct(x_patches)
+        feats_g = self._encode_global(global_img)  # [B, Dg]
+
+        # ----- Fusion -----
+        if self.fusion == "concat":
+            fused = torch.cat([pooled_l, feats_g], dim=1)  # [B, Dl+Dg]
+        else:
+            g_proj = self.global_to_local(feats_g)  # [B, Dl]
+            gate = self.gate(torch.cat([pooled_l, g_proj], dim=1))  # [B,1]
+            fused = gate * pooled_l + (1.0 - gate) * g_proj  # [B, Dl]
+
+        logits = self.head(fused)
+
+        # debug saves
+        self.last_attn_weights = attn.detach()
+        self.last_global_feat = feats_g.detach()
+        self.last_local_feat = pooled_l.detach()
+
+        return logits
+
+
+# ---------------- get_model hook ----------------
+def get_model(
+    name,
+    base_model=None,  # giữ tương thích với code cũ
+    feature_dim=512,
+    num_classes=1,
+    base_model_local=None,
+    base_model_global=None,
+    local_dim=None,
+    global_dim=None,
+    **kwargs,
+):
+    name = name.lower()
+
+    if name == "mil_v3":
+        # Ưu tiên tham số rõ ràng; nếu không truyền thì fallback từ feature_dim/base_model
+        b_local = base_model_local if base_model_local is not None else base_model
+        b_global = base_model_global if base_model_global is not None else base_model
+        dl = local_dim if local_dim is not None else feature_dim
+        dg = global_dim if global_dim is not None else feature_dim
+        return MILClassifierV3(
+            base_model_local=b_local,
+            base_model_global=b_global,
+            local_dim=dl,
+            global_dim=dg,
+            num_classes=num_classes,
+            **kwargs,
+        )
+
+    # ===== các nhánh model cũ của bạn ở dưới đây giữ nguyên =====
+    # elif name == "mil_v2": ...
+    # elif name == "mil": ...
+    # elif name == "patch_transformer": ...
+    else:
+        raise ValueError(f"Unknown model name: {name}")
+
+
 def get_model(
     model_type="dinov2",
     num_classes=2,
@@ -740,6 +1006,32 @@ def get_model(
                 attn_hidden=256,
                 attn_dropout=0.1,
                 head_dropout=0.1,
+            )
+        elif arch_type == "mil_v3":
+            # Ưu tiên tham số rõ ràng; nếu không truyền thì fallback từ feature_dim/base_model
+            base_model_local = None
+            base_model_global = None
+            local_dim = None
+            global_dim = None
+            b_local = base_model_local if base_model_local is not None else base_model
+            b_global = (
+                base_model_global if base_model_global is not None else base_model
+            )
+            dl = local_dim if local_dim is not None else feature_dim
+            dg = global_dim if global_dim is not None else feature_dim
+            model = MILClassifierV3(
+                base_model_local=b_local,
+                base_model_global=b_global,
+                local_dim=dl,
+                global_dim=dg,
+                num_classes=num_classes,
+                attn_hidden=256,
+                attn_dropout=0.1,
+                head_dropout=0.1,
+                global_size=(448, 448),  # kích thước ảnh global sau reconstruct
+                reconstruct_fn=None,  # nếu cần có thể truyền hàm reconstruct riêng
+                temperature=1.0,
+                overlap_ratio=0.2,  # tỉ lệ overlap giữa các patch
             )
         else:
             raise ValueError(f"Unsupported arch_type: {arch_type}")
