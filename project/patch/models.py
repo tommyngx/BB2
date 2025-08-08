@@ -13,6 +13,8 @@ import argparse
 import os
 import yaml
 import sys
+import torch.nn.functional as F
+
 
 from data import get_num_patches_from_config  # Import from data.py
 
@@ -526,6 +528,98 @@ class MILClassifier(nn.Module):
         return logits
 
 
+class MILClassifierV2(nn.Module):
+    """
+    Multiple Instance Learning (MIL) Classifier - nâng cấp:
+      - Gated attention pooling (CLAM-style)
+      - Hỗ trợ mask (pad patch)
+      - Head: LayerNorm + Dropout + Linear
+      - Giữ API: output chỉ logits [B, num_classes], lưu attention trong self.last_attn_weights
+    """
+
+    def __init__(
+        self,
+        base_model,
+        feature_dim,
+        num_classes,
+        attn_hidden=256,
+        attn_dropout=0.1,
+        head_dropout=0.1,
+    ):
+        super().__init__()
+        self.base_model = base_model
+        self.feature_dim = feature_dim
+        self.num_classes = num_classes
+
+        # Gated attention
+        self.attn_V = nn.Linear(feature_dim, attn_hidden)
+        self.attn_U = nn.Linear(feature_dim, attn_hidden)
+        self.attn_w = nn.Linear(attn_hidden, 1)
+        self.attn_drop = nn.Dropout(attn_dropout)
+
+        # Classification head
+        self.head = nn.Sequential(
+            nn.LayerNorm(feature_dim),
+            nn.Dropout(head_dropout),
+            nn.Linear(feature_dim, num_classes),
+        )
+
+        self._init_weights()
+
+        # Nơi lưu attention để lấy sau khi forward
+        self.last_attn_weights = None
+
+    def _init_weights(self):
+        for m in [self.attn_V, self.attn_U, self.attn_w]:
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                nn.init.constant_(m.bias, 0.0)
+        for m in self.head:
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                nn.init.constant_(m.bias, 0.0)
+
+    def _encode_patches(self, x):
+        """
+        x: [B, N, C, H, W] → feats: [B, N, D]
+        """
+        B, N, C, H, W = x.shape
+        x = x.view(B * N, C, H, W)
+        feats = self.base_model(x)
+        if feats.dim() == 4:
+            feats = F.adaptive_avg_pool2d(feats, 1).squeeze(-1).squeeze(-1)
+        feats = feats.view(B, N, self.feature_dim)
+        return feats
+
+    def forward(self, x, mask=None, temperature=1.0):
+        """
+        x:    [B, N, C, H, W]
+        mask: [B, N] (True = pad)
+        return: logits [B, C]
+        """
+        feats = self._encode_patches(x)  # [B, N, D]
+
+        # Gated attention
+        V = torch.tanh(self.attn_V(feats))  # [B, N, H]
+        U = torch.sigmoid(self.attn_U(feats))  # [B, N, H]
+        scores = self.attn_w(self.attn_drop(V * U)).squeeze(-1)  # [B, N]
+
+        if mask is not None:
+            scores = scores.masked_fill(mask, float("-inf"))
+
+        attn_weights = torch.softmax(scores / max(temperature, 1e-6), dim=1)  # [B, N]
+
+        # Soft attention pooling
+        pooled = torch.bmm(attn_weights.unsqueeze(1), feats).squeeze(1)  # [B, D]
+
+        logits = self.head(pooled)  # [B, C]
+
+        # Lưu lại attention để lấy sau
+        self.last_attn_weights = attn_weights.detach()
+
+        return logits
+
+
 def get_model(
     model_type="dinov2",
     num_classes=2,
@@ -636,6 +730,16 @@ def get_model(
                 attention_dim=128,
                 nhead=4,
                 num_layers=2,
+            )
+        elif arch_type == "mil_v2":
+            # Sử dụng MILClassifierV2 với các tham số mặc định
+            model = MILClassifierV2(
+                base_model=base_model,
+                feature_dim=feature_dim,
+                num_classes=num_classes,
+                attn_hidden=256,
+                attn_dropout=0.1,
+                head_dropout=0.1,
             )
         else:
             raise ValueError(f"Unsupported arch_type: {arch_type}")

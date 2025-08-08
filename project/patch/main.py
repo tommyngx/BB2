@@ -317,6 +317,7 @@ if __name__ == "__main__":
             "global_local",
             "global_local_token",
             "mil",
+            "mil_v2",
         ],
         default=None,
         help="Architecture type: patch_resnet or patch_transformer",

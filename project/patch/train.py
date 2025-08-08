@@ -8,6 +8,7 @@ from torch.optim.lr_scheduler import LambdaLR
 from sklearn.metrics import classification_report
 import sys
 import yaml
+from torch.cuda.amp import GradScaler, autocast  # Thêm dòng này
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils import plot_metrics, plot_confusion_matrix
@@ -119,6 +120,10 @@ def train_model(
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-2)
     warmup_epochs = 5
 
+    # AMP scaler
+    scaler = GradScaler() if device != "cpu" else None
+    print(f"Using AMP: {scaler is not None}")
+
     def lr_lambda(epoch):
         if epoch < warmup_epochs:
             return float(epoch + 1) / warmup_epochs
@@ -168,10 +173,18 @@ def train_model(
         for patches, labels in loop:
             patches, labels = patches.to(device), labels.to(device)
             optimizer.zero_grad()
-            outputs = model(patches)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
+            if scaler is not None:
+                with autocast():
+                    outputs = model(patches)
+                    loss = criterion(outputs, labels)
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                outputs = model(patches)
+                loss = criterion(outputs, labels)
+                loss.backward()
+                optimizer.step()
             running_loss += loss.item() * patches.size(0)
             _, predicted = torch.max(outputs, 1)
             correct += (predicted == labels).sum().item()
