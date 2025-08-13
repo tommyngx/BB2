@@ -143,13 +143,13 @@ def get_dataloaders(
         height, width = int(height), int(width)
     else:
         height = width = int(img_size)
-    # Nếu height hoặc width là None, gán mặc định 448
     if height is None or width is None:
         height = width = 448
-    train_transform = get_train_augmentation(
-        height, width, resize_first=False
-    )  # Đảm bảo truyền int cho height, width
-    test_transform = get_test_augmentation(height, width)
+    # Augmentation cho train (không resize ở augment), resize sẽ thực hiện ở __getitem__
+    train_transform = get_train_augmentation(None, None, resize_first=False)
+    # Augmentation cho test (không resize ở augment), resize sẽ thực hiện ở __getitem__
+    test_transform = get_test_augmentation(None, None)
+    # Truyền cùng img_size cho cả train và test dataset
     train_dataset = CancerPatchDataset(
         train_df,
         data_folder,
