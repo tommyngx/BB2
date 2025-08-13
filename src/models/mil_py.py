@@ -60,8 +60,14 @@ class MILClassifier(nn.Module):
         )
 
     def forward(self, x):
-        batch_size, num_patches, C, H, W = x.size()
-        x_patches = x.view(-1, C, H, W)
+        # x: (batch_size, num_patches+1, C, H, W)
+        batch_size, num_patches_plus1, C, H, W = x.size()
+        num_patches = num_patches_plus1 - 1
+        x_local = x[:, :num_patches]  # (B, N, C, H, W)
+        x_global = x[:, num_patches]  # (B, C, H, W)
+
+        # Local patch features
+        x_patches = x_local.contiguous().view(-1, C, H, W)
         feat_patches = self.base_model(x_patches)
         if feat_patches.dim() == 2:
             feat_patches = feat_patches.view(
@@ -70,6 +76,7 @@ class MILClassifier(nn.Module):
         tokens_patches = self.tokenizer(feat_patches)
         tokens_patches = tokens_patches.view(batch_size, num_patches, self.reduced_dim)
 
+        # Attention pooling
         A_V = self.attention_V(tokens_patches)
         A_U = self.attention_U(tokens_patches)
         A = self.attention_weights(A_V * A_U)
@@ -78,27 +85,16 @@ class MILClassifier(nn.Module):
         M = torch.bmm(A, tokens_patches)
         M = M.view(batch_size, -1)
 
-        overlap_ratio = 0.2
-        patch_height = H
-        step = int(patch_height * (1 - overlap_ratio))
-        full_height = step * (num_patches - 1) + patch_height
-        full_img = torch.zeros(batch_size, C, full_height, W, device=x.device)
-        count = torch.zeros(batch_size, 1, full_height, W, device=x.device)
-        for i in range(num_patches):
-            start_h = i * step
-            end_h = start_h + patch_height
-            full_img[:, :, start_h:end_h, :] += x[:, i]
-            count[:, :, start_h:end_h, :] += 1
-        full_img = full_img / count.clamp(min=1.0)
-        global_patch_resized = nn.functional.interpolate(
-            full_img, size=(H, W), mode="bilinear", align_corners=False
-        )
+        # Global image features
+        global_patch_resized = x_global  # (B, C, H, W)
         feat_global = self.base_model(global_patch_resized)
         if feat_global.dim() == 2:
             feat_global = feat_global.view(batch_size, self.feature_dim, 1, 1)
         tokens_global = self.tokenizer(feat_global)
         tokens_global = tokens_global.view(batch_size, self.reduced_dim)
         processed_global = self.global_processor(tokens_global)
+
+        # Fusion and classification
         fused_features = torch.cat([M, processed_global], dim=1)
         fused_features = self.fusion_layer(fused_features)
         logits = self.classifier(fused_features)
@@ -145,6 +141,7 @@ class MILClassifierV2(nn.Module):
                 nn.init.constant_(m.bias, 0.0)
 
     def _encode_patches(self, x):
+        # x: (B, N, C, H, W)
         B, N, C, H, W = x.shape
         x = x.contiguous().view(B * N, C, H, W)
         feats = self.base_model(x)
@@ -154,7 +151,11 @@ class MILClassifierV2(nn.Module):
         return feats
 
     def forward(self, x, mask=None, temperature=1.0):
-        feats = self._encode_patches(x)
+        # x: (B, N+1, C, H, W)
+        B, N_plus1, C, H, W = x.shape
+        N = N_plus1 - 1
+        x_local = x[:, :N]  # (B, N, C, H, W)
+        feats = self._encode_patches(x_local)
         V = torch.tanh(self.attn_V(feats))
         U = torch.sigmoid(self.attn_U(feats))
         scores = self.attn_w(self.attn_drop(V * U)).squeeze(-1)

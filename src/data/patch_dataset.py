@@ -180,9 +180,11 @@ class CancerPatchDataset(Dataset):
             patch_tensor = normalize_and_tensorize(image=patch_np)["image"]
             patch_tensors.append(patch_tensor)
 
-        # Add full ORIGINAL image as the last patch (resize to img_size, normalize, to tensor)
-        # Use original image before any augmentation or resizing
-        full_img_resized = cv2.resize(original_image, (w, h))
+        # Add full AUGMENTED image as the last patch (resize to img_size, normalize, to tensor)
+        # Use augmented image (after transform), not the original image
+        full_img_resized = cv2.resize(
+            image if isinstance(image, np.ndarray) else np.array(image), (w, h)
+        )
         full_img_tensor = normalize_and_tensorize(image=full_img_resized)["image"]
         patch_tensors.append(full_img_tensor)
 
