@@ -51,28 +51,26 @@ def split_image_into_patches(image, num_patches=2, patch_size=None, overlap_rati
     step = int(patch_height * (1 - overlap_ratio))
     patches = []
 
-    print(
-        f"[DEBUG] Splitting image shape {image.shape}, dtype {image.dtype}, range [{image.min()}, {image.max()}]"
-    )
+    # --- Tắt debug ---
+    # print(
+    #     f"[DEBUG] Splitting image shape {image.shape}, dtype {image.dtype}, range [{image.min()}, {image.max()}]"
+    # )
 
     for i in range(num_patches):
         if i == num_patches - 1:
-            # Patch cuối lấy đúng phần cuối ảnh
             start_h = height - patch_height
             end_h = height
         else:
             start_h = i * step
             end_h = start_h + patch_height
-        # Đảm bảo không vượt quá biên
         start_h = max(0, start_h)
         end_h = min(height, end_h)
 
         patch = image[start_h:end_h, :, :]
-        print(
-            f"[DEBUG] Patch {i}: shape {patch.shape}, range [{patch.min()}, {patch.max()}]"
-        )
+        # print(
+        #     f"[DEBUG] Patch {i}: shape {patch.shape}, range [{patch.min()}, {patch.max()}]"
+        # )
 
-        # Nếu patch chưa đủ chiều cao, pad thêm cho đủ
         if patch.shape[0] != patch_height:
             pad_h = patch_height - patch.shape[0]
             patch = np.pad(patch, ((0, pad_h), (0, 0), (0, 0)), mode="edge")
@@ -81,11 +79,10 @@ def split_image_into_patches(image, num_patches=2, patch_size=None, overlap_rati
             patch, (patch_size[1], patch_size[0]), interpolation=cv2.INTER_LINEAR
         )
 
-        # Chuyển về tensor, đảm bảo giá trị float trong [0, 255]
         patch_tensor = torch.from_numpy(patch).permute(2, 0, 1).float()
-        print(
-            f"[DEBUG] Patch {i} after tensor: range [{patch_tensor.min().item()}, {patch_tensor.max().item()}]"
-        )
+        # print(
+        #     f"[DEBUG] Patch {i} after tensor: range [{patch_tensor.min().item()}, {patch_tensor.max().item()}]"
+        # )
         patches.append(patch_tensor)
     return patches
 
@@ -222,18 +219,16 @@ class CancerPatchDataset(Dataset):
 
         # Resize each patch to the standard size and convert to tensor
         for patch in patches:
-            # patch đã là tensor (C, H, W) với giá trị float [0, 255]
             patch_np = patch.permute(1, 2, 0).numpy()
-            # Đảm bảo uint8 range [0, 255]
             if patch_np.max() > 1.0:
                 patch_np = np.clip(patch_np, 0, 255).astype(np.uint8)
             else:
                 patch_np = (patch_np * 255).astype(np.uint8)
 
             patch_np = cv2.resize(patch_np, (w, h))
-            print(
-                f"[DEBUG] Patch before normalize: shape {patch_np.shape}, range [{patch_np.min()}, {patch_np.max()}]"
-            )
+            # print(
+            #     f"[DEBUG] Patch before normalize: shape {patch_np.shape}, range [{patch_np.min()}, {patch_np.max()}]"
+            # )
 
             patch_tensor = normalize_and_tensorize(image=patch_np)["image"]
             patch_tensors.append(patch_tensor)
@@ -268,20 +263,15 @@ class CancerPatchDataset(Dataset):
         patch_tensors = torch.stack(patch_tensors)
 
         # --- DEBUG: Lưu từng patch riêng biệt để kiểm tra ---
-        if idx < 3:
-            print(
-                f"[DEBUG] patch_tensors shape: {patch_tensors.shape}, dtype: {patch_tensors.dtype}, min: {patch_tensors.min().item()}, max: {patch_tensors.max().item()}"
-            )
-
-            # Lưu từng patch riêng biệt
-            save_individual_patches(patch_tensors, idx, label)
-
-            # Lưu batch như cũ
-            debug_patches = patch_tensors.unsqueeze(0)  # (1, N, C, H, W)
-            debug_labels = torch.tensor([label])
-            save_random_batch_patches(
-                [(debug_patches, debug_labels)], save_path=f"debug_patch_{idx}.png"
-            )
+        # if idx < 3:
+        #     print(
+        #         f"[DEBUG] patch_tensors shape: {patch_tensors.shape}, dtype: {patch_tensors.dtype}, min: {patch_tensors.min().item()}, max: {patch_tensors.max().item()}"
+        #     )
+        #     debug_patches = patch_tensors.unsqueeze(0)  # (1, N, C, H, W)
+        #     debug_labels = torch.tensor([label])
+        #     save_random_batch_patches(
+        #         [(debug_patches, debug_labels)], save_path=f"debug_patch_{idx}.png"
+        #     )
         return patch_tensors, label
 
 
