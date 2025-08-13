@@ -146,7 +146,7 @@ class MILClassifierV2(nn.Module):
 
     def _encode_patches(self, x):
         B, N, C, H, W = x.shape
-        x = x.view(B * N, C, H, W)
+        x = x.contiguous().view(B * N, C, H, W)
         feats = self.base_model(x)
         if feats.dim() == 4:
             feats = F.adaptive_avg_pool2d(feats, 1).squeeze(-1).squeeze(-1)
@@ -257,7 +257,7 @@ class MILClassifierV3(nn.Module):
 
     def _encode_patches(self, x: torch.Tensor) -> torch.Tensor:
         B, N, C, H, W = x.shape
-        x_ = x.view(B * N, C, H, W)
+        x_ = x.contiguous().view(B * N, C, H, W)
         feats = self.base_model_local(x_)
         if feats.dim() == 4:
             feats = F.adaptive_avg_pool2d(feats, 1).squeeze(-1).squeeze(-1)
