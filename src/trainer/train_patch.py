@@ -10,7 +10,7 @@ from src.data.patch_dataset import get_dataloaders
 from src.data.dataloader import load_metadata
 from src.trainer.engines import train_model, evaluate_model
 from src.utils.common import load_config, get_arg_or_config, clear_cuda_memory
-from src.trainer.train_patch import parse_img_size
+from src.trainer.train_based import parse_img_size
 
 
 def prepare_data_and_model(
