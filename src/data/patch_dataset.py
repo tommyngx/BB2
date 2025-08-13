@@ -46,11 +46,12 @@ class CancerPatchDataset(Dataset):
     def __init__(
         self,
         df,
-        data_folder,  # đã đổi tên từ root_dir sang data_folder
+        data_folder,
         transform=None,
         num_patches=2,
         augment_before_split=True,
         config_path="config/config.yaml",
+        img_size=None,  # thêm img_size để ưu tiên argument
     ):
         if data_folder is None:
             raise ValueError(
@@ -60,7 +61,11 @@ class CancerPatchDataset(Dataset):
         self.data_folder = data_folder
         self.transform = transform
         self.num_patches = num_patches
-        self.img_size = get_image_size_from_config(config_path)
+        # Ưu tiên img_size truyền vào, nếu không thì lấy từ config
+        if img_size is None:
+            self.img_size = get_image_size_from_config(config_path)
+        else:
+            self.img_size = img_size
         self.augment_before_split = augment_before_split
 
     def __len__(self):
@@ -83,6 +88,7 @@ class CancerPatchDataset(Dataset):
                 ]
                 image = ToTensorV2()(image=image)["image"]
             patch_height = self.img_size[0] // self.num_patches
+            # Sử dụng img_size từ argument/config cho width
             patches = split_image_into_patches(
                 image, self.num_patches, patch_size=(patch_height, self.img_size[1])
             )
@@ -109,7 +115,7 @@ class CancerPatchDataset(Dataset):
 def get_dataloaders(
     train_df,
     test_df,
-    data_folder,  # đã đổi tên từ root_dir sang data_folder
+    data_folder,
     batch_size=16,
     config_path="config/config.yaml",
     num_patches=None,
@@ -134,6 +140,7 @@ def get_dataloaders(
         num_patches,
         augment_before_split=True,
         config_path=config_path,
+        img_size=img_size,  # truyền img_size vào dataset
     )
     test_dataset = CancerPatchDataset(
         test_df,
@@ -142,6 +149,7 @@ def get_dataloaders(
         num_patches,
         augment_before_split=True,
         config_path=config_path,
+        img_size=img_size,  # truyền img_size vào dataset
     )
     sampler = get_weighted_sampler(train_df)
     train_loader = DataLoader(
@@ -159,3 +167,30 @@ def get_dataloaders(
         pin_memory=pin_memory,
     )
     return train_loader, test_loader
+
+
+"""
+Giải thích cách resize ảnh trong file này:
+
+- Khi lấy một ảnh từ đường dẫn, ảnh sẽ được mở bằng PIL và chuyển sang RGB.
+- Nếu `augment_before_split=True`:
+    - Ảnh sẽ được augment (transform) trước khi chia thành các patch.
+    - Augmentation sử dụng albumentations, trong đó có thể có bước resize về kích thước mong muốn (ví dụ: 448x448).
+    - Sau khi augment, ảnh đã có kích thước chuẩn (ví dụ: 448x448).
+    - Ảnh này sẽ được chia thành các patch dọc theo chiều cao, mỗi patch có kích thước `(patch_height, width)` với `patch_height = img_size[0] // num_patches`.
+    - Mỗi patch lại được resize về đúng kích thước `(patch_height, img_size[1])` bằng `cv2.resize`.
+- Nếu `augment_before_split=False`:
+    - Ảnh gốc sẽ được chia thành các patch trước (patch có thể chưa đúng kích thước mong muốn).
+    - Sau đó, từng patch sẽ được augment (transform) riêng, trong đó có thể có bước resize về kích thước mong muốn (ví dụ: 448x448).
+    - Patch sẽ được resize về đúng kích thước bằng `cv2.resize` nếu không có transform.
+
+Tóm lại:
+- Ảnh đầu vào luôn được resize về kích thước mong muốn (ví dụ: 448x448) trước khi chia patch (nếu augment_before_split=True), hoặc từng patch sẽ được resize về kích thước mong muốn sau khi chia (nếu augment_before_split=False).
+- Patch cuối cùng luôn có kích thước `(img_size[0] // num_patches, img_size[1])` hoặc `(img_size[0], img_size[1])` tùy theo cách augment.
+- Việc resize dùng `cv2.resize` hoặc albumentations `A.Resize`.
+
+Ví dụ:
+- Nếu ảnh gốc là 1024x1024, img_size=(448,448), num_patches=2:
+    - augment_before_split=True: ảnh được resize về 448x448, chia thành 2 patch mỗi patch ~224x448.
+    - augment_before_split=False: ảnh gốc chia thành 2 patch, mỗi patch được resize về 448x448 (nếu transform có resize).
+"""

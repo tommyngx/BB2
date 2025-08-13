@@ -55,6 +55,7 @@ def train_model(
     patience=50,
     loss_type="ce",
     arch_type=None,
+    num_patches=None,  # thêm num_patches để lưu tên file đúng
 ):
     model = model.to(device)
     if train_df is not None:
@@ -115,8 +116,9 @@ def train_model(
     except Exception:
         img_size = (448, 448)
     imgsize_str = f"{img_size[0]}x{img_size[1]}"
-
-    model_key = f"{dataset}_{imgsize_str}_{arch_type}_{model_name}"
+    # Thêm p{num_patches} vào tên model nếu có
+    patch_str = f"_p{num_patches}" if num_patches is not None else ""
+    model_key = f"{dataset}_{imgsize_str}_{arch_type}_{model_name}{patch_str}"
 
     print(f"Checking for existing weights in {model_dir} with model_key: {model_key}")
     existing_weights = []
