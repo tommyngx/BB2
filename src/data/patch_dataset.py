@@ -198,8 +198,8 @@ class CancerPatchDataset(Dataset):
         # Use augmented image (after transform), not the original image
         augmented_image = image if isinstance(image, np.ndarray) else np.array(image)
         # Nếu shape là (C, H, W), chuyển về (H, W, C)
-        # if augmented_image.ndim == 3 and augmented_image.shape[0] == 3:
-        #    augmented_image = np.transpose(augmented_image, (1, 2, 0))
+        if augmented_image.ndim == 3 and augmented_image.shape[0] == 3:
+            augmented_image = np.transpose(augmented_image, (1, 2, 0))
         # print(
         #    f"[DEBUG] full_img_resized: w={w}, h={h}, augmented_image.shape={augmented_image.shape}"
         # )
