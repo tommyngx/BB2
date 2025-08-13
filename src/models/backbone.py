@@ -8,6 +8,11 @@ import argparse
 
 torch.serialization.add_safe_globals([argparse.Namespace])
 
+import warnings
+
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning, module="dinov2")
+
 
 def get_resnet_backbone(model_type="resnet50"):
     if model_type == "resnet50":
