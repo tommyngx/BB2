@@ -12,6 +12,17 @@ from src.trainer.engines import train_model, evaluate_model
 from src.utils.common import load_config, get_arg_or_config, clear_cuda_memory
 
 
+def parse_img_size(val):
+    if val is None:
+        return None
+    if "x" in val:
+        h, w = val.lower().split("x")
+        return (int(h), int(w))
+    else:
+        s = int(val)
+        return (s, s)
+
+
 def prepare_data_and_model(
     data_folder,
     model,
@@ -132,16 +143,6 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     config = load_config(args.config)
-
-    def parse_img_size(val):
-        if val is None:
-            return None
-        if "x" in val:
-            h, w = val.lower().split("x")
-            return (int(h), int(w))
-        else:
-            s = int(val)
-            return (s, s)
 
     data_folder = get_arg_or_config(args.data_folder, config.get("data_folder"), None)
     model_type = get_arg_or_config(args.model_type, config.get("model_type"), None)
