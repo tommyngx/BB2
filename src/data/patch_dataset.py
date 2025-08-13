@@ -14,6 +14,7 @@ import cv2
 from albumentations.pytorch import ToTensorV2
 import albumentations as A
 import multiprocessing
+import random
 
 
 def split_image_into_patches(image, num_patches=2, patch_size=None, overlap_ratio=0.2):
@@ -281,7 +282,56 @@ def get_dataloaders(
         num_workers=num_workers,
         pin_memory=pin_memory,
     )
+
+    # --- Lưu random batch mỗi khi load dataset ---
+    try:
+        save_random_batch_patches(train_loader, save_path="random_batch_on_load.png")
+    except Exception as e:
+        print(f"[WARNING] Không thể lưu random batch patch khi load dataset: {e}")
+
     return train_loader, test_loader
+
+
+def save_random_batch_patches(
+    dataloader, save_path="random_batch_patches.png", mean=[0.5] * 3, std=[0.5] * 3
+):
+    """
+    Lưu một batch ngẫu nhiên từ dataloader thành ảnh PNG.
+    Mỗi hàng là các patch của cùng một ảnh (batch_size hàng, mỗi hàng num_patches+1 ảnh).
+    """
+    import torchvision.utils as vutils
+
+    # Lấy random một batch
+    batch = None
+    for i, (patches, labels) in enumerate(dataloader):
+        if random.random() < 0.5 or batch is None:
+            batch = (patches, labels)
+        if i > 10:  # chỉ duyệt tối đa 10 batch đầu
+            break
+    if batch is None:
+        print("Không tìm thấy batch nào trong dataloader.")
+        return
+    patches, labels = batch  # patches: (B, num_patches+1, C, H, W)
+    B, N, C, H, W = patches.shape
+
+    # Unnormalize về [0, 1] để lưu ảnh
+    def unnormalize(img):
+        img = img.clone()
+        for c in range(3):
+            img[c] = img[c] * std[c] + mean[c]
+        return img.clamp(0, 1)
+
+    # Ghép các patch của mỗi ảnh thành một hàng
+    rows = []
+    for i in range(B):
+        patch_imgs = [unnormalize(patches[i, j]) for j in range(N)]
+        row = torch.cat(patch_imgs, dim=2)  # ghép theo chiều ngang (W)
+        rows.append(row)
+    grid = torch.cat(rows, dim=1)  # ghép các hàng theo chiều dọc (H)
+
+    # Lưu ảnh
+    vutils.save_image(grid, save_path)
+    print(f"Đã lưu random batch patch grid vào {save_path}")
 
 
 """
