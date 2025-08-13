@@ -44,20 +44,26 @@ def split_image_into_patches(image, num_patches=2, patch_size=None, overlap_rati
 
 class CancerPatchDataset(Dataset):
     def __init__(
-        self, df, data_folder, transform=None, num_patches=2, augment_before_split=True
+        self,
+        df,
+        root_dir,
+        transform=None,
+        num_patches=2,
+        augment_before_split=True,
+        config_path="config/config.yaml",
     ):
         self.df = df.reset_index(drop=True)
-        self.data_folder = data_folder
+        self.root_dir = root_dir
         self.transform = transform
         self.num_patches = num_patches
-        self.img_size = get_image_size_from_config()
+        self.img_size = get_image_size_from_config(config_path)  # truyền config_path
         self.augment_before_split = augment_before_split
 
     def __len__(self):
         return len(self.df)
 
     def __getitem__(self, idx):
-        img_path = os.path.join(self.data_folder, self.df.loc[idx, "link"])
+        img_path = os.path.join(self.root_dir, self.df.loc[idx, "link"])
         image = Image.open(img_path).convert("RGB")
         label = int(self.df.loc[idx, "cancer"])
         if self.augment_before_split:
@@ -105,7 +111,7 @@ def get_dataloaders(
     num_patches=None,
     num_workers=4,
     pin_memory=True,
-    img_size=None,  # thêm tham số img_size
+    img_size=None,
 ):
     # Nếu img_size được truyền vào thì dùng, nếu không thì lấy từ config
     if img_size is None:
@@ -118,10 +124,20 @@ def get_dataloaders(
     train_transform = get_train_augmentation(height, width, resize_first=False)
     test_transform = get_test_augmentation(height, width)
     train_dataset = CancerPatchDataset(
-        train_df, root_dir, train_transform, num_patches, augment_before_split=True
+        train_df,
+        root_dir,
+        train_transform,
+        num_patches,
+        augment_before_split=True,
+        config_path=config_path,
     )
     test_dataset = CancerPatchDataset(
-        test_df, root_dir, test_transform, num_patches, augment_before_split=True
+        test_df,
+        root_dir,
+        test_transform,
+        num_patches,
+        augment_before_split=True,
+        config_path=config_path,
     )
     sampler = get_weighted_sampler(train_df)
     train_loader = DataLoader(
