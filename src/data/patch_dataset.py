@@ -148,12 +148,12 @@ class CancerPatchDataset(Dataset):
         original_image = np.array(image)
 
         # --- Resize image to required shape before augmentation ---
-        required_shape = compute_required_img_shape(
-            (h, w), self.num_patches, self.overlap_ratio
-        )
-        image = image.resize(
-            (required_shape[1], required_shape[0]), resample=Image.BILINEAR
-        )
+        # required_shape = compute_required_img_shape(
+        #    (h, w), self.num_patches, self.overlap_ratio
+        # )
+        # image = image.resize(
+        #    (required_shape[1], required_shape[0]), resample=Image.BILINEAR
+        # )
 
         # Apply augmentation to the resized image (no resize in this step)
         if self.transform:
