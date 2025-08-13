@@ -22,18 +22,19 @@ def prepare_data_and_model(
     num_patches=None,
     arch_type="patch_resnet",
     pretrained_model_path=None,
-    img_size=None,  # thêm img_size
+    img_size=None,
 ):
     clear_cuda_memory()
     train_df, test_df, _ = load_metadata(data_folder, config_path)
+    # Sử dụng data_folder cho cả train/test dataset (không dùng root_dir)
     train_loader, test_loader = get_dataloaders(
         train_df,
         test_df,
-        root_dir,
+        data_folder,  # truyền đúng data_folder, không phải root_dir
         batch_size=batch_size,
         config_path=config_path,
         num_patches=num_patches,
-        img_size=img_size,  # truyền img_size
+        img_size=img_size,
     )
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if pretrained_model_path:
@@ -196,7 +197,7 @@ if __name__ == "__main__":
     if args.mode == "train":
         run_train(
             data_folder=data_folder,
-            root_dir=root_dir,
+            root_dir=root_dir,  # root_dir vẫn truyền vào để giữ API, nhưng không dùng trong get_dataloaders
             model=model,
             batch_size=batch_size,
             num_epochs=num_epochs,
@@ -208,7 +209,7 @@ if __name__ == "__main__":
             patience=patience,
             loss_type=loss_type,
             model_type=model_type,
-            img_size=img_size,  # truyền img_size
+            img_size=img_size,
         )
     elif args.mode == "test":
         run_test(
@@ -221,5 +222,5 @@ if __name__ == "__main__":
             num_patches=num_patches,
             arch_type=arch_type,
             pretrained_model_path=pretrained_model_path,
-            img_size=img_size,  # truyền img_size
+            img_size=img_size,
         )
