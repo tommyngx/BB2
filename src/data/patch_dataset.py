@@ -129,9 +129,6 @@ class CancerPatchDataset(Dataset):
         image = Image.open(img_path).convert("RGB")
         label = int(self.df.loc[idx, "cancer"])
 
-        # Debug: Print img_size to see what's happening
-        print(f"Debug: self.img_size = {self.img_size}, type = {type(self.img_size)}")
-
         # Ensure img_size is (height, width) and both are int > 0
         img_size_hw = self.img_size
         if isinstance(img_size_hw, (list, tuple)):
@@ -144,10 +141,7 @@ class CancerPatchDataset(Dataset):
 
         # Ensure positive values
         if h <= 0 or w <= 0:
-            print(f"Warning: Invalid img_size {self.img_size}, using fallback 448x448")
             h = w = 448
-
-        print(f"Debug: Using h={h}, w={w}")
 
         # --- Resize image to required shape before augmentation ---
         required_shape = compute_required_img_shape(
@@ -168,21 +162,26 @@ class CancerPatchDataset(Dataset):
             image, self.num_patches, overlap_ratio=self.overlap_ratio
         )
         patch_tensors = []
-        # Resize each patch to the standard size
+
+        # Create normalization and tensor conversion pipeline
+        normalize_and_tensorize = A.Compose(
+            [A.Normalize(mean=[0.5] * 3, std=[0.5] * 3), ToTensorV2()]
+        )
+
+        # Resize each patch to the standard size and convert to tensor
         for patch in patches:
-            patch_np = patch.permute(1, 2, 0).numpy()
+            patch_np = patch.permute(1, 2, 0).numpy().astype(np.uint8)
             patch_np = cv2.resize(patch_np, (w, h))
-            patch = A.Normalize(mean=[0.5] * 3, std=[0.5] * 3)(image=patch_np)["image"]
-            patch = ToTensorV2()(image=patch)["image"]
-            patch_tensors.append(patch)
+            patch_tensor = normalize_and_tensorize(image=patch_np)["image"]
+            patch_tensors.append(patch_tensor)
+
         # Add full image as the last patch (resize to img_size, normalize, to tensor)
         full_img_np = image if isinstance(image, np.ndarray) else np.array(image)
+        full_img_np = full_img_np.astype(np.uint8)
         full_img_resized = cv2.resize(full_img_np, (w, h))
-        full_img_norm = A.Normalize(mean=[0.5] * 3, std=[0.5] * 3)(
-            image=full_img_resized
-        )["image"]
-        full_img_tensor = ToTensorV2()(image=full_img_norm)["image"]
+        full_img_tensor = normalize_and_tensorize(image=full_img_resized)["image"]
         patch_tensors.append(full_img_tensor)
+
         patch_tensors = torch.stack(patch_tensors)
         return patch_tensors, label
 
