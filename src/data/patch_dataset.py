@@ -34,6 +34,14 @@ def split_image_into_patches(image, num_patches=2, patch_size=None, overlap_rati
         image = image.permute(1, 2, 0).numpy()
     else:
         image = np.array(image)
+
+    # Đảm bảo image là uint8 và trong range [0, 255]
+    if image.dtype != np.uint8:
+        if image.max() <= 1.0:
+            image = (image * 255).astype(np.uint8)
+        else:
+            image = np.clip(image, 0, 255).astype(np.uint8)
+
     height, width = image.shape[:2]
     if patch_size is None:
         patch_height = height // num_patches
@@ -42,6 +50,11 @@ def split_image_into_patches(image, num_patches=2, patch_size=None, overlap_rati
         patch_height = patch_size[0]
     step = int(patch_height * (1 - overlap_ratio))
     patches = []
+
+    print(
+        f"[DEBUG] Splitting image shape {image.shape}, dtype {image.dtype}, range [{image.min()}, {image.max()}]"
+    )
+
     for i in range(num_patches):
         if i == num_patches - 1:
             # Patch cuối lấy đúng phần cuối ảnh
@@ -53,16 +66,27 @@ def split_image_into_patches(image, num_patches=2, patch_size=None, overlap_rati
         # Đảm bảo không vượt quá biên
         start_h = max(0, start_h)
         end_h = min(height, end_h)
+
         patch = image[start_h:end_h, :, :]
+        print(
+            f"[DEBUG] Patch {i}: shape {patch.shape}, range [{patch.min()}, {patch.max()}]"
+        )
+
         # Nếu patch chưa đủ chiều cao, pad thêm cho đủ
         if patch.shape[0] != patch_height:
             pad_h = patch_height - patch.shape[0]
             patch = np.pad(patch, ((0, pad_h), (0, 0), (0, 0)), mode="edge")
+
         patch = cv2.resize(
             patch, (patch_size[1], patch_size[0]), interpolation=cv2.INTER_LINEAR
         )
-        patch = torch.from_numpy(patch).permute(2, 0, 1).float()
-        patches.append(patch)
+
+        # Chuyển về tensor, đảm bảo giá trị float trong [0, 255]
+        patch_tensor = torch.from_numpy(patch).permute(2, 0, 1).float()
+        print(
+            f"[DEBUG] Patch {i} after tensor: range [{patch_tensor.min().item()}, {patch_tensor.max().item()}]"
+        )
+        patches.append(patch_tensor)
     return patches
 
 
@@ -198,8 +222,19 @@ class CancerPatchDataset(Dataset):
 
         # Resize each patch to the standard size and convert to tensor
         for patch in patches:
-            patch_np = patch.permute(1, 2, 0).numpy().astype(np.uint8)
+            # patch đã là tensor (C, H, W) với giá trị float [0, 255]
+            patch_np = patch.permute(1, 2, 0).numpy()
+            # Đảm bảo uint8 range [0, 255]
+            if patch_np.max() > 1.0:
+                patch_np = np.clip(patch_np, 0, 255).astype(np.uint8)
+            else:
+                patch_np = (patch_np * 255).astype(np.uint8)
+
             patch_np = cv2.resize(patch_np, (w, h))
+            print(
+                f"[DEBUG] Patch before normalize: shape {patch_np.shape}, range [{patch_np.min()}, {patch_np.max()}]"
+            )
+
             patch_tensor = normalize_and_tensorize(image=patch_np)["image"]
             patch_tensors.append(patch_tensor)
 
@@ -371,37 +406,3 @@ def save_random_batch_patches(
     # Lưu ảnh greyscale
     vutils.save_image(grid, save_path)
     print(f"Đã lưu random batch patch grid (greyscale) vào {save_path}")
-
-
-def save_individual_patches(patch_tensors, idx, label, mean=[0.5] * 3, std=[0.5] * 3):
-    """
-    Lưu từng patch riêng biệt để debug.
-    """
-    import torchvision.utils as vutils
-    import os
-
-    debug_dir = f"debug_individual_patches"
-    os.makedirs(debug_dir, exist_ok=True)
-
-    # Unnormalize function
-    def unnormalize(img):
-        img = img.clone()
-        for c in range(3):
-            img[c] = img[c] * std[c] + mean[c]
-        return img.clamp(0, 1)
-
-    num_patches = patch_tensors.shape[0]
-
-    for i, patch in enumerate(patch_tensors):
-        patch_unnorm = unnormalize(patch)
-        if i == num_patches - 1:
-            # Patch cuối là full image
-            patch_name = f"patch_{idx}_full_image_label_{label}.png"
-        else:
-            patch_name = f"patch_{idx}_{i}_label_{label}.png"
-
-        patch_path = os.path.join(debug_dir, patch_name)
-        vutils.save_image(patch_unnorm, patch_path)
-        print(
-            f"Đã lưu {patch_name}, min: {patch.min().item():.3f}, max: {patch.max().item():.3f}"
-        )
