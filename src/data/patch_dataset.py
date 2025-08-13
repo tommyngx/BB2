@@ -46,7 +46,7 @@ class CancerPatchDataset(Dataset):
     def __init__(
         self,
         df,
-        data_folder,  # đổi tên từ root_dir sang data_folder
+        data_folder,  # đã đổi tên từ root_dir sang data_folder
         transform=None,
         num_patches=2,
         augment_before_split=True,
@@ -109,7 +109,7 @@ class CancerPatchDataset(Dataset):
 def get_dataloaders(
     train_df,
     test_df,
-    data_folder,  # đổi tên từ root_dir sang data_folder
+    data_folder,  # đã đổi tên từ root_dir sang data_folder
     batch_size=16,
     config_path="config/config.yaml",
     num_patches=None,
