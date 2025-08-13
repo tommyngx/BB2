@@ -115,9 +115,8 @@ def train_model(
     except Exception:
         img_size = (448, 448)
     imgsize_str = f"{img_size[0]}x{img_size[1]}"
-    model_key = f"{dataset}_{model_name}_{imgsize_str}"
-    if arch_type:
-        model_key += f"_{arch_type}"
+
+    model_key = f"{dataset}_{imgsize_str}_{arch_type}_{model_name}"
 
     print(f"Checking for existing weights in {model_dir} with model_key: {model_key}")
     existing_weights = []
