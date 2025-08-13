@@ -65,7 +65,7 @@ def run_train(
             img_size=img_size,
         )
     )
-    model_name = f"{model_type}_based" if model_type else "based"
+    model_name = f"{model_type}" if model_type else "based"
     trained_model = train_model(
         model,
         train_loader,
