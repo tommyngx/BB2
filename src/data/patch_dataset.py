@@ -208,6 +208,15 @@ class CancerPatchDataset(Dataset):
         patch_tensors.append(full_img_tensor)
 
         patch_tensors = torch.stack(patch_tensors)
+        # --- DEBUG: Lưu patch_tensors thành ảnh để kiểm tra augmentation ---
+        if idx < 3:  # chỉ lưu cho 3 ảnh đầu để tránh lưu quá nhiều
+            # patch_tensors shape: (num_patches+1, C, H, W)
+            # Thêm batch dimension để dùng lại hàm save_random_batch_patches
+            debug_patches = patch_tensors.unsqueeze(0)  # (1, N, C, H, W)
+            debug_labels = torch.tensor([label])
+            save_random_batch_patches(
+                [(debug_patches, debug_labels)], save_path=f"debug_patch_{idx}.png"
+            )
         return patch_tensors, label
 
 
