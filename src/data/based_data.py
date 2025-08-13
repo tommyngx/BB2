@@ -8,6 +8,10 @@ from .dataloader import get_image_size_from_config, get_weighted_sampler
 
 class CancerImageDataset(Dataset):
     def __init__(self, df, root_dir, transform=None):
+        if root_dir is None:
+            raise ValueError(
+                "root_dir must not be None. Please provide the image folder path."
+            )
         self.df = df.reset_index(drop=True)
         self.root_dir = root_dir
         self.transform = transform
