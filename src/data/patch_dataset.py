@@ -162,6 +162,20 @@ class CancerPatchDataset(Dataset):
         else:
             image = np.array(image)
 
+        # Đảm bảo ảnh đúng chiều (chiều cao >= chiều rộng) trước khi chia patches
+        if isinstance(image, torch.Tensor):
+            img_for_shape = image.permute(1, 2, 0).numpy()
+        else:
+            img_for_shape = image
+        if img_for_shape.shape[0] < img_for_shape.shape[1]:
+            # Nếu chiều cao < chiều rộng, xoay lại cho đúng (90 độ)
+            if isinstance(image, torch.Tensor):
+                image = image.permute(1, 2, 0).numpy()
+                image = np.rot90(image)
+                image = torch.from_numpy(image).permute(2, 0, 1)
+            else:
+                image = np.rot90(image)
+
         # Split the augmented image into patches
         patches = split_image_into_patches(
             image, self.num_patches, overlap_ratio=self.overlap_ratio
