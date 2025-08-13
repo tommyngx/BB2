@@ -99,14 +99,17 @@ class CancerPatchDataset(Dataset):
 def get_dataloaders(
     train_df,
     test_df,
-    data_folder,
+    root_dir,
     batch_size=16,
     config_path="config/config.yaml",
     num_patches=None,
     num_workers=4,
     pin_memory=True,
+    img_size=None,  # thêm tham số img_size
 ):
-    img_size = get_image_size_from_config(config_path)
+    # Nếu img_size được truyền vào thì dùng, nếu không thì lấy từ config
+    if img_size is None:
+        img_size = get_image_size_from_config(config_path)
     num_patches = get_num_patches_from_config(config_path, num_patches)
     if isinstance(img_size, (list, tuple)):
         height, width = int(img_size[0]), int(img_size[1])
@@ -115,10 +118,10 @@ def get_dataloaders(
     train_transform = get_train_augmentation(height, width, resize_first=False)
     test_transform = get_test_augmentation(height, width)
     train_dataset = CancerPatchDataset(
-        train_df, data_folder, train_transform, num_patches, augment_before_split=True
+        train_df, root_dir, train_transform, num_patches, augment_before_split=True
     )
     test_dataset = CancerPatchDataset(
-        test_df, data_folder, test_transform, num_patches, augment_before_split=True
+        test_df, root_dir, test_transform, num_patches, augment_before_split=True
     )
     sampler = get_weighted_sampler(train_df)
     train_loader = DataLoader(
