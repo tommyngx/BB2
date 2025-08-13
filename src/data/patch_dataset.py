@@ -182,9 +182,11 @@ class CancerPatchDataset(Dataset):
 
         # Add full AUGMENTED image as the last patch (resize to img_size, normalize, to tensor)
         # Use augmented image (after transform), not the original image
-        full_img_resized = cv2.resize(
-            image if isinstance(image, np.ndarray) else np.array(image), (w, h)
+        augmented_image = image if isinstance(image, np.ndarray) else np.array(image)
+        print(
+            f"[DEBUG] full_img_resized: w={w}, h={h}, augmented_image.shape={augmented_image.shape}"
         )
+        full_img_resized = cv2.resize(augmented_image, (w, h))
         full_img_tensor = normalize_and_tensorize(image=full_img_resized)["image"]
         patch_tensors.append(full_img_tensor)
 
