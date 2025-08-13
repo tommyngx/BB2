@@ -109,10 +109,16 @@ def get_dataloaders(
     if img_size is None:
         img_size = get_image_size_from_config(config_path)
     num_patches = get_num_patches_from_config(config_path, num_patches)
-    train_transform = get_train_augmentation(
-        None, None, resize_first=False
-    )  # Không resize khi augment
-    test_transform = get_test_augmentation(None, None)  # Không resize khi augment
+    # Đảm bảo img_size là tuple (height, width) với giá trị int
+    if isinstance(img_size, (list, tuple)):
+        height, width = int(img_size[0]), int(img_size[1])
+    else:
+        height = width = int(img_size)
+    # Nếu height hoặc width là None, gán mặc định 448
+    if height is None or width is None:
+        height = width = 448
+    train_transform = get_train_augmentation(height, width, resize_first=False)
+    test_transform = get_test_augmentation(height, width)
     train_dataset = CancerPatchDataset(
         train_df,
         data_folder,
@@ -120,7 +126,7 @@ def get_dataloaders(
         num_patches,
         augment_before_split=True,
         config_path=config_path,
-        img_size=img_size,
+        img_size=(height, width),
     )
     test_dataset = CancerPatchDataset(
         test_df,
@@ -129,7 +135,7 @@ def get_dataloaders(
         num_patches,
         augment_before_split=True,
         config_path=config_path,
-        img_size=img_size,
+        img_size=(height, width),
     )
     sampler = get_weighted_sampler(train_df)
     train_loader = DataLoader(
