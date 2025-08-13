@@ -5,10 +5,14 @@ import torch
 
 
 def load_config(config_name, config_dir="config"):
-    if not config_name.endswith(".yaml"):
-        config_name += ".yaml"
-    config_path = os.path.join(config_dir, config_name)
-    config_path = os.path.abspath(config_path)
+    # Nếu config_name là đường dẫn tuyệt đối hoặc tương đối, dùng trực tiếp
+    if os.path.isabs(config_name) or os.path.exists(config_name):
+        config_path = os.path.abspath(config_name)
+    else:
+        if not config_name.endswith(".yaml"):
+            config_name += ".yaml"
+        config_path = os.path.join(config_dir, config_name)
+        config_path = os.path.abspath(config_path)
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
     if isinstance(config, dict) and "config" in config:
