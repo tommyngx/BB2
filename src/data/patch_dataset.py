@@ -122,7 +122,7 @@ class CancerPatchDataset(Dataset):
     def __getitem__(self, idx):
         """
         Returns:
-            patch_tensors (torch.Tensor): Tensor of shape (num_patches, C, H, W).
+            patch_tensors (torch.Tensor): Tensor of shape (num_patches+1, C, H, W).
             label (int): Image label.
         """
         img_path = os.path.join(self.data_folder, self.df.loc[idx, "link"])
@@ -154,6 +154,14 @@ class CancerPatchDataset(Dataset):
             patch = A.Normalize(mean=[0.5] * 3, std=[0.5] * 3)(image=patch_np)["image"]
             patch = ToTensorV2()(image=patch)["image"]
             patch_tensors.append(patch)
+        # Add full image as the last patch (resize to img_size, normalize, to tensor)
+        full_img_np = image if isinstance(image, np.ndarray) else np.array(image)
+        full_img_resized = cv2.resize(full_img_np, self.img_size)
+        full_img_norm = A.Normalize(mean=[0.5] * 3, std=[0.5] * 3)(
+            image=full_img_resized
+        )["image"]
+        full_img_tensor = ToTensorV2()(image=full_img_norm)["image"]
+        patch_tensors.append(full_img_tensor)
         patch_tensors = torch.stack(patch_tensors)
         return patch_tensors, label
 

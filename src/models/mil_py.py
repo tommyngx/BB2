@@ -207,9 +207,6 @@ class MILClassifierV3(nn.Module):
         attn_dropout: float = 0.1,
         head_dropout: float = 0.1,
         global_size: tuple = (448, 448),
-        reconstruct_fn=None,
-        temperature: float = 1.0,
-        overlap_ratio: float = 0.2,
     ):
         super().__init__()
         assert fusion in ("concat", "gated"), "fusion must be 'concat' or 'gated'"
@@ -220,9 +217,6 @@ class MILClassifierV3(nn.Module):
         self.num_classes = num_classes
         self.fusion = fusion
         self.global_size = global_size
-        self.temperature = temperature
-        self.reconstruct_fn = reconstruct_fn
-        self.overlap_ratio = overlap_ratio
 
         self.mil_pool = _GatedAttnPool(
             d_model=local_dim, hidden=attn_hidden, dropout=attn_dropout
@@ -270,36 +264,6 @@ class MILClassifierV3(nn.Module):
         feats = feats.view(B, N, -1)
         return feats
 
-    def _vertical_reconstruct(self, x: torch.Tensor) -> torch.Tensor:
-        B, N, C, h, w = x.shape
-        step = max(1, int(round(h * (1.0 - self.overlap_ratio))))
-        H_full = step * (N - 1) + h
-        canvas = x.new_zeros(B, C, H_full, w)
-        weight = x.new_zeros(B, 1, H_full, w)
-        ovl = h - step
-        base_w = torch.ones(h, device=x.device)
-        if ovl > 0:
-            ramp = torch.linspace(0.0, 1.0, steps=ovl, device=x.device)
-            base_w[:ovl] = ramp
-            base_w[-ovl:] = 1.0 - ramp
-        for i in range(N):
-            y0 = i * step
-            y1 = y0 + h
-            w_i = base_w.clone()
-            if ovl > 0:
-                if i == 0:
-                    w_i[:ovl] = 1.0
-                if i == N - 1:
-                    w_i[-ovl:] = 1.0
-            w_map = w_i.view(1, 1, h, 1)
-            canvas[:, :, y0:y1, :] += x[:, i] * w_map
-            weight[:, :, y0:y1, :] += w_map
-        recon = canvas / weight.clamp(min=1e-6)
-        recon = F.interpolate(
-            recon, size=self.global_size, mode="bilinear", align_corners=False
-        )
-        return recon
-
     def _encode_global(self, global_img: torch.Tensor) -> torch.Tensor:
         feats_g = self.base_model_global(global_img)
         if feats_g.dim() == 4:
@@ -307,13 +271,17 @@ class MILClassifierV3(nn.Module):
         return feats_g
 
     def forward(self, x_patches: torch.Tensor, mask: torch.Tensor = None):
-        feats_l = self._encode_patches(x_patches)
-        pooled_l, attn = self.mil_pool(feats_l, mask=mask, temperature=self.temperature)
-        if self.reconstruct_fn is not None:
-            global_img = self.reconstruct_fn(x_patches)
-        else:
-            global_img = self._vertical_reconstruct(x_patches)
-        feats_g = self._encode_global(global_img)
+        # x_patches: (B, N+1, C, H, W)
+        # Use first N patches for MIL, last patch as global image
+        B, N_plus_1, C, H, W = x_patches.shape
+        N = N_plus_1 - 1
+        x_local = x_patches[:, :N]  # (B, N, C, H, W)
+        x_global = x_patches[:, N]  # (B, C, H, W)
+
+        feats_l = self._encode_patches(x_local)
+        pooled_l, attn = self.mil_pool(feats_l, mask=mask, temperature=1.0)
+        feats_g = self._encode_global(x_global)
+
         if self.fusion == "concat":
             fused = torch.cat([pooled_l, feats_g], dim=1)
         else:
