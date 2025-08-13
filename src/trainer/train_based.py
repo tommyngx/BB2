@@ -54,6 +54,7 @@ def run_train(
     img_size=None,
     patience=50,
     loss_type="ce",
+    model_type=None,  # thêm model_type để truyền vào
 ):
     train_df, test_df, train_loader, test_loader, model, device = (
         prepare_data_and_model(
@@ -64,6 +65,7 @@ def run_train(
             img_size=img_size,
         )
     )
+    model_name = f"{model_type}_based" if model_type else "based"
     trained_model = train_model(
         model,
         train_loader,
@@ -71,12 +73,13 @@ def run_train(
         num_epochs=num_epochs,
         lr=lr,
         device=device,
-        model_name=getattr(model, "name", "base_model"),
+        model_name=model_name,  # tên model + kiến trúc
         output=output,
         dataset_folder=data_folder,
         train_df=train_df,
         patience=patience,
         loss_type=loss_type,
+        arch_type="based",
     )
     return trained_model
 
@@ -171,6 +174,7 @@ if __name__ == "__main__":
             img_size=img_size,
             patience=patience,
             loss_type=loss_type,
+            model_type=model_type,  # truyền vào để tạo model_name
         )
     elif args.mode == "test":
         run_test(
