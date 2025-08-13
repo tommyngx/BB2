@@ -14,6 +14,10 @@ from .patch_architectures import (
     PatchGlobalLocalTokenMixerClassifier,
 )
 from .mil_py import MILClassifier, MILClassifierV2, MILClassifierV3
+import warnings
+
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning, module="dinov2")
 
 
 def get_patch_model(

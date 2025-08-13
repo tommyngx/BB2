@@ -6,6 +6,10 @@ from .backbone import (
 )
 from .head import get_linear_head
 import torch.nn as nn
+import warnings
+
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning, module="dinov2")
 
 
 def get_based_model(model_type="resnet50", num_classes=2):
