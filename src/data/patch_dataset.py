@@ -199,9 +199,9 @@ class CancerPatchDataset(Dataset):
         # Nếu shape là (C, H, W), chuyển về (H, W, C)
         if augmented_image.ndim == 3 and augmented_image.shape[0] == 3:
             augmented_image = np.transpose(augmented_image, (1, 2, 0))
-        print(
-            f"[DEBUG] full_img_resized: w={w}, h={h}, augmented_image.shape={augmented_image.shape}"
-        )
+        # print(
+        #    f"[DEBUG] full_img_resized: w={w}, h={h}, augmented_image.shape={augmented_image.shape}"
+        # )
         full_img_resized = cv2.resize(augmented_image, (w, h))
         full_img_tensor = normalize_and_tensorize(image=full_img_resized)["image"]
         patch_tensors.append(full_img_tensor)
