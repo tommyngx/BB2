@@ -43,12 +43,21 @@ def split_image_into_patches(image, num_patches=2, patch_size=None, overlap_rati
     step = int(patch_height * (1 - overlap_ratio))
     patches = []
     for i in range(num_patches):
-        start_h = i * step
-        end_h = start_h + patch_height
-        if end_h > height:
+        if i == num_patches - 1:
+            # Patch cuối lấy đúng phần cuối ảnh
+            start_h = height - patch_height
             end_h = height
-            start_h = max(0, end_h - patch_height)
+        else:
+            start_h = i * step
+            end_h = start_h + patch_height
+        # Đảm bảo không vượt quá biên
+        start_h = max(0, start_h)
+        end_h = min(height, end_h)
         patch = image[start_h:end_h, :, :]
+        # Nếu patch chưa đủ chiều cao, pad thêm cho đủ
+        if patch.shape[0] != patch_height:
+            pad_h = patch_height - patch.shape[0]
+            patch = np.pad(patch, ((0, pad_h), (0, 0), (0, 0)), mode="edge")
         patch = cv2.resize(
             patch, (patch_size[1], patch_size[0]), interpolation=cv2.INTER_LINEAR
         )
@@ -196,23 +205,43 @@ class CancerPatchDataset(Dataset):
 
         # Add full AUGMENTED image as the last patch (resize to img_size, normalize, to tensor)
         # Use augmented image (after transform), not the original image
-        augmented_image = image if isinstance(image, np.ndarray) else np.array(image)
-        # Nếu shape là (C, H, W), chuyển về (H, W, C)
-        if augmented_image.ndim == 3 and augmented_image.shape[0] == 3:
-            augmented_image = np.transpose(augmented_image, (1, 2, 0))
-        # print(
-        #    f"[DEBUG] full_img_resized: w={w}, h={h}, augmented_image.shape={augmented_image.shape}"
-        # )
+        augmented_image = image
+
+        # Xử lý chuyển đổi tensor/array cho full image
+        if isinstance(augmented_image, torch.Tensor):
+            # Nếu là tensor (C, H, W), chuyển về numpy (H, W, C)
+            if augmented_image.dim() == 3:
+                augmented_image = augmented_image.permute(1, 2, 0).numpy()
+            else:
+                augmented_image = augmented_image.numpy()
+        else:
+            augmented_image = np.array(augmented_image)
+
+        # Đảm bảo là uint8 và shape đúng (H, W, C)
+        if augmented_image.ndim == 3 and augmented_image.shape[2] == 3:
+            # Đã đúng format (H, W, C)
+            if augmented_image.dtype != np.uint8:
+                if augmented_image.max() <= 1.0:
+                    augmented_image = (augmented_image * 255).astype(np.uint8)
+                else:
+                    augmented_image = augmented_image.astype(np.uint8)
+
         full_img_resized = cv2.resize(augmented_image, (w, h))
         full_img_tensor = normalize_and_tensorize(image=full_img_resized)["image"]
         patch_tensors.append(full_img_tensor)
 
         patch_tensors = torch.stack(patch_tensors)
-        # --- DEBUG: Lưu patch_tensors thành ảnh để kiểm tra augmentation ---
-        if idx < 3:  # chỉ lưu cho 3 ảnh đầu để tránh lưu quá nhiều
+
+        # --- DEBUG: Lưu từng patch riêng biệt để kiểm tra ---
+        if idx < 3:
             print(
                 f"[DEBUG] patch_tensors shape: {patch_tensors.shape}, dtype: {patch_tensors.dtype}, min: {patch_tensors.min().item()}, max: {patch_tensors.max().item()}"
             )
+
+            # Lưu từng patch riêng biệt
+            save_individual_patches(patch_tensors, idx, label)
+
+            # Lưu batch như cũ
             debug_patches = patch_tensors.unsqueeze(0)  # (1, N, C, H, W)
             debug_labels = torch.tensor([label])
             save_random_batch_patches(
@@ -344,50 +373,35 @@ def save_random_batch_patches(
     print(f"Đã lưu random batch patch grid (greyscale) vào {save_path}")
 
 
-"""
-Explanation of the patch augmentation and resizing pipeline:
+def save_individual_patches(patch_tensors, idx, label, mean=[0.5] * 3, std=[0.5] * 3):
+    """
+    Lưu từng patch riêng biệt để debug.
+    """
+    import torchvision.utils as vutils
+    import os
 
-- When loading an image, it is opened with PIL and converted to RGB.
-- The image is resized to the required shape (computed based on the number of patches, overlap, and output img_size) before augmentation.
-- If a transform (augmentation) is provided, it is applied to the resized image.
-    - Note: The augmentation pipeline always includes a final resize step (because get_train_augmentation and get_test_augmentation always append A.Resize(height, width) at the end if resize_first=False).
-    - Therefore, the image will be resized again to (height, width) after augmentation.
-- After augmentation, the image is split into patches using `split_image_into_patches`.
-- Each patch is then resized to the standard size (e.g., 448x448 or as specified) using `cv2.resize`.
-- After resizing, each patch is normalized (`A.Normalize`) and converted to a tensor (`ToTensorV2`).
-- The output is a stacked tensor of all patches.
+    debug_dir = f"debug_individual_patches"
+    os.makedirs(debug_dir, exist_ok=True)
 
-Summary:
-- The original image is resized to be large enough for patch splitting (according to the number of patches and overlap).
-- Augmentation (transform) always includes a resize to (height, width) at the end of the pipeline (by design of get_train_augmentation).
-- Each patch is resized again after splitting, ensuring all output patches have the same size (e.g., 448x448).
-- The final patch size is always the standard size specified by argument or config.
+    # Unnormalize function
+    def unnormalize(img):
+        img = img.clone()
+        for c in range(3):
+            img[c] = img[c] * std[c] + mean[c]
+        return img.clamp(0, 1)
 
-Note:
-- If you want to augment without resizing in the pipeline, modify get_train_augmentation to avoid adding A.Resize(height, width) when resize_first=False.
+    num_patches = patch_tensors.shape[0]
 
-    - Each patch is resized to 448x448.
-    - Each patch is normalized and converted to a tensor.
+    for i, patch in enumerate(patch_tensors):
+        patch_unnorm = unnormalize(patch)
+        if i == num_patches - 1:
+            # Patch cuối là full image
+            patch_name = f"patch_{idx}_full_image_label_{label}.png"
+        else:
+            patch_name = f"patch_{idx}_{i}_label_{label}.png"
 
-Advantages:
-- Ensures all output patches have the same size, suitable for patch-based models.
-- Augmentation does not alter the original spatial information before splitting.
-- Saves RAM by resizing the original image before augmentation and splitting.
-
-If you split an image into 3 vertical patches (`p3`), each patch will have a size of **448x448** (after resizing each patch), so:
-
-- **The minimum required original image height** depends on the patch splitting and overlap.
-- If no overlap (`overlap_ratio=0`):
-  - Minimum original image height = 3 × 448 = **1344** pixels (width is 448).
-- If overlap is 20% (`overlap_ratio=0.2`):
-  - Each patch height is 448, step between patches is `step = 448 × (1 - 0.2) = 358.4 ≈ 358` pixels.
-  - Minimum original image height = `step × (num_patches - 1) + patch_height = 358 × 2 + 448 = 1164` pixels (width is 448).
-
-Summary:
-- No overlap: minimum image size is 1344x448.
-- 20% overlap: minimum image size is about 1164x448.
-- After splitting, each patch is always resized to 448x448.
-
-Note:
-- If the original image is smaller, the last patch may repeat regions or be resized to ensure the correct number of patches.
-"""
+        patch_path = os.path.join(debug_dir, patch_name)
+        vutils.save_image(patch_unnorm, patch_path)
+        print(
+            f"Đã lưu {patch_name}, min: {patch.min().item():.3f}, max: {patch.max().item():.3f}"
+        )
