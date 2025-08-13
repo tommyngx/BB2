@@ -51,7 +51,7 @@ class CancerPatchDataset(Dataset):
         num_patches=2,
         augment_before_split=True,
         config_path="config/config.yaml",
-        img_size=None,  # thêm img_size để ưu tiên argument
+        img_size=None,
     ):
         if data_folder is None:
             raise ValueError(
@@ -61,7 +61,6 @@ class CancerPatchDataset(Dataset):
         self.data_folder = data_folder
         self.transform = transform
         self.num_patches = num_patches
-        # Ưu tiên img_size truyền vào, nếu không thì lấy từ config
         if img_size is None:
             self.img_size = get_image_size_from_config(config_path)
         else:
@@ -75,40 +74,24 @@ class CancerPatchDataset(Dataset):
         img_path = os.path.join(self.data_folder, self.df.loc[idx, "link"])
         image = Image.open(img_path).convert("RGB")
         label = int(self.df.loc[idx, "cancer"])
-        if self.augment_before_split:
-            if self.transform:
-                image_np = np.array(image)
-                augmented = self.transform(image=image_np)
-                image = augmented["image"]
-            else:
-                image_np = np.array(image)
-                image_np = cv2.resize(image_np, self.img_size)
-                image = A.Normalize(mean=[0.5] * 3, std=[0.5] * 3)(image=image_np)[
-                    "image"
-                ]
-                image = ToTensorV2()(image=image)["image"]
-            patch_height = self.img_size[0] // self.num_patches
-            # Sử dụng img_size từ argument/config cho width
-            patches = split_image_into_patches(
-                image, self.num_patches, patch_size=(patch_height, self.img_size[1])
-            )
-            patch_tensors = torch.stack(patches)
+        # Augment ảnh gốc (không resize ở bước này)
+        if self.transform:
+            image_np = np.array(image)
+            augmented = self.transform(image=image_np)
+            image = augmented["image"]
         else:
-            patches = split_image_into_patches(image, self.num_patches)
-            patch_tensors = []
-            for patch in patches:
-                patch_np = patch.permute(1, 2, 0).numpy()
-                if self.transform:
-                    augmented = self.transform(image=patch_np)
-                    patch = augmented["image"]
-                else:
-                    patch_np = cv2.resize(patch_np, self.img_size)
-                    patch = A.Normalize(mean=[0.5] * 3, std=[0.5] * 3)(image=patch_np)[
-                        "image"
-                    ]
-                    patch = ToTensorV2()(image=patch)["image"]
-                patch_tensors.append(patch)
-            patch_tensors = torch.stack(patch_tensors)
+            image = np.array(image)
+        # Split ảnh đã augment thành các patch
+        patches = split_image_into_patches(image, self.num_patches)
+        patch_tensors = []
+        # Resize từng patch về kích thước tiêu chuẩn
+        for patch in patches:
+            patch_np = patch.permute(1, 2, 0).numpy()
+            patch_np = cv2.resize(patch_np, self.img_size)
+            patch = A.Normalize(mean=[0.5] * 3, std=[0.5] * 3)(image=patch_np)["image"]
+            patch = ToTensorV2()(image=patch)["image"]
+            patch_tensors.append(patch)
+        patch_tensors = torch.stack(patch_tensors)
         return patch_tensors, label
 
 
@@ -123,16 +106,13 @@ def get_dataloaders(
     pin_memory=True,
     img_size=None,
 ):
-    # Nếu img_size được truyền vào thì dùng, nếu không thì lấy từ config
     if img_size is None:
         img_size = get_image_size_from_config(config_path)
     num_patches = get_num_patches_from_config(config_path, num_patches)
-    if isinstance(img_size, (list, tuple)):
-        height, width = int(img_size[0]), int(img_size[1])
-    else:
-        height = width = int(img_size)
-    train_transform = get_train_augmentation(height, width, resize_first=False)
-    test_transform = get_test_augmentation(height, width)
+    train_transform = get_train_augmentation(
+        None, None, resize_first=False
+    )  # Không resize khi augment
+    test_transform = get_test_augmentation(None, None)  # Không resize khi augment
     train_dataset = CancerPatchDataset(
         train_df,
         data_folder,
@@ -140,7 +120,7 @@ def get_dataloaders(
         num_patches,
         augment_before_split=True,
         config_path=config_path,
-        img_size=img_size,  # truyền img_size vào dataset
+        img_size=img_size,
     )
     test_dataset = CancerPatchDataset(
         test_df,
@@ -149,7 +129,7 @@ def get_dataloaders(
         num_patches,
         augment_before_split=True,
         config_path=config_path,
-        img_size=img_size,  # truyền img_size vào dataset
+        img_size=img_size,
     )
     sampler = get_weighted_sampler(train_df)
     train_loader = DataLoader(
@@ -170,27 +150,28 @@ def get_dataloaders(
 
 
 """
-Giải thích cách resize ảnh trong file này:
+Giải thích cách xử lý augment và resize patch với code hiện tại:
 
 - Khi lấy một ảnh từ đường dẫn, ảnh sẽ được mở bằng PIL và chuyển sang RGB.
-- Nếu `augment_before_split=True`:
-    - Ảnh sẽ được augment (transform) trước khi chia thành các patch.
-    - Augmentation sử dụng albumentations, trong đó có thể có bước resize về kích thước mong muốn (ví dụ: 448x448).
-    - Sau khi augment, ảnh đã có kích thước chuẩn (ví dụ: 448x448).
-    - Ảnh này sẽ được chia thành các patch dọc theo chiều cao, mỗi patch có kích thước `(patch_height, width)` với `patch_height = img_size[0] // num_patches`.
-    - Mỗi patch lại được resize về đúng kích thước `(patch_height, img_size[1])` bằng `cv2.resize`.
-- Nếu `augment_before_split=False`:
-    - Ảnh gốc sẽ được chia thành các patch trước (patch có thể chưa đúng kích thước mong muốn).
-    - Sau đó, từng patch sẽ được augment (transform) riêng, trong đó có thể có bước resize về kích thước mong muốn (ví dụ: 448x448).
-    - Patch sẽ được resize về đúng kích thước bằng `cv2.resize` nếu không có transform.
+- Nếu có transform (augmentation), ảnh gốc sẽ được augment trước (không resize ở bước này vì truyền height, width là None).
+- Sau khi augment, ảnh sẽ được chia thành các patch bằng hàm `split_image_into_patches`.
+- Mỗi patch sau khi chia sẽ được resize về kích thước tiêu chuẩn (ví dụ: 448x448 hoặc kích thước truyền vào qua argument/config) bằng `cv2.resize`.
+- Sau khi resize, patch sẽ được chuẩn hóa (`A.Normalize`) và chuyển sang tensor (`ToTensorV2`).
+- Kết quả trả về là một tensor stack gồm các patch đã resize, chuẩn hóa, chuyển sang tensor.
 
 Tóm lại:
-- Ảnh đầu vào luôn được resize về kích thước mong muốn (ví dụ: 448x448) trước khi chia patch (nếu augment_before_split=True), hoặc từng patch sẽ được resize về kích thước mong muốn sau khi chia (nếu augment_before_split=False).
-- Patch cuối cùng luôn có kích thước `(img_size[0] // num_patches, img_size[1])` hoặc `(img_size[0], img_size[1])` tùy theo cách augment.
-- Việc resize dùng `cv2.resize` hoặc albumentations `A.Resize`.
+- Augment (transform) chỉ thực hiện các phép biến đổi như flip, rotate, v.v. nhưng không resize.
+- Việc resize về kích thước chuẩn được thực hiện sau khi chia patch, áp dụng cho từng patch riêng biệt.
+- Kích thước patch cuối cùng luôn là kích thước tiêu chuẩn (ví dụ: 448x448) lấy từ argument hoặc config.
 
 Ví dụ:
-- Nếu ảnh gốc là 1024x1024, img_size=(448,448), num_patches=2:
-    - augment_before_split=True: ảnh được resize về 448x448, chia thành 2 patch mỗi patch ~224x448.
-    - augment_before_split=False: ảnh gốc chia thành 2 patch, mỗi patch được resize về 448x448 (nếu transform có resize).
+- Nếu ảnh gốc là 1024x1024, img_size=(448,448), num_patches=3:
+    - Ảnh gốc được augment (không resize).
+    - Ảnh augment xong được chia thành 3 patch dọc theo chiều cao (có overlap).
+    - Mỗi patch được resize về 448x448.
+    - Patch được chuẩn hóa và chuyển sang tensor.
+
+Ưu điểm:  
+- Đảm bảo mọi patch đầu ra đều có cùng kích thước, phù hợp với input của model patch.
+- Augment không làm thay đổi kích thước ảnh gốc, giúp giữ nguyên thông tin spatial trước khi chia patch.
 """
