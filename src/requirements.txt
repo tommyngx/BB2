@@ -9,4 +9,4 @@ numpy
 Pillow
 pyyaml
 tqdm
-fastervit
+#fastervit
