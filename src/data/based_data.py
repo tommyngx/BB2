@@ -4,6 +4,16 @@ from PIL import Image
 from torch.utils.data import Dataset, DataLoader
 from .augment import get_train_augmentation, get_test_augmentation
 from .dataloader import get_image_size_from_config, get_weighted_sampler
+import multiprocessing
+
+
+def get_num_workers():
+    # Trả về số worker tối thiểu là 2, tối đa là 4
+    try:
+        cpu_count = multiprocessing.cpu_count()
+        return max(2, min(4, cpu_count))
+    except Exception:
+        return 2
 
 
 class CancerImageDataset(Dataset):
@@ -36,9 +46,11 @@ def get_dataloaders(
     batch_size=16,
     config_path="config/config.yaml",
     img_size=None,
-    num_workers=4,
+    num_workers=None,
     pin_memory=True,
 ):
+    if num_workers is None:
+        num_workers = get_num_workers()
     if img_size is None:
         img_size = get_image_size_from_config(config_path)
     if isinstance(img_size, (list, tuple)):
@@ -64,4 +76,5 @@ def get_dataloaders(
         num_workers=num_workers,
         pin_memory=pin_memory,
     )
+    return train_loader, test_loader
     return train_loader, test_loader
