@@ -85,12 +85,14 @@ def get_train_augmentation(height, width, extra_aug=None, resize_first=True):
     return A.Compose(aug_list)
 
 
-def get_test_augmentation(height, width, extra_aug=None):
-    aug_list = [
-        A.Resize(height, width),
+def get_test_augmentation(height, width, extra_aug=None, resize_first=True):
+    aug_list = []
+    if resize_first:
+        aug_list.append(A.Resize(height, width))
+    if extra_aug:
+        aug_list += extra_aug
+    aug_list += [
         A.Normalize([0.5] * 3, [0.5] * 3),
         ToTensorV2(),
     ]
-    if extra_aug:
-        aug_list = aug_list[:-2] + extra_aug + aug_list[-2:]
     return A.Compose(aug_list)

@@ -149,10 +149,14 @@ def get_dataloaders(
         height = width = int(img_size)
     if height is None or width is None:
         height = width = 448
-    # Augmentation cho train (không resize ở augment), resize sẽ thực hiện ở __getitem__
-    train_transform = get_train_augmentation(None, None, resize_first=False)
-    # Augmentation cho test (không resize ở augment), resize sẽ thực hiện ở __getitem__
-    test_transform = get_test_augmentation(None, None)
+    # Chỉ truyền height, width vào get_train_augmentation nếu cả hai đều khác None
+    if height is not None and width is not None:
+        train_transform = get_train_augmentation(height, width, resize_first=False)
+        test_transform = get_test_augmentation(height, width)
+    else:
+        # fallback: không resize nếu height/width không hợp lệ
+        train_transform = get_train_augmentation(448, 448, resize_first=False)
+        test_transform = get_test_augmentation(448, 448)
     # Truyền cùng img_size cho cả train và test dataset
     train_dataset = CancerPatchDataset(
         train_df,
@@ -205,7 +209,7 @@ Giải thích cách xử lý augment và resize patch với code hiện tại:
 Tóm lại:
 - Augment (transform) chỉ thực hiện các phép biến đổi như flip, rotate, v.v. nhưng không resize.
 - Việc resize về kích thước chuẩn được thực hiện sau khi chia patch, áp dụng cho từng patch riêng biệt.
-- Kích thước patch cuối cùng luôn là kích thước tiêu chuẩn (ví dụ: 448x448) lấy từ argument hoặc config.
+- Kích thước patch cuối cùng luôn là kích thước chuẩn (ví dụ: 448x448) lấy từ argument hoặc config.
 
 Ví dụ:
 - Nếu ảnh gốc là 1024x1024, img_size=(448,448), num_patches=3:
