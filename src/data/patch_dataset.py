@@ -137,16 +137,19 @@ def get_dataloaders(
     num_patches = get_num_patches_from_config(config_path, num_patches)
     # Đảm bảo img_size là tuple (height, width) với giá trị int
     if isinstance(img_size, (list, tuple)):
-        height, width = int(img_size[0]), int(img_size[1])
+        height, width = img_size
+        if height is None or width is None:
+            height = width = 448
+        height, width = int(height), int(width)
     else:
         height = width = int(img_size)
     # Nếu height hoặc width là None, gán mặc định 448
     if height is None or width is None:
         height = width = 448
     train_transform = get_train_augmentation(
-        None, None, resize_first=False
-    )  # Không resize khi augment
-    test_transform = get_test_augmentation(None, None)  # Không resize khi augment
+        height, width, resize_first=False
+    )  # Đảm bảo truyền int cho height, width
+    test_transform = get_test_augmentation(height, width)
     train_dataset = CancerPatchDataset(
         train_df,
         data_folder,
@@ -154,7 +157,7 @@ def get_dataloaders(
         num_patches,
         augment_before_split=True,
         config_path=config_path,
-        img_size=img_size,
+        img_size=(height, width),
         overlap_ratio=overlap_ratio,
     )
     test_dataset = CancerPatchDataset(
@@ -164,7 +167,7 @@ def get_dataloaders(
         num_patches,
         augment_before_split=True,
         config_path=config_path,
-        img_size=img_size,
+        img_size=(height, width),
         overlap_ratio=overlap_ratio,
     )
     sampler = get_weighted_sampler(train_df)
