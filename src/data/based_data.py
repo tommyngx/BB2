@@ -11,7 +11,7 @@ def get_num_workers():
     # Trả về số worker tối thiểu là 2, tối đa là 4
     try:
         cpu_count = multiprocessing.cpu_count()
-        return max(2, min(4, cpu_count))
+        return max(2, min(6, cpu_count))
     except Exception:
         return 2
 
@@ -76,5 +76,4 @@ def get_dataloaders(
         num_workers=num_workers,
         pin_memory=pin_memory,
     )
-    return train_loader, test_loader
     return train_loader, test_loader

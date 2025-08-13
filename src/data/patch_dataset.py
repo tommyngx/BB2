@@ -9,9 +9,11 @@ from .dataloader import (
     get_num_patches_from_config,
     get_weighted_sampler,
 )
+from .based_data import get_num_workers
 import cv2
 from albumentations.pytorch import ToTensorV2
 import albumentations as A
+import multiprocessing
 
 
 def split_image_into_patches(image, num_patches=2, patch_size=None, overlap_ratio=0.2):
@@ -127,11 +129,13 @@ def get_dataloaders(
     batch_size=16,
     config_path="config/config.yaml",
     num_patches=None,
-    num_workers=4,
+    num_workers=None,
     pin_memory=True,
     img_size=None,
     overlap_ratio=0.2,
 ):
+    if num_workers is None:
+        num_workers = get_num_workers()
     if img_size is None:
         img_size = get_image_size_from_config(config_path)
     num_patches = get_num_patches_from_config(config_path, num_patches)
