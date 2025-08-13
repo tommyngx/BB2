@@ -171,11 +171,10 @@ class CancerPatchDataset(Dataset):
             # Nếu chiều cao < chiều rộng, xoay lại cho đúng (90 độ)
             if isinstance(image, torch.Tensor):
                 image = image.permute(1, 2, 0).numpy()
-                image = np.rot90(image)
+                image = np.rot90(image).copy()  # copy() để tránh stride âm
                 image = torch.from_numpy(image).permute(2, 0, 1)
             else:
-                image = np.rot90(image)
-
+                image = np.rot90(image).copy()  # copy() để tránh stride âm
         # Split the augmented image into patches
         patches = split_image_into_patches(
             image, self.num_patches, overlap_ratio=self.overlap_ratio
@@ -331,4 +330,5 @@ Summary:
 
 Note:
 - If the original image is smaller, the last patch may repeat regions or be resized to ensure the correct number of patches.
+"""
 """
