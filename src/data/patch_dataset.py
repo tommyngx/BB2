@@ -147,16 +147,22 @@ class CancerPatchDataset(Dataset):
             image, self.num_patches, overlap_ratio=self.overlap_ratio
         )
         patch_tensors = []
+        # Ensure img_size is (height, width) and both are int
+        img_size_hw = self.img_size
+        if isinstance(img_size_hw, (list, tuple)):
+            h, w = int(img_size_hw[0]), int(img_size_hw[1])
+        else:
+            h = w = int(img_size_hw)
         # Resize each patch to the standard size
         for patch in patches:
             patch_np = patch.permute(1, 2, 0).numpy()
-            patch_np = cv2.resize(patch_np, self.img_size)
+            patch_np = cv2.resize(patch_np, (w, h))
             patch = A.Normalize(mean=[0.5] * 3, std=[0.5] * 3)(image=patch_np)["image"]
             patch = ToTensorV2()(image=patch)["image"]
             patch_tensors.append(patch)
         # Add full image as the last patch (resize to img_size, normalize, to tensor)
         full_img_np = image if isinstance(image, np.ndarray) else np.array(image)
-        full_img_resized = cv2.resize(full_img_np, self.img_size)
+        full_img_resized = cv2.resize(full_img_np, (w, h))
         full_img_norm = A.Normalize(mean=[0.5] * 3, std=[0.5] * 3)(
             image=full_img_resized
         )["image"]
