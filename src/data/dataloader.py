@@ -5,10 +5,22 @@ import yaml
 from torch.utils.data import WeightedRandomSampler
 
 
+def _resolve_config_path(config_path):
+    # Nếu là đường dẫn tuyệt đối hoặc file tồn tại, dùng trực tiếp
+    if os.path.isabs(config_path) or os.path.exists(config_path):
+        return os.path.abspath(config_path)
+    # Nếu chỉ truyền tên file, tìm trong thư mục config cùng cấp với src
+    src_dir = os.path.dirname(os.path.abspath(__file__))
+    root_dir = os.path.dirname(src_dir)
+    config_dir_path = os.path.join(root_dir, "config")
+    if not config_path.endswith(".yaml"):
+        config_path += ".yaml"
+    config_path = os.path.join(config_dir_path, config_path)
+    return os.path.abspath(config_path)
+
+
 def get_image_size_from_config(config_path="config/config.yaml"):
-    if not os.path.isabs(config_path):
-        config_path = os.path.join(os.path.dirname(__file__), "..", config_path)
-    config_path = os.path.abspath(config_path)
+    config_path = _resolve_config_path(config_path)
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
     if isinstance(config, dict) and "config" in config:
@@ -20,9 +32,7 @@ def get_image_size_from_config(config_path="config/config.yaml"):
 
 
 def get_target_column_from_config(config_path="config/config.yaml"):
-    if not os.path.isabs(config_path):
-        config_path = os.path.join(os.path.dirname(__file__), "..", config_path)
-    config_path = os.path.abspath(config_path)
+    config_path = _resolve_config_path(config_path)
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
     if isinstance(config, dict) and "config" in config:
@@ -33,9 +43,7 @@ def get_target_column_from_config(config_path="config/config.yaml"):
 def get_num_patches_from_config(config_path="config/config.yaml", num_patches=None):
     if num_patches is not None:
         return num_patches
-    if not os.path.isabs(config_path):
-        config_path = os.path.join(os.path.dirname(__file__), "..", config_path)
-    config_path = os.path.abspath(config_path)
+    config_path = _resolve_config_path(config_path)
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
     if isinstance(config, dict) and "config" in config:
