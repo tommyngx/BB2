@@ -9,4 +9,4 @@ numpy
 Pillow
 pyyaml
 tqdm
-fastervit @ git+https://github.com/facebookresearch/FasterViT.git
+fastervit
