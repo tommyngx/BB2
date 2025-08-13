@@ -128,9 +128,30 @@ class CancerPatchDataset(Dataset):
         img_path = os.path.join(self.data_folder, self.df.loc[idx, "link"])
         image = Image.open(img_path).convert("RGB")
         label = int(self.df.loc[idx, "cancer"])
+
+        # Debug: Print img_size to see what's happening
+        print(f"Debug: self.img_size = {self.img_size}, type = {type(self.img_size)}")
+
+        # Ensure img_size is (height, width) and both are int > 0
+        img_size_hw = self.img_size
+        if isinstance(img_size_hw, (list, tuple)):
+            if len(img_size_hw) >= 2:
+                h, w = int(img_size_hw[0]), int(img_size_hw[1])
+            else:
+                h = w = 448  # fallback
+        else:
+            h = w = int(img_size_hw) if img_size_hw else 448
+
+        # Ensure positive values
+        if h <= 0 or w <= 0:
+            print(f"Warning: Invalid img_size {self.img_size}, using fallback 448x448")
+            h = w = 448
+
+        print(f"Debug: Using h={h}, w={w}")
+
         # --- Resize image to required shape before augmentation ---
         required_shape = compute_required_img_shape(
-            self.img_size, self.num_patches, self.overlap_ratio
+            (h, w), self.num_patches, self.overlap_ratio
         )
         image = image.resize(
             (required_shape[1], required_shape[0]), resample=Image.BILINEAR
@@ -147,12 +168,6 @@ class CancerPatchDataset(Dataset):
             image, self.num_patches, overlap_ratio=self.overlap_ratio
         )
         patch_tensors = []
-        # Ensure img_size is (height, width) and both are int
-        img_size_hw = self.img_size
-        if isinstance(img_size_hw, (list, tuple)):
-            h, w = int(img_size_hw[0]), int(img_size_hw[1])
-        else:
-            h = w = int(img_size_hw)
         # Resize each patch to the standard size
         for patch in patches:
             patch_np = patch.permute(1, 2, 0).numpy()
