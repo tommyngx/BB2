@@ -6,8 +6,8 @@ from torch.cuda.amp import GradScaler, autocast
 from tqdm import tqdm
 from torch.optim.lr_scheduler import LambdaLR
 from sklearn.metrics import classification_report
-from utils.loss import FocalLoss
-from utils.plot import plot_metrics, plot_confusion_matrix
+from src.utils.loss import FocalLoss
+from src.utils.plot import plot_metrics, plot_confusion_matrix
 
 
 def evaluate_model(model, data_loader, device="cpu", mode="Test", return_loss=False):
