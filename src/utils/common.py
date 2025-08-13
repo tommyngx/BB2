@@ -4,7 +4,7 @@ import gc
 import torch
 
 
-def load_config(config_name, config_dir="config"):
+def load_config(config_name, config_dir="src/config"):
     if not config_name.endswith(".yaml"):
         config_name += ".yaml"
     config_path = os.path.join(config_dir, config_name)
