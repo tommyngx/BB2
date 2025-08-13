@@ -17,11 +17,14 @@ class PatchResNet(nn.Module):
         self.num_patches = num_patches
 
     def forward(self, x):
-        batch_size, num_patches, C, H, W = x.size()
-        x = x.view(-1, C, H, W)
-        x = self.base_model(x)
-        x = x.view(batch_size, num_patches * x.size(-1))
-        x = self.classifier(x)
+        # x: (B, num_patches+1, C, H, W)
+        batch_size, num_patches_plus1, C, H, W = x.size()
+        # Lấy các patch (bỏ full image cuối cùng)
+        x_patches = x[:, : self.num_patches]
+        x_patches = x_patches.view(-1, C, H, W)
+        x_patches = self.base_model(x_patches)
+        x_patches = x_patches.view(batch_size, self.num_patches * x_patches.size(-1))
+        x = self.classifier(x_patches)
         return x
 
 
@@ -52,14 +55,16 @@ class PatchTransformerClassifier(nn.Module):
         )
 
     def forward(self, x):
-        batch_size, num_patches, C, H, W = x.size()
-        x = x.view(-1, C, H, W)
-        x = self.base_model(x)
-        x = x.view(batch_size, num_patches, self.feature_dim)
-        x = x + self.pos_embed
-        x = self.transformer_encoder(x)
-        x = x.contiguous().view(batch_size, -1)
-        x = self.classifier(x)
+        # x: (B, num_patches+1, C, H, W)
+        batch_size, num_patches_plus1, C, H, W = x.size()
+        x_patches = x[:, : self.num_patches]
+        x_patches = x_patches.view(-1, C, H, W)
+        x_patches = self.base_model(x_patches)
+        x_patches = x_patches.view(batch_size, self.num_patches, self.feature_dim)
+        x_patches = x_patches + self.pos_embed
+        x_patches = self.transformer_encoder(x_patches)
+        x_patches = x_patches.contiguous().view(batch_size, -1)
+        x = self.classifier(x_patches)
         return x
 
 
@@ -100,17 +105,21 @@ class TokenMixerClassifier(nn.Module):
         )
 
     def forward(self, x):
-        batch_size, num_patches, C, H, W = x.size()
-        x = x.view(-1, C, H, W)
-        x = self.base_model(x)
-        if x.dim() == 2:
-            x = x.view(batch_size * num_patches, self.feature_dim, 1, 1)
-        x = self.tokenizer(x)
-        x = x.view(batch_size, num_patches, self.reduced_dim)
-        x = x + self.pos_embed
-        x = self.transformer_encoder(x)
-        x = x.contiguous().view(batch_size, -1)
-        x = self.classifier(x)
+        # x: (B, num_patches+1, C, H, W)
+        batch_size, num_patches_plus1, C, H, W = x.size()
+        x_patches = x[:, : self.num_patches]
+        x_patches = x_patches.view(-1, C, H, W)
+        x_patches = self.base_model(x_patches)
+        if x_patches.dim() == 2:
+            x_patches = x_patches.view(
+                batch_size * self.num_patches, self.feature_dim, 1, 1
+            )
+        x_patches = self.tokenizer(x_patches)
+        x_patches = x_patches.view(batch_size, self.num_patches, self.reduced_dim)
+        x_patches = x_patches + self.pos_embed
+        x_patches = self.transformer_encoder(x_patches)
+        x_patches = x_patches.contiguous().view(batch_size, -1)
+        x = self.classifier(x_patches)
         return x
 
 
@@ -137,27 +146,16 @@ class PatchGlobalLocalClassifier(nn.Module):
         )
 
     def forward(self, x):
-        batch_size, num_patches, C, H, W = x.size()
-        x_patches = x.view(-1, C, H, W)
+        # x: (B, num_patches+1, C, H, W)
+        batch_size, num_patches_plus1, C, H, W = x.size()
+        # Patch features
+        x_patches = x[:, : self.num_patches]
+        x_patches = x_patches.view(-1, C, H, W)
         feat_patches = self.base_model(x_patches)
-        feat_patches = feat_patches.view(batch_size, num_patches, self.feature_dim)
-        # reconstruct global image
-        overlap_ratio = 0.2
-        patch_height = H
-        step = int(patch_height * (1 - overlap_ratio))
-        full_height = step * (num_patches - 1) + patch_height
-        full_img = torch.zeros(batch_size, C, full_height, W, device=x.device)
-        count = torch.zeros(batch_size, 1, full_height, W, device=x.device)
-        for i in range(num_patches):
-            start_h = i * step
-            end_h = start_h + patch_height
-            full_img[:, :, start_h:end_h, :] += x[:, i]
-            count[:, :, start_h:end_h, :] += 1
-        full_img = full_img / count.clamp(min=1.0)
-        global_patch_resized = nn.functional.interpolate(
-            full_img, size=(H, W), mode="bilinear", align_corners=False
-        )
-        feat_global = self.base_model(global_patch_resized)
+        feat_patches = feat_patches.view(batch_size, self.num_patches, self.feature_dim)
+        # Global feature (full image, cuối cùng)
+        x_global = x[:, -1]
+        feat_global = self.base_model(x_global)
         feat_global = feat_global.unsqueeze(1)
         feats = torch.cat([feat_patches, feat_global], dim=1)
         feats = feats + self.pos_embed
@@ -204,31 +202,23 @@ class PatchGlobalLocalTokenMixerClassifier(nn.Module):
         )
 
     def forward(self, x):
-        batch_size, num_patches, C, H, W = x.size()
-        x_patches = x.view(-1, C, H, W)
+        # x: (B, num_patches+1, C, H, W)
+        batch_size, num_patches_plus1, C, H, W = x.size()
+        # Patch tokens
+        x_patches = x[:, : self.num_patches]
+        x_patches = x_patches.view(-1, C, H, W)
         feat_patches = self.base_model(x_patches)
         if feat_patches.dim() == 2:
             feat_patches = feat_patches.view(
-                batch_size * num_patches, self.feature_dim, 1, 1
+                batch_size * self.num_patches, self.feature_dim, 1, 1
             )
         tokens_patches = self.tokenizer(feat_patches)
-        tokens_patches = tokens_patches.view(batch_size, num_patches, self.reduced_dim)
-        overlap_ratio = 0.2
-        patch_height = H
-        step = int(patch_height * (1 - overlap_ratio))
-        full_height = step * (num_patches - 1) + patch_height
-        full_img = torch.zeros(batch_size, C, full_height, W, device=x.device)
-        count = torch.zeros(batch_size, 1, full_height, W, device=x.device)
-        for i in range(num_patches):
-            start_h = i * step
-            end_h = start_h + patch_height
-            full_img[:, :, start_h:end_h, :] += x[:, i]
-            count[:, :, start_h:end_h, :] += 1
-        full_img = full_img / count.clamp(min=1.0)
-        global_patch_resized = nn.functional.interpolate(
-            full_img, size=(H, W), mode="bilinear", align_corners=False
+        tokens_patches = tokens_patches.view(
+            batch_size, self.num_patches, self.reduced_dim
         )
-        feat_global = self.base_model(global_patch_resized)
+        # Global token (full image cuối cùng)
+        x_global = x[:, -1]
+        feat_global = self.base_model(x_global)
         if feat_global.dim() == 2:
             feat_global = feat_global.view(batch_size, self.feature_dim, 1, 1)
         tokens_global = self.tokenizer(feat_global)
@@ -239,7 +229,3 @@ class PatchGlobalLocalTokenMixerClassifier(nn.Module):
         tokens = tokens.contiguous().view(batch_size, -1)
         out = self.classifier(tokens)
         return out
-
-
-# MILClassifier, MILClassifierV2, MILClassifierV3 có thể copy từ project/patch/models.py nếu cần
-# ...existing code for MILClassifier, MILClassifierV2, MILClassifierV3...
