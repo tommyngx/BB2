@@ -5,7 +5,14 @@ import torch.optim as optim
 from torch.cuda.amp import GradScaler, autocast
 from tqdm import tqdm
 from torch.optim.lr_scheduler import LambdaLR
-from sklearn.metrics import classification_report
+from sklearn.metrics import (
+    classification_report,
+    roc_auc_score,
+    precision_score,
+    recall_score,
+    confusion_matrix,
+)
+
 from src.utils.loss import FocalLoss
 from src.utils.plot import plot_metrics, plot_confusion_matrix
 
@@ -17,6 +24,7 @@ def evaluate_model(model, data_loader, device="cpu", mode="Test", return_loss=Fa
     total = 0
     all_labels = []
     all_preds = []
+    all_probs = []
     total_loss = 0.0
     criterion = nn.CrossEntropyLoss()
 
@@ -29,14 +37,54 @@ def evaluate_model(model, data_loader, device="cpu", mode="Test", return_loss=Fa
             loss = criterion(outputs, labels)
             total_loss += loss.item() * images.size(0)
             _, predicted = torch.max(outputs, 1)
+            probs = torch.softmax(outputs, dim=1)
             correct += (predicted == labels).sum().item()
             total += labels.size(0)
             all_labels.extend(labels.cpu().numpy())
             all_preds.extend(predicted.cpu().numpy())
+            all_probs.extend(
+                probs[:, 1].cpu().numpy() if probs.shape[1] > 1 else probs.cpu().numpy()
+            )
 
     acc = correct / total
     avg_loss = total_loss / total
-    print(f"{mode} Accuracy: {acc:.4f} | Loss: {avg_loss:.4f}")
+    # Tính các chỉ số
+    try:
+        auc = (
+            roc_auc_score(all_labels, all_probs) if len(set(all_labels)) == 2 else None
+        )
+    except Exception:
+        auc = None
+    precision = precision_score(
+        all_labels,
+        all_preds,
+        average="binary" if len(set(all_labels)) == 2 else "macro",
+        zero_division=0,
+    )
+    recall = recall_score(
+        all_labels,
+        all_preds,
+        average="binary" if len(set(all_labels)) == 2 else "macro",
+        zero_division=0,
+    )
+    cm = confusion_matrix(all_labels, all_preds)
+    # Sensitivity (Recall) và Specificity
+    if cm.shape == (2, 2):
+        tn, fp, fn, tp = cm.ravel()
+        sen = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        spec = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+    else:
+        sen = recall
+        spec = None
+
+    print(f"{mode} Accuracy: {acc * 100:.2f}% | Loss: {avg_loss:.4f}")
+    if auc is not None:
+        print(f"{mode} AUC: {auc * 100:.2f}%")
+    print(
+        f"{mode} Precision: {precision * 100:.2f}% | Recall (Sensitivity): {recall * 100:.2f}%"
+    )
+    if spec is not None:
+        print(f"{mode} Specificity: {spec * 100:.2f}%")
     print(classification_report(all_labels, all_preds, digits=4, zero_division=0))
     return (avg_loss, acc) if return_loss else acc
 
