@@ -42,6 +42,20 @@ def split_image_into_patches(image, num_patches=2, patch_size=None, overlap_rati
     return patches
 
 
+def compute_required_img_shape(img_size, num_patches, overlap_ratio=0.2):
+    """
+    Tính kích thước ảnh gốc cần thiết để sau khi chia patch (có overlap) mỗi patch resize về img_size.
+    img_size: tuple (h, w) là kích thước patch sau cùng.
+    num_patches: số patch muốn chia.
+    overlap_ratio: tỉ lệ overlap giữa các patch.
+    """
+    patch_height, patch_width = img_size
+    step = int(patch_height * (1 - overlap_ratio))
+    required_height = step * (num_patches - 1) + patch_height
+    required_width = patch_width
+    return (required_height, required_width)
+
+
 class CancerPatchDataset(Dataset):
     def __init__(
         self,
@@ -52,6 +66,7 @@ class CancerPatchDataset(Dataset):
         augment_before_split=True,
         config_path="config/config.yaml",
         img_size=None,
+        overlap_ratio=0.2,
     ):
         if data_folder is None:
             raise ValueError(
@@ -66,6 +81,7 @@ class CancerPatchDataset(Dataset):
         else:
             self.img_size = img_size
         self.augment_before_split = augment_before_split
+        self.overlap_ratio = overlap_ratio
 
     def __len__(self):
         return len(self.df)
@@ -74,6 +90,13 @@ class CancerPatchDataset(Dataset):
         img_path = os.path.join(self.data_folder, self.df.loc[idx, "link"])
         image = Image.open(img_path).convert("RGB")
         label = int(self.df.loc[idx, "cancer"])
+        # --- Resize ảnh về kích thước cần thiết trước khi augment ---
+        required_shape = compute_required_img_shape(
+            self.img_size, self.num_patches, self.overlap_ratio
+        )
+        image = image.resize(
+            (required_shape[1], required_shape[0]), resample=Image.BILINEAR
+        )
         # Augment ảnh gốc (không resize ở bước này)
         if self.transform:
             image_np = np.array(image)
@@ -82,7 +105,9 @@ class CancerPatchDataset(Dataset):
         else:
             image = np.array(image)
         # Split ảnh đã augment thành các patch
-        patches = split_image_into_patches(image, self.num_patches)
+        patches = split_image_into_patches(
+            image, self.num_patches, overlap_ratio=self.overlap_ratio
+        )
         patch_tensors = []
         # Resize từng patch về kích thước tiêu chuẩn
         for patch in patches:
@@ -105,6 +130,7 @@ def get_dataloaders(
     num_workers=4,
     pin_memory=True,
     img_size=None,
+    overlap_ratio=0.2,
 ):
     if img_size is None:
         img_size = get_image_size_from_config(config_path)
@@ -117,8 +143,10 @@ def get_dataloaders(
     # Nếu height hoặc width là None, gán mặc định 448
     if height is None or width is None:
         height = width = 448
-    train_transform = get_train_augmentation(height, width, resize_first=False)
-    test_transform = get_test_augmentation(height, width)
+    train_transform = get_train_augmentation(
+        None, None, resize_first=False
+    )  # Không resize khi augment
+    test_transform = get_test_augmentation(None, None)  # Không resize khi augment
     train_dataset = CancerPatchDataset(
         train_df,
         data_folder,
@@ -126,7 +154,8 @@ def get_dataloaders(
         num_patches,
         augment_before_split=True,
         config_path=config_path,
-        img_size=(height, width),
+        img_size=img_size,
+        overlap_ratio=overlap_ratio,
     )
     test_dataset = CancerPatchDataset(
         test_df,
@@ -135,7 +164,8 @@ def get_dataloaders(
         num_patches,
         augment_before_split=True,
         config_path=config_path,
-        img_size=(height, width),
+        img_size=img_size,
+        overlap_ratio=overlap_ratio,
     )
     sampler = get_weighted_sampler(train_df)
     train_loader = DataLoader(
@@ -180,4 +210,21 @@ Ví dụ:
 Ưu điểm:  
 - Đảm bảo mọi patch đầu ra đều có cùng kích thước, phù hợp với input của model patch.
 - Augment không làm thay đổi kích thước ảnh gốc, giúp giữ nguyên thông tin spatial trước khi chia patch.
+
+Nếu bạn chia ảnh thành 3 patch dọc theo chiều cao (`p3`), mỗi patch có kích thước **448x448** (sau khi resize từng patch), thì:
+
+- **Kích thước ảnh gốc trước khi chia patch** sẽ phụ thuộc vào cách chia patch và overlap.
+- Nếu không overlap (`overlap_ratio=0`):  
+  - Tổng chiều cao ảnh gốc tối thiểu = 3 × 448 = **1344** pixels (chiều rộng là 448).
+- Nếu có overlap (ví dụ mặc định `overlap_ratio=0.2`):  
+  - Mỗi patch cao 448, bước nhảy giữa các patch là `step = 448 × (1 - 0.2) = 358.4 ≈ 358` pixels.
+  - Tổng chiều cao ảnh gốc tối thiểu = `step × (num_patches - 1) + patch_height = 358 × 2 + 448 = 1164` pixels (chiều rộng là 448).
+
+**Tóm lại:**
+- Nếu không overlap: ảnh gốc tối thiểu 1344x448.
+- Nếu overlap 20%: ảnh gốc tối thiểu khoảng 1164x448.
+- Sau khi chia, mỗi patch luôn được resize về 448x448.
+
+**Lưu ý:**  
+- Nếu ảnh gốc nhỏ hơn, patch cuối cùng sẽ bị lặp lại vùng ảnh hoặc resize lại để đủ số patch.
 """
