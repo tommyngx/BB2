@@ -5,13 +5,17 @@ import torch
 
 
 def load_config(config_name, config_dir="config"):
-    # Nếu config_name là đường dẫn tuyệt đối hoặc tương đối, dùng trực tiếp
+    # Nếu config_name là đường dẫn tuyệt đối hoặc đã tồn tại, dùng trực tiếp
     if os.path.isabs(config_name) or os.path.exists(config_name):
         config_path = os.path.abspath(config_name)
     else:
+        # Nếu chỉ truyền tên file, tìm trong thư mục config nằm cùng cấp src
+        src_dir = os.path.dirname(os.path.abspath(__file__))
+        root_dir = os.path.dirname(src_dir)
+        config_dir_path = os.path.join(root_dir, "config")
         if not config_name.endswith(".yaml"):
             config_name += ".yaml"
-        config_path = os.path.join(config_dir, config_name)
+        config_path = os.path.join(config_dir_path, config_name)
         config_path = os.path.abspath(config_path)
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
