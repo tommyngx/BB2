@@ -10,6 +10,7 @@ from src.data.patch_dataset import get_dataloaders
 from src.data.dataloader import load_metadata
 from src.trainer.engines import train_model, evaluate_model
 from src.utils.common import load_config, get_arg_or_config, clear_cuda_memory
+from src.trainer.train_patch import parse_img_size
 
 
 def prepare_data_and_model(
@@ -21,6 +22,7 @@ def prepare_data_and_model(
     num_patches=None,
     arch_type="patch_resnet",
     pretrained_model_path=None,
+    img_size=None,  # thêm img_size
 ):
     clear_cuda_memory()
     train_df, test_df, _ = load_metadata(data_folder, config_path)
@@ -31,6 +33,7 @@ def prepare_data_and_model(
         batch_size=batch_size,
         config_path=config_path,
         num_patches=num_patches,
+        img_size=img_size,  # truyền img_size
     )
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if pretrained_model_path:
@@ -58,7 +61,8 @@ def run_train(
     arch_type="patch_resnet",
     patience=50,
     loss_type="ce",
-    model_type=None,  # thêm model_type để truyền vào
+    model_type=None,
+    img_size=None,  # thêm img_size
 ):
     train_df, test_df, train_loader, test_loader, model, device = (
         prepare_data_and_model(
@@ -69,6 +73,7 @@ def run_train(
             config_path=config_path,
             num_patches=num_patches,
             arch_type=arch_type,
+            img_size=img_size,  # truyền img_size
         )
     )
     model_name = f"{model_type}_{arch_type}" if model_type else arch_type
@@ -79,7 +84,7 @@ def run_train(
         num_epochs=num_epochs,
         lr=lr,
         device=device,
-        model_name=model_name,  # tên model + kiến trúc
+        model_name=model_name,
         output=output,
         dataset_folder=data_folder,
         train_df=train_df,
@@ -100,6 +105,7 @@ def run_test(
     num_patches=None,
     arch_type="patch_resnet",
     pretrained_model_path=None,
+    img_size=None,  # thêm img_size
 ):
     train_df, test_df, _, test_loader, model, device = prepare_data_and_model(
         data_folder,
@@ -110,9 +116,9 @@ def run_test(
         num_patches=num_patches,
         arch_type=arch_type,
         pretrained_model_path=pretrained_model_path,
+        img_size=img_size,  # truyền img_size
     )
     print("\nEvaluation on Test Set:")
-    # Sử dụng evaluate_model từ engines để in report và trả về loss/acc
     test_loss, test_acc = evaluate_model(
         model, test_loader, device=device, mode="Test", return_loss=True
     )
@@ -154,6 +160,7 @@ if __name__ == "__main__":
             "mil_v3",
         ],
     )
+    parser.add_argument("--img_size", type=str, default=None)  # Thêm tham số img_size
 
     args = parser.parse_args()
     config = load_config(args.config)
@@ -175,6 +182,9 @@ if __name__ == "__main__":
     arch_type = get_arg_or_config(
         args.arch_type, config.get("arch_type"), "patch_resnet"
     )
+    img_size = get_arg_or_config(args.img_size, config.get("image_size"), None)
+    if img_size is not None and isinstance(img_size, str):
+        img_size = parse_img_size(img_size)
 
     # Model creation (replace with your model factory)
     from src.models.patch_model import get_patch_model
@@ -197,7 +207,8 @@ if __name__ == "__main__":
             arch_type=arch_type,
             patience=patience,
             loss_type=loss_type,
-            model_type=model_type,  # truyền vào để tạo model_name
+            model_type=model_type,
+            img_size=img_size,  # truyền img_size
         )
     elif args.mode == "test":
         run_test(
@@ -210,4 +221,5 @@ if __name__ == "__main__":
             num_patches=num_patches,
             arch_type=arch_type,
             pretrained_model_path=pretrained_model_path,
+            img_size=img_size,  # truyền img_size
         )
