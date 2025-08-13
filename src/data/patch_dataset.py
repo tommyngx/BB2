@@ -44,10 +44,10 @@ def split_image_into_patches(image, num_patches=2, patch_size=None, overlap_rati
 
 class CancerPatchDataset(Dataset):
     def __init__(
-        self, df, root_dir, transform=None, num_patches=2, augment_before_split=True
+        self, df, data_folder, transform=None, num_patches=2, augment_before_split=True
     ):
         self.df = df.reset_index(drop=True)
-        self.root_dir = root_dir
+        self.data_folder = data_folder
         self.transform = transform
         self.num_patches = num_patches
         self.img_size = get_image_size_from_config()
@@ -57,7 +57,7 @@ class CancerPatchDataset(Dataset):
         return len(self.df)
 
     def __getitem__(self, idx):
-        img_path = os.path.join(self.root_dir, self.df.loc[idx, "link"])
+        img_path = os.path.join(self.data_folder, self.df.loc[idx, "link"])
         image = Image.open(img_path).convert("RGB")
         label = int(self.df.loc[idx, "cancer"])
         if self.augment_before_split:
@@ -99,7 +99,7 @@ class CancerPatchDataset(Dataset):
 def get_dataloaders(
     train_df,
     test_df,
-    root_dir,
+    data_folder,
     batch_size=16,
     config_path="config/config.yaml",
     num_patches=None,
@@ -115,10 +115,10 @@ def get_dataloaders(
     train_transform = get_train_augmentation(height, width, resize_first=False)
     test_transform = get_test_augmentation(height, width)
     train_dataset = CancerPatchDataset(
-        train_df, root_dir, train_transform, num_patches, augment_before_split=True
+        train_df, data_folder, train_transform, num_patches, augment_before_split=True
     )
     test_dataset = CancerPatchDataset(
-        test_df, root_dir, test_transform, num_patches, augment_before_split=True
+        test_df, data_folder, test_transform, num_patches, augment_before_split=True
     )
     sampler = get_weighted_sampler(train_df)
     train_loader = DataLoader(

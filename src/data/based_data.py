@@ -7,20 +7,20 @@ from .dataloader import get_image_size_from_config, get_weighted_sampler
 
 
 class CancerImageDataset(Dataset):
-    def __init__(self, df, root_dir, transform=None):
-        if root_dir is None:
+    def __init__(self, df, data_folder, transform=None):
+        if data_folder is None:
             raise ValueError(
-                "root_dir must not be None. Please provide the image folder path."
+                "data_folder must not be None. Please provide the data folder path."
             )
         self.df = df.reset_index(drop=True)
-        self.root_dir = root_dir
+        self.data_folder = data_folder
         self.transform = transform
 
     def __len__(self):
         return len(self.df)
 
     def __getitem__(self, idx):
-        img_path = os.path.join(self.root_dir, self.df.loc[idx, "link"])
+        img_path = os.path.join(self.data_folder, self.df.loc[idx, "link"])
         image = Image.open(img_path).convert("RGB")
         image = np.array(image)
         label = int(self.df.loc[idx, "cancer"])
@@ -32,7 +32,7 @@ class CancerImageDataset(Dataset):
 def get_dataloaders(
     train_df,
     test_df,
-    root_dir,
+    data_folder,
     batch_size=16,
     config_path="config/config.yaml",
     img_size=None,
@@ -47,8 +47,8 @@ def get_dataloaders(
         height = width = int(img_size)
     train_transform = get_train_augmentation(height, width, resize_first=True)
     test_transform = get_test_augmentation(height, width)
-    train_dataset = CancerImageDataset(train_df, root_dir, train_transform)
-    test_dataset = CancerImageDataset(test_df, root_dir, test_transform)
+    train_dataset = CancerImageDataset(train_df, data_folder, train_transform)
+    test_dataset = CancerImageDataset(test_df, data_folder, test_transform)
     sampler = get_weighted_sampler(train_df)
     train_loader = DataLoader(
         train_dataset,

@@ -9,7 +9,6 @@ from src.utils.common import load_config, get_arg_or_config, clear_cuda_memory
 
 def prepare_data_and_model(
     data_folder,
-    root_dir,
     model,
     batch_size,
     config_path="config/config.yaml",
@@ -21,7 +20,7 @@ def prepare_data_and_model(
     train_loader, test_loader = get_dataloaders(
         train_df,
         test_df,
-        root_dir,
+        data_folder,
         batch_size=batch_size,
         config_path=config_path,
         img_size=img_size,
@@ -41,7 +40,6 @@ def prepare_data_and_model(
 
 def run_train(
     data_folder,
-    root_dir,
     model,
     batch_size,
     num_epochs,
@@ -55,7 +53,6 @@ def run_train(
     train_df, test_df, train_loader, test_loader, model, device = (
         prepare_data_and_model(
             data_folder,
-            root_dir,
             model,
             batch_size,
             config_path=config_path,
@@ -81,7 +78,6 @@ def run_train(
 
 def run_test(
     data_folder,
-    root_dir,
     model,
     batch_size,
     output,
@@ -91,7 +87,6 @@ def run_test(
 ):
     train_df, test_df, _, test_loader, model, device = prepare_data_and_model(
         data_folder,
-        root_dir,
         model,
         batch_size,
         config_path=config_path,
@@ -99,7 +94,6 @@ def run_test(
         pretrained_model_path=pretrained_model_path,
     )
     print("\nEvaluation on Test Set:")
-    # Sử dụng evaluate_model từ engines để in report và trả về loss/acc
     test_loss, test_acc = evaluate_model(
         model, test_loader, device=device, mode="Test", return_loss=True
     )
@@ -115,7 +109,6 @@ if __name__ == "__main__":
         help="Config file name in config folder",
     )
     parser.add_argument("--data_folder", type=str)
-    parser.add_argument("--root_dir", type=str)
     parser.add_argument("--model_type", type=str)
     parser.add_argument("--batch_size", type=int)
     parser.add_argument("--num_epochs", type=int)
@@ -142,9 +135,7 @@ if __name__ == "__main__":
             s = int(val)
             return (s, s)
 
-    # Sử dụng get_arg_or_config cho tất cả các tham số
     data_folder = get_arg_or_config(args.data_folder, config.get("data_folder"), None)
-    root_dir = get_arg_or_config(args.root_dir, config.get("root_dir"), None)
     model_type = get_arg_or_config(args.model_type, config.get("model_type"), None)
     batch_size = get_arg_or_config(args.batch_size, config.get("batch_size"), 16)
     num_epochs = get_arg_or_config(args.num_epochs, config.get("num_epochs"), 10)
@@ -159,7 +150,6 @@ if __name__ == "__main__":
     if img_size is not None and isinstance(img_size, str):
         img_size = parse_img_size(img_size)
 
-    # Model creation (replace with your model factory)
     from src.models.based_model import get_based_model
 
     model = get_based_model(model_type=model_type)
@@ -167,7 +157,6 @@ if __name__ == "__main__":
     if args.mode == "train":
         run_train(
             data_folder=data_folder,
-            root_dir=root_dir,
             model=model,
             batch_size=batch_size,
             num_epochs=num_epochs,
@@ -181,7 +170,6 @@ if __name__ == "__main__":
     elif args.mode == "test":
         run_test(
             data_folder=data_folder,
-            root_dir=root_dir,
             model=model,
             batch_size=batch_size,
             output=output,
