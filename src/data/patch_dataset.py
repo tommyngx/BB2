@@ -331,4 +331,3 @@ Summary:
 Note:
 - If the original image is smaller, the last patch may repeat regions or be resized to ensure the correct number of patches.
 """
-"""
