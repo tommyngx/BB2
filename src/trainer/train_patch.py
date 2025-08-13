@@ -77,7 +77,7 @@ def run_train(
             img_size=img_size,  # truyền img_size
         )
     )
-    model_name = f"{model_type}_{arch_type}" if model_type else arch_type
+    model_name = f"{model_type}" if model_type else arch_type
     trained_model = train_model(
         model,
         train_loader,
