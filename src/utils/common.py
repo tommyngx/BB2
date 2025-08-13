@@ -25,6 +25,19 @@ def load_config(config_name, config_dir="config"):
 
 
 def get_arg_or_config(arg_val, config_val, default_val):
+    # Nếu arg_val là một biến kiểu str, kiểm tra nếu là tên biến thì lấy giá trị biến đó
+    # Nếu arg_val là None thì lấy config_val, nếu config_val cũng None thì lấy default_val
+    if isinstance(arg_val, str):
+        # Nếu arg_val là tên biến (ví dụ: "img_size") và biến đó tồn tại trong locals/globals, lấy giá trị biến
+        import inspect
+
+        frame = inspect.currentframe().f_back
+        if arg_val in frame.f_locals:
+            return frame.f_locals[arg_val]
+        if arg_val in frame.f_globals:
+            return frame.f_globals[arg_val]
+        # Nếu không phải tên biến, trả về giá trị string như bình thường
+        return arg_val
     if arg_val is not None:
         return arg_val
     if config_val is not None:
