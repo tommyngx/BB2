@@ -152,11 +152,11 @@ def get_dataloaders(
     # Chỉ truyền height, width vào get_train_augmentation nếu cả hai đều khác None
     if height is not None and width is not None:
         train_transform = get_train_augmentation(height, width, resize_first=False)
-        test_transform = get_test_augmentation(height, width)
+        test_transform = get_test_augmentation(height, width, resize_first=False)
     else:
         # fallback: không resize nếu height/width không hợp lệ
         train_transform = get_train_augmentation(448, 448, resize_first=False)
-        test_transform = get_test_augmentation(448, 448)
+        test_transform = get_test_augmentation(448, 448, resize_first=False)
     # Truyền cùng img_size cho cả train và test dataset
     train_dataset = CancerPatchDataset(
         train_df,
@@ -200,27 +200,31 @@ def get_dataloaders(
 Giải thích cách xử lý augment và resize patch với code hiện tại:
 
 - Khi lấy một ảnh từ đường dẫn, ảnh sẽ được mở bằng PIL và chuyển sang RGB.
-- Nếu có transform (augmentation), ảnh gốc sẽ được augment trước (không resize ở bước này vì truyền height, width là None).
+- Ảnh sẽ được resize về kích thước cần thiết (tính toán dựa trên số patch, overlap, và img_size đầu ra) trước khi augment.
+- Nếu có transform (augmentation), ảnh đã resize sẽ được augment.
+    - Tuy nhiên, **trong pipeline augment vẫn luôn có bước resize cuối cùng** (do hàm get_train_augmentation và get_test_augmentation luôn thêm A.Resize(height, width) vào cuối nếu resize_first=False).
+    - Vì vậy, ảnh sẽ bị resize lại một lần nữa về (height, width) sau augment, dù trước đó đã resize.
 - Sau khi augment, ảnh sẽ được chia thành các patch bằng hàm `split_image_into_patches`.
 - Mỗi patch sau khi chia sẽ được resize về kích thước tiêu chuẩn (ví dụ: 448x448 hoặc kích thước truyền vào qua argument/config) bằng `cv2.resize`.
 - Sau khi resize, patch sẽ được chuẩn hóa (`A.Normalize`) và chuyển sang tensor (`ToTensorV2`).
 - Kết quả trả về là một tensor stack gồm các patch đã resize, chuẩn hóa, chuyển sang tensor.
 
 Tóm lại:
-- Augment (transform) chỉ thực hiện các phép biến đổi như flip, rotate, v.v. nhưng không resize.
-- Việc resize về kích thước chuẩn được thực hiện sau khi chia patch, áp dụng cho từng patch riêng biệt.
+- Ảnh gốc được resize về kích thước đủ lớn để chia patch (theo số patch và overlap).
+- Augment (transform) sẽ **luôn có bước resize về (height, width) ở cuối pipeline** (do thiết kế của get_train_augmentation).
+- Việc resize về kích thước chuẩn được thực hiện lại sau khi chia patch, áp dụng cho từng patch riêng biệt.
 - Kích thước patch cuối cùng luôn là kích thước chuẩn (ví dụ: 448x448) lấy từ argument hoặc config.
 
-Ví dụ:
-- Nếu ảnh gốc là 1024x1024, img_size=(448,448), num_patches=3:
-    - Ảnh gốc được augment (không resize).
-    - Ảnh augment xong được chia thành 3 patch dọc theo chiều cao (có overlap).
+**Lưu ý:**  
+- Nếu muốn augment mà không resize lại trong pipeline, cần sửa lại hàm get_train_augmentation để không thêm A.Resize(height, width) khi resize_first=False.
+
     - Mỗi patch được resize về 448x448.
     - Patch được chuẩn hóa và chuyển sang tensor.
 
 Ưu điểm:  
 - Đảm bảo mọi patch đầu ra đều có cùng kích thước, phù hợp với input của model patch.
 - Augment không làm thay đổi kích thước ảnh gốc, giúp giữ nguyên thông tin spatial trước khi chia patch.
+- Tiết kiệm RAM vì ảnh gốc được resize nhỏ lại trước khi augment và chia patch.
 
 Nếu bạn chia ảnh thành 3 patch dọc theo chiều cao (`p3`), mỗi patch có kích thước **448x448** (sau khi resize từng patch), thì:
 

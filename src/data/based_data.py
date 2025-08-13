@@ -58,7 +58,7 @@ def get_dataloaders(
     else:
         height = width = int(img_size)
     train_transform = get_train_augmentation(height, width, resize_first=True)
-    test_transform = get_test_augmentation(height, width)
+    test_transform = get_test_augmentation(height, width, resize_first=True)
     train_dataset = CancerImageDataset(train_df, data_folder, train_transform)
     test_dataset = CancerImageDataset(test_df, data_folder, test_transform)
     sampler = get_weighted_sampler(train_df)

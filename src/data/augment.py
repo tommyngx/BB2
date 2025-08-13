@@ -74,8 +74,8 @@ def get_train_augmentation(height, width, extra_aug=None, resize_first=True):
     if resize_first:
         aug_list.append(A.Resize(height, width))
     aug_list += get_base_augmentations()
-    if not resize_first:
-        aug_list.append(A.Resize(height, width))
+    # if not resize_first:
+    #    aug_list.append(A.Resize(height, width))
     if extra_aug:
         aug_list += extra_aug
     aug_list += [
