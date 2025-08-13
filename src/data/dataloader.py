@@ -5,7 +5,7 @@ import yaml
 from torch.utils.data import WeightedRandomSampler
 
 
-def get_image_size_from_config(config_path="config/config.yaml"):
+def get_image_size_from_config(config_path="src/config/config.yaml"):
     if not os.path.isabs(config_path):
         config_path = os.path.join(os.path.dirname(__file__), "..", config_path)
     config_path = os.path.abspath(config_path)
@@ -19,7 +19,7 @@ def get_image_size_from_config(config_path="config/config.yaml"):
     return (img_size, img_size)
 
 
-def get_target_column_from_config(config_path="config/config.yaml"):
+def get_target_column_from_config(config_path="src/config/config.yaml"):
     if not os.path.isabs(config_path):
         config_path = os.path.join(os.path.dirname(__file__), "..", config_path)
     config_path = os.path.abspath(config_path)
@@ -30,7 +30,7 @@ def get_target_column_from_config(config_path="config/config.yaml"):
     return config.get("target_column", "cancer")
 
 
-def get_num_patches_from_config(config_path="config/config.yaml", num_patches=None):
+def get_num_patches_from_config(config_path="src/config/config.yaml", num_patches=None):
     if num_patches is not None:
         return num_patches
     if not os.path.isabs(config_path):
@@ -51,7 +51,7 @@ def get_model_key(
     return f"{base_model_key}_{patch_suffix}"
 
 
-def load_metadata(data_folder, config_path="config/config.yaml"):
+def load_metadata(data_folder, config_path="src/config/config.yaml"):
     target_column = get_target_column_from_config(config_path)
     metadata_path = os.path.join(data_folder, "metadata.csv")
     df = pd.read_csv(metadata_path)
