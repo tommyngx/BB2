@@ -12,6 +12,8 @@ from sklearn.metrics import (
     recall_score,
     confusion_matrix,
 )
+import csv
+from datetime import datetime
 
 from src.utils.loss import FocalLoss
 from src.utils.plot import plot_metrics, plot_confusion_matrix
@@ -103,7 +105,7 @@ def train_model(
     patience=50,
     loss_type="ce",
     arch_type=None,
-    num_patches=None,  # thêm num_patches để lưu tên file đúng
+    num_patches=None,
 ):
     model = model.to(device)
     if train_df is not None:
@@ -150,8 +152,10 @@ def train_model(
 
     model_dir = os.path.join(output, "models")
     plot_dir = os.path.join(output, "figures")
+    log_dir = os.path.join(output, "logs")
     os.makedirs(model_dir, exist_ok=True)
     os.makedirs(plot_dir, exist_ok=True)
+    os.makedirs(log_dir, exist_ok=True)
     dataset = dataset_folder.split("/")[-1]
     img_size = None
     try:
@@ -189,6 +193,25 @@ def train_model(
     best_acc = 0.0
     patience_counter = 0
     last_lr = lr
+
+    log_file = os.path.join(log_dir, f"{model_key}.csv")
+    # Ghi header nếu file chưa tồn tại
+    if not os.path.exists(log_file):
+        with open(log_file, "w", newline="") as logf:
+            writer = csv.writer(logf)
+            writer.writerow(
+                [
+                    "datetime",
+                    "epoch",
+                    "train_loss",
+                    "train_acc",
+                    "test_loss",
+                    "test_acc",
+                    "lr",
+                    "patience_counter",
+                    "best_acc",
+                ]
+            )
 
     for epoch in range(num_epochs):
         model.train()
@@ -233,6 +256,23 @@ def train_model(
         test_losses.append(test_loss)
         test_accs.append(test_acc)
 
+        # Ghi log csv mỗi epoch
+        with open(log_file, "a", newline="") as logf:
+            writer = csv.writer(logf)
+            writer.writerow(
+                [
+                    datetime.now().isoformat(),
+                    epoch + 1,
+                    round(epoch_loss, 6),
+                    round(epoch_acc, 6),
+                    round(test_loss, 6),
+                    round(test_acc, 6),
+                    optimizer.param_groups[0]["lr"],
+                    patience_counter,
+                    round(best_acc, 6),
+                ]
+            )
+
         if epoch < warmup_epochs:
             warmup_scheduler.step()
         else:
@@ -253,6 +293,21 @@ def train_model(
                 patience_counter += 1
                 if patience_counter >= patience:
                     print(f"Early stopping at epoch {epoch + 1}")
+                    with open(log_file, "a", newline="") as logf:
+                        writer = csv.writer(logf)
+                        writer.writerow(
+                            [
+                                datetime.now().isoformat(),
+                                f"early_stop_epoch_{epoch + 1}",
+                                "",
+                                "",
+                                "",
+                                "",
+                                "",
+                                "",
+                                "",
+                            ]
+                        )
                     break
 
         acc4 = int(round(test_acc * 10000))
@@ -311,5 +366,11 @@ def train_model(
         class_names = [str(i) for i in sorted(set(all_labels))]
         # plot_confusion_matrix(all_labels, all_preds, class_names, save_path=cm_path)
 
+    with open(log_file, "a", newline="") as logf:
+        writer = csv.writer(logf)
+        writer.writerow(
+            [datetime.now().isoformat(), "finished", "", "", "", "", "", "", ""]
+        )
+    print(f"Training log saved to {log_file}")
     print(f"{model_name} training finished.")
     return model
