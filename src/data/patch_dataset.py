@@ -17,6 +17,18 @@ import multiprocessing
 
 
 def split_image_into_patches(image, num_patches=2, patch_size=None, overlap_ratio=0.2):
+    """
+    Split an image into vertical patches with optional overlap.
+
+    Args:
+        image (PIL.Image, np.ndarray, or torch.Tensor): Input image.
+        num_patches (int): Number of patches to split.
+        patch_size (tuple or None): Target patch size (height, width). If None, calculated automatically.
+        overlap_ratio (float): Overlap ratio between consecutive patches.
+
+    Returns:
+        list of torch.Tensor: List of patch tensors (C, H, W).
+    """
     if isinstance(image, torch.Tensor):
         image = image.permute(1, 2, 0).numpy()
     else:
@@ -46,10 +58,16 @@ def split_image_into_patches(image, num_patches=2, patch_size=None, overlap_rati
 
 def compute_required_img_shape(img_size, num_patches, overlap_ratio=0.2):
     """
-    Tính kích thước ảnh gốc cần thiết để sau khi chia patch (có overlap) mỗi patch resize về img_size.
-    img_size: tuple (h, w) là kích thước patch sau cùng.
-    num_patches: số patch muốn chia.
-    overlap_ratio: tỉ lệ overlap giữa các patch.
+    Compute the required original image shape so that after splitting into patches (with overlap),
+    each patch can be resized to img_size.
+
+    Args:
+        img_size (tuple): (height, width) of the final patch.
+        num_patches (int): Number of patches.
+        overlap_ratio (float): Overlap ratio between patches.
+
+    Returns:
+        tuple: (required_height, required_width)
     """
     patch_height, patch_width = img_size
     step = int(patch_height * (1 - overlap_ratio))
@@ -70,6 +88,19 @@ class CancerPatchDataset(Dataset):
         img_size=None,
         overlap_ratio=0.2,
     ):
+        """
+        Dataset for splitting images into patches for MIL training.
+
+        Args:
+            df (pd.DataFrame): DataFrame with image paths and labels.
+            data_folder (str): Root directory containing images.
+            transform (albumentations.Compose or None): Augmentation pipeline.
+            num_patches (int): Number of patches per image.
+            augment_before_split (bool): Whether to augment before splitting.
+            config_path (str): Path to config file.
+            img_size (tuple or None): Target patch size (height, width).
+            overlap_ratio (float): Overlap ratio between patches.
+        """
         if data_folder is None:
             raise ValueError(
                 "data_folder must not be None. Please provide the data folder path."
@@ -89,29 +120,34 @@ class CancerPatchDataset(Dataset):
         return len(self.df)
 
     def __getitem__(self, idx):
+        """
+        Returns:
+            patch_tensors (torch.Tensor): Tensor of shape (num_patches, C, H, W).
+            label (int): Image label.
+        """
         img_path = os.path.join(self.data_folder, self.df.loc[idx, "link"])
         image = Image.open(img_path).convert("RGB")
         label = int(self.df.loc[idx, "cancer"])
-        # --- Resize ảnh về kích thước cần thiết trước khi augment ---
+        # --- Resize image to required shape before augmentation ---
         required_shape = compute_required_img_shape(
             self.img_size, self.num_patches, self.overlap_ratio
         )
         image = image.resize(
             (required_shape[1], required_shape[0]), resample=Image.BILINEAR
         )
-        # Augment ảnh gốc (không resize ở bước này)
+        # Apply augmentation to the resized image (no resize in this step)
         if self.transform:
             image_np = np.array(image)
             augmented = self.transform(image=image_np)
             image = augmented["image"]
         else:
             image = np.array(image)
-        # Split ảnh đã augment thành các patch
+        # Split the augmented image into patches
         patches = split_image_into_patches(
             image, self.num_patches, overlap_ratio=self.overlap_ratio
         )
         patch_tensors = []
-        # Resize từng patch về kích thước tiêu chuẩn
+        # Resize each patch to the standard size
         for patch in patches:
             patch_np = patch.permute(1, 2, 0).numpy()
             patch_np = cv2.resize(patch_np, self.img_size)
@@ -139,7 +175,7 @@ def get_dataloaders(
     if img_size is None:
         img_size = get_image_size_from_config(config_path)
     num_patches = get_num_patches_from_config(config_path, num_patches)
-    # Đảm bảo img_size là tuple (height, width) với giá trị int
+    # Ensure img_size is a tuple (height, width) with int values
     if isinstance(img_size, (list, tuple)):
         height, width = img_size
         if height is None or width is None:
@@ -149,15 +185,15 @@ def get_dataloaders(
         height = width = int(img_size)
     if height is None or width is None:
         height = width = 448
-    # Chỉ truyền height, width vào get_train_augmentation nếu cả hai đều khác None
+    # Only pass height, width to get_train_augmentation if both are not None
     if height is not None and width is not None:
         train_transform = get_train_augmentation(height, width, resize_first=False)
         test_transform = get_test_augmentation(height, width, resize_first=False)
     else:
-        # fallback: không resize nếu height/width không hợp lệ
+        # fallback: no resize if height/width are not valid
         train_transform = get_train_augmentation(448, 448, resize_first=False)
         test_transform = get_test_augmentation(448, 448, resize_first=False)
-    # Truyền cùng img_size cho cả train và test dataset
+    # Use the same img_size for both train and test datasets
     train_dataset = CancerPatchDataset(
         train_df,
         data_folder,
@@ -197,49 +233,49 @@ def get_dataloaders(
 
 
 """
-Giải thích cách xử lý augment và resize patch với code hiện tại:
+Explanation of the patch augmentation and resizing pipeline:
 
-- Khi lấy một ảnh từ đường dẫn, ảnh sẽ được mở bằng PIL và chuyển sang RGB.
-- Ảnh sẽ được resize về kích thước cần thiết (tính toán dựa trên số patch, overlap, và img_size đầu ra) trước khi augment.
-- Nếu có transform (augmentation), ảnh đã resize sẽ được augment.
-    - Tuy nhiên, **trong pipeline augment vẫn luôn có bước resize cuối cùng** (do hàm get_train_augmentation và get_test_augmentation luôn thêm A.Resize(height, width) vào cuối nếu resize_first=False).
-    - Vì vậy, ảnh sẽ bị resize lại một lần nữa về (height, width) sau augment, dù trước đó đã resize.
-- Sau khi augment, ảnh sẽ được chia thành các patch bằng hàm `split_image_into_patches`.
-- Mỗi patch sau khi chia sẽ được resize về kích thước tiêu chuẩn (ví dụ: 448x448 hoặc kích thước truyền vào qua argument/config) bằng `cv2.resize`.
-- Sau khi resize, patch sẽ được chuẩn hóa (`A.Normalize`) và chuyển sang tensor (`ToTensorV2`).
-- Kết quả trả về là một tensor stack gồm các patch đã resize, chuẩn hóa, chuyển sang tensor.
+- When loading an image, it is opened with PIL and converted to RGB.
+- The image is resized to the required shape (computed based on the number of patches, overlap, and output img_size) before augmentation.
+- If a transform (augmentation) is provided, it is applied to the resized image.
+    - Note: The augmentation pipeline always includes a final resize step (because get_train_augmentation and get_test_augmentation always append A.Resize(height, width) at the end if resize_first=False).
+    - Therefore, the image will be resized again to (height, width) after augmentation.
+- After augmentation, the image is split into patches using `split_image_into_patches`.
+- Each patch is then resized to the standard size (e.g., 448x448 or as specified) using `cv2.resize`.
+- After resizing, each patch is normalized (`A.Normalize`) and converted to a tensor (`ToTensorV2`).
+- The output is a stacked tensor of all patches.
 
-Tóm lại:
-- Ảnh gốc được resize về kích thước đủ lớn để chia patch (theo số patch và overlap).
-- Augment (transform) sẽ **luôn có bước resize về (height, width) ở cuối pipeline** (do thiết kế của get_train_augmentation).
-- Việc resize về kích thước chuẩn được thực hiện lại sau khi chia patch, áp dụng cho từng patch riêng biệt.
-- Kích thước patch cuối cùng luôn là kích thước chuẩn (ví dụ: 448x448) lấy từ argument hoặc config.
+Summary:
+- The original image is resized to be large enough for patch splitting (according to the number of patches and overlap).
+- Augmentation (transform) always includes a resize to (height, width) at the end of the pipeline (by design of get_train_augmentation).
+- Each patch is resized again after splitting, ensuring all output patches have the same size (e.g., 448x448).
+- The final patch size is always the standard size specified by argument or config.
 
-**Lưu ý:**  
-- Nếu muốn augment mà không resize lại trong pipeline, cần sửa lại hàm get_train_augmentation để không thêm A.Resize(height, width) khi resize_first=False.
+Note:
+- If you want to augment without resizing in the pipeline, modify get_train_augmentation to avoid adding A.Resize(height, width) when resize_first=False.
 
-    - Mỗi patch được resize về 448x448.
-    - Patch được chuẩn hóa và chuyển sang tensor.
+    - Each patch is resized to 448x448.
+    - Each patch is normalized and converted to a tensor.
 
-Ưu điểm:  
-- Đảm bảo mọi patch đầu ra đều có cùng kích thước, phù hợp với input của model patch.
-- Augment không làm thay đổi kích thước ảnh gốc, giúp giữ nguyên thông tin spatial trước khi chia patch.
-- Tiết kiệm RAM vì ảnh gốc được resize nhỏ lại trước khi augment và chia patch.
+Advantages:
+- Ensures all output patches have the same size, suitable for patch-based models.
+- Augmentation does not alter the original spatial information before splitting.
+- Saves RAM by resizing the original image before augmentation and splitting.
 
-Nếu bạn chia ảnh thành 3 patch dọc theo chiều cao (`p3`), mỗi patch có kích thước **448x448** (sau khi resize từng patch), thì:
+If you split an image into 3 vertical patches (`p3`), each patch will have a size of **448x448** (after resizing each patch), so:
 
-- **Kích thước ảnh gốc trước khi chia patch** sẽ phụ thuộc vào cách chia patch và overlap.
-- Nếu không overlap (`overlap_ratio=0`):  
-  - Tổng chiều cao ảnh gốc tối thiểu = 3 × 448 = **1344** pixels (chiều rộng là 448).
-- Nếu có overlap (ví dụ mặc định `overlap_ratio=0.2`):  
-  - Mỗi patch cao 448, bước nhảy giữa các patch là `step = 448 × (1 - 0.2) = 358.4 ≈ 358` pixels.
-  - Tổng chiều cao ảnh gốc tối thiểu = `step × (num_patches - 1) + patch_height = 358 × 2 + 448 = 1164` pixels (chiều rộng là 448).
+- **The minimum required original image height** depends on the patch splitting and overlap.
+- If no overlap (`overlap_ratio=0`):
+  - Minimum original image height = 3 × 448 = **1344** pixels (width is 448).
+- If overlap is 20% (`overlap_ratio=0.2`):
+  - Each patch height is 448, step between patches is `step = 448 × (1 - 0.2) = 358.4 ≈ 358` pixels.
+  - Minimum original image height = `step × (num_patches - 1) + patch_height = 358 × 2 + 448 = 1164` pixels (width is 448).
 
-**Tóm lại:**
-- Nếu không overlap: ảnh gốc tối thiểu 1344x448.
-- Nếu overlap 20%: ảnh gốc tối thiểu khoảng 1164x448.
-- Sau khi chia, mỗi patch luôn được resize về 448x448.
+Summary:
+- No overlap: minimum image size is 1344x448.
+- 20% overlap: minimum image size is about 1164x448.
+- After splitting, each patch is always resized to 448x448.
 
-**Lưu ý:**  
-- Nếu ảnh gốc nhỏ hơn, patch cuối cùng sẽ bị lặp lại vùng ảnh hoặc resize lại để đủ số patch.
+Note:
+- If the original image is smaller, the last patch may repeat regions or be resized to ensure the correct number of patches.
 """
