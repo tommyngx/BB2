@@ -210,7 +210,9 @@ class CancerPatchDataset(Dataset):
         patch_tensors = torch.stack(patch_tensors)
         # --- DEBUG: Lưu patch_tensors thành ảnh để kiểm tra augmentation ---
         if idx < 3:  # chỉ lưu cho 3 ảnh đầu để tránh lưu quá nhiều
-            print(f"[DEBUG] patch_tensors shape: {patch_tensors.shape}, dtype: {patch_tensors.dtype}, min: {patch_tensors.min().item()}, max: {patch_tensors.max().item()}")
+            print(
+                f"[DEBUG] patch_tensors shape: {patch_tensors.shape}, dtype: {patch_tensors.dtype}, min: {patch_tensors.min().item()}, max: {patch_tensors.max().item()}"
+            )
             debug_patches = patch_tensors.unsqueeze(0)  # (1, N, C, H, W)
             debug_labels = torch.tensor([label])
             save_random_batch_patches(
@@ -388,5 +390,4 @@ Summary:
 
 Note:
 - If the original image is smaller, the last patch may repeat regions or be resized to ensure the correct number of patches.
-"""
 """
