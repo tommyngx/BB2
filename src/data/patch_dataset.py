@@ -143,6 +143,9 @@ class CancerPatchDataset(Dataset):
         if h <= 0 or w <= 0:
             h = w = 448
 
+        # Store original image for later use as full patch
+        original_image = np.array(image)
+
         # --- Resize image to required shape before augmentation ---
         required_shape = compute_required_img_shape(
             (h, w), self.num_patches, self.overlap_ratio
@@ -150,6 +153,7 @@ class CancerPatchDataset(Dataset):
         image = image.resize(
             (required_shape[1], required_shape[0]), resample=Image.BILINEAR
         )
+
         # Apply augmentation to the resized image (no resize in this step)
         if self.transform:
             image_np = np.array(image)
@@ -157,6 +161,7 @@ class CancerPatchDataset(Dataset):
             image = augmented["image"]
         else:
             image = np.array(image)
+
         # Split the augmented image into patches
         patches = split_image_into_patches(
             image, self.num_patches, overlap_ratio=self.overlap_ratio
@@ -175,10 +180,9 @@ class CancerPatchDataset(Dataset):
             patch_tensor = normalize_and_tensorize(image=patch_np)["image"]
             patch_tensors.append(patch_tensor)
 
-        # Add full image as the last patch (resize to img_size, normalize, to tensor)
-        full_img_np = image if isinstance(image, np.ndarray) else np.array(image)
-        full_img_np = full_img_np.astype(np.uint8)
-        full_img_resized = cv2.resize(full_img_np, (w, h))
+        # Add full ORIGINAL image as the last patch (resize to img_size, normalize, to tensor)
+        # Use original image before any augmentation or resizing
+        full_img_resized = cv2.resize(original_image, (w, h))
         full_img_tensor = normalize_and_tensorize(image=full_img_resized)["image"]
         patch_tensors.append(full_img_tensor)
 
