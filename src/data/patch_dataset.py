@@ -308,6 +308,7 @@ def save_random_batch_patches(
     """
     Lưu một batch ngẫu nhiên từ dataloader thành ảnh PNG.
     Mỗi hàng là các patch của cùng một ảnh (batch_size hàng, mỗi hàng num_patches+1 ảnh).
+    Ảnh được lưu ở dạng greyscale (chỉ lấy channel 0).
     """
     import torchvision.utils as vutils
 
@@ -324,24 +325,23 @@ def save_random_batch_patches(
     patches, labels = batch  # patches: (B, num_patches+1, C, H, W)
     B, N, C, H, W = patches.shape
 
-    # Unnormalize về [0, 1] để lưu ảnh
-    def unnormalize(img):
-        img = img.clone()
-        for c in range(3):
-            img[c] = img[c] * std[c] + mean[c]
-        return img.clamp(0, 1)
+    # Unnormalize về [0, 1] để lưu ảnh greyscale
+    def unnormalize_grey(img):
+        # img: (C, H, W), chỉ lấy channel 0
+        img0 = img[0].clone() * std[0] + mean[0]
+        return img0.clamp(0, 1).unsqueeze(0)  # (1, H, W)
 
-    # Ghép các patch của mỗi ảnh thành một hàng
+    # Ghép các patch của mỗi ảnh thành một hàng (greyscale)
     rows = []
     for i in range(B):
-        patch_imgs = [unnormalize(patches[i, j]) for j in range(N)]
-        row = torch.cat(patch_imgs, dim=2)  # ghép theo chiều ngang (W)
+        patch_imgs = [unnormalize_grey(patches[i, j]) for j in range(N)]  # (1, H, W)
+        row = torch.cat(patch_imgs, dim=2)  # (1, H, N*W)
         rows.append(row)
-    grid = torch.cat(rows, dim=1)  # ghép các hàng theo chiều dọc (H)
+    grid = torch.cat(rows, dim=1)  # (1, B*H, N*W)
 
-    # Lưu ảnh
+    # Lưu ảnh greyscale
     vutils.save_image(grid, save_path)
-    print(f"Đã lưu random batch patch grid vào {save_path}")
+    print(f"Đã lưu random batch patch grid (greyscale) vào {save_path}")
 
 
 """
