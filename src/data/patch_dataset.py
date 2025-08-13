@@ -46,24 +46,28 @@ class CancerPatchDataset(Dataset):
     def __init__(
         self,
         df,
-        root_dir,
+        data_folder,  # đổi tên từ root_dir sang data_folder
         transform=None,
         num_patches=2,
         augment_before_split=True,
         config_path="config/config.yaml",
     ):
+        if data_folder is None:
+            raise ValueError(
+                "data_folder must not be None. Please provide the data folder path."
+            )
         self.df = df.reset_index(drop=True)
-        self.root_dir = root_dir
+        self.data_folder = data_folder
         self.transform = transform
         self.num_patches = num_patches
-        self.img_size = get_image_size_from_config(config_path)  # truyền config_path
+        self.img_size = get_image_size_from_config(config_path)
         self.augment_before_split = augment_before_split
 
     def __len__(self):
         return len(self.df)
 
     def __getitem__(self, idx):
-        img_path = os.path.join(self.root_dir, self.df.loc[idx, "link"])
+        img_path = os.path.join(self.data_folder, self.df.loc[idx, "link"])
         image = Image.open(img_path).convert("RGB")
         label = int(self.df.loc[idx, "cancer"])
         if self.augment_before_split:
@@ -105,7 +109,7 @@ class CancerPatchDataset(Dataset):
 def get_dataloaders(
     train_df,
     test_df,
-    root_dir,
+    data_folder,  # đổi tên từ root_dir sang data_folder
     batch_size=16,
     config_path="config/config.yaml",
     num_patches=None,
@@ -125,7 +129,7 @@ def get_dataloaders(
     test_transform = get_test_augmentation(height, width)
     train_dataset = CancerPatchDataset(
         train_df,
-        root_dir,
+        data_folder,
         train_transform,
         num_patches,
         augment_before_split=True,
@@ -133,7 +137,7 @@ def get_dataloaders(
     )
     test_dataset = CancerPatchDataset(
         test_df,
-        root_dir,
+        data_folder,
         test_transform,
         num_patches,
         augment_before_split=True,
