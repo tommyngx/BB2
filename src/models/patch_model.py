@@ -13,7 +13,13 @@ from .patch_architectures import (
     PatchGlobalLocalClassifier,
     PatchGlobalLocalTokenMixerClassifier,
 )
-from .mil_py import MILClassifier, MILClassifierV2, MILClassifierV3
+from .mil_py import (
+    MILClassifier,
+    MILClassifierV2,
+    MILClassifierV3,
+    MILClassifierV4,  # added
+    MILClassifierV5,  # added
+)
 import warnings
 
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -65,8 +71,23 @@ def get_patch_model(
     elif arch_type == "mil_v2":
         return MILClassifierV2(backbone, feature_dim, num_classes)
     elif arch_type == "mil_v3":
-        # For mil_v3, you may want to pass backbone twice, or customize
         return MILClassifierV3(
+            base_model_local=backbone,
+            base_model_global=backbone,
+            local_dim=feature_dim,
+            global_dim=feature_dim,
+            num_classes=num_classes,
+        )
+    elif arch_type == "mil_v4":
+        return MILClassifierV4(
+            base_model_local=backbone,
+            base_model_global=backbone,
+            local_dim=feature_dim,
+            global_dim=feature_dim,
+            num_classes=num_classes,
+        )
+    elif arch_type == "mil_v5":
+        return MILClassifierV5(
             base_model_local=backbone,
             base_model_global=backbone,
             local_dim=feature_dim,

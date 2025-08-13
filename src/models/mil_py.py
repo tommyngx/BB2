@@ -294,3 +294,246 @@ class MILClassifierV3(nn.Module):
         self.last_global_feat = feats_g.detach()
         self.last_local_feat = pooled_l.detach()
         return logits
+
+
+class MILClassifierV4(nn.Module):
+    """
+    MILClassifierV4:
+    - Attention pooling cho local patch (MIL)
+    - Global feature làm query trong cross-attention, ALL local patches làm key/value
+    - Đầu ra fused qua head classifier
+    """
+
+    def __init__(
+        self,
+        base_model_local: nn.Module,
+        base_model_global: nn.Module,
+        local_dim: int,
+        global_dim: int,
+        num_classes: int = 1,
+        attn_hidden: int = 256,
+        attn_dropout: float = 0.1,
+        head_dropout: float = 0.1,
+        cross_attn_heads: int = 4,
+    ):
+        super().__init__()
+        self.base_model_local = base_model_local
+        self.base_model_global = base_model_global
+        self.local_dim = local_dim
+        self.global_dim = global_dim
+        self.num_classes = num_classes
+
+        # MIL attention pooling cho local patch
+        self.mil_pool = _GatedAttnPool(
+            d_model=local_dim, hidden=attn_hidden, dropout=attn_dropout
+        )
+
+        # Cross-attention: global feature làm query, ALL local patches làm key/value
+        self.cross_attn = nn.MultiheadAttention(
+            embed_dim=local_dim, num_heads=cross_attn_heads, batch_first=True
+        )
+        self.global_proj = nn.Linear(global_dim, local_dim)
+
+        # Head classifier
+        self.head = nn.Sequential(
+            nn.LayerNorm(local_dim),
+            nn.Dropout(head_dropout),
+            nn.Linear(local_dim, num_classes),
+        )
+
+        # Init weights
+        for m in self.head:
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                nn.init.constant_(m.bias, 0.0)
+        nn.init.xavier_uniform_(self.global_proj.weight)
+        nn.init.constant_(self.global_proj.bias, 0.0)
+
+    def _encode_patches(self, x: torch.Tensor) -> torch.Tensor:
+        B, N, C, H, W = x.shape
+        x_ = x.contiguous().view(B * N, C, H, W)
+        feats = self.base_model_local(x_)
+        if feats.dim() == 4:
+            feats = F.adaptive_avg_pool2d(feats, 1).squeeze(-1).squeeze(-1)
+        feats = feats.view(B, N, -1)
+        return feats
+
+    def _encode_global(self, global_img: torch.Tensor) -> torch.Tensor:
+        feats_g = self.base_model_global(global_img)
+        if feats_g.dim() == 4:
+            feats_g = F.adaptive_avg_pool2d(feats_g, 1).squeeze(-1).squeeze(-1)
+        return feats_g
+
+    def forward(self, x_patches: torch.Tensor, mask: torch.Tensor = None):
+        # x_patches: (B, N+1, C, H, W)
+        B, N_plus_1, C, H, W = x_patches.shape
+        N = N_plus_1 - 1
+        x_local = x_patches[:, :N]  # (B, N, C, H, W)
+        x_global = x_patches[:, N]  # (B, C, H, W)
+
+        feats_l = self._encode_patches(x_local)  # (B, N, local_dim)
+        pooled_l, attn = self.mil_pool(
+            feats_l, mask=mask, temperature=1.0
+        )  # (B, local_dim)
+        feats_g = self._encode_global(x_global)  # (B, global_dim)
+        feats_g_proj = self.global_proj(feats_g).unsqueeze(1)  # (B, 1, local_dim)
+
+        # Cross-attention: global query, ALL local patches as key/value
+        cross_attn_out, _ = self.cross_attn(
+            query=feats_g_proj, key=feats_l, value=feats_l
+        )  # (B, 1, local_dim)
+        fused = cross_attn_out.squeeze(1)  # (B, local_dim)
+
+        logits = self.head(fused)
+        return logits
+
+
+class MILClassifierV5(nn.Module):
+    """
+    MILClassifierV5: Advanced MIL classifier with:
+    - Dual-path processing (local MIL + global)
+    - Cross-attention between global and local features
+    - Residual connections and layer normalization
+    - Adaptive fusion mechanism
+    """
+
+    def __init__(
+        self,
+        base_model_local: nn.Module,
+        base_model_global: nn.Module,
+        local_dim: int,
+        global_dim: int,
+        num_classes: int = 1,
+        attn_hidden: int = 256,
+        attn_dropout: float = 0.1,
+        head_dropout: float = 0.1,
+        cross_attn_heads: int = 8,
+        fusion_method: str = "adaptive",
+    ):
+        super().__init__()
+        self.base_model_local = base_model_local
+        self.base_model_global = base_model_global
+        self.local_dim = local_dim
+        self.global_dim = global_dim
+        self.num_classes = num_classes
+        self.fusion_method = fusion_method
+
+        # MIL attention pooling
+        self.mil_pool = _GatedAttnPool(
+            d_model=local_dim, hidden=attn_hidden, dropout=attn_dropout
+        )
+
+        # Project global features to local dimension
+        self.global_proj = nn.Sequential(
+            nn.Linear(global_dim, local_dim),
+            nn.LayerNorm(local_dim),
+            nn.ReLU(inplace=True),
+        )
+
+        # Cross-attention layers
+        self.cross_attn_local = nn.MultiheadAttention(
+            embed_dim=local_dim, num_heads=cross_attn_heads, batch_first=True
+        )
+        self.cross_attn_global = nn.MultiheadAttention(
+            embed_dim=local_dim, num_heads=cross_attn_heads, batch_first=True
+        )
+
+        # Layer norms for residual connections
+        self.ln_local = nn.LayerNorm(local_dim)
+        self.ln_global = nn.LayerNorm(local_dim)
+
+        # Fusion mechanism
+        if fusion_method == "adaptive":
+            self.fusion_gate = nn.Sequential(
+                nn.Linear(local_dim * 2, local_dim),
+                nn.ReLU(inplace=True),
+                nn.Linear(local_dim, 2),
+                nn.Softmax(dim=-1),
+            )
+        elif fusion_method == "concat":
+            self.fusion_proj = nn.Linear(local_dim * 2, local_dim)
+
+        # Enhanced head with residual connection
+        self.head = nn.Sequential(
+            nn.LayerNorm(local_dim),
+            nn.Linear(local_dim, local_dim // 2),
+            nn.ReLU(inplace=True),
+            nn.Dropout(head_dropout),
+            nn.Linear(local_dim // 2, num_classes),
+        )
+
+        self._init_weights()
+        self.last_attn_weights = None
+        self.last_fusion_weights = None
+
+    def _init_weights(self):
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0.0)
+
+    def _encode_patches(self, x: torch.Tensor) -> torch.Tensor:
+        B, N, C, H, W = x.shape
+        x_ = x.contiguous().view(B * N, C, H, W)
+        feats = self.base_model_local(x_)
+        if feats.dim() == 4:
+            feats = F.adaptive_avg_pool2d(feats, 1).squeeze(-1).squeeze(-1)
+        feats = feats.view(B, N, -1)
+        return feats
+
+    def _encode_global(self, global_img: torch.Tensor) -> torch.Tensor:
+        feats_g = self.base_model_global(global_img)
+        if feats_g.dim() == 4:
+            feats_g = F.adaptive_avg_pool2d(feats_g, 1).squeeze(-1).squeeze(-1)
+        return feats_g
+
+    def forward(self, x_patches: torch.Tensor, mask: torch.Tensor = None):
+        B, N_plus_1, C, H, W = x_patches.shape
+        N = N_plus_1 - 1
+        x_local = x_patches[:, :N]
+        x_global = x_patches[:, N]
+
+        # Encode patches and global image
+        feats_l = self._encode_patches(x_local)  # (B, N, local_dim)
+        pooled_l, attn_weights = self.mil_pool(feats_l, mask=mask)  # (B, local_dim)
+
+        feats_g = self._encode_global(x_global)  # (B, global_dim)
+        feats_g_proj = self.global_proj(feats_g)  # (B, local_dim)
+
+        # Cross-attention
+        # Local-to-global attention
+        local_enhanced, _ = self.cross_attn_local(
+            query=pooled_l.unsqueeze(1),
+            key=feats_g_proj.unsqueeze(1),
+            value=feats_g_proj.unsqueeze(1),
+        )
+        local_enhanced = self.ln_local(pooled_l + local_enhanced.squeeze(1))
+
+        # Global-to-local attention
+        global_enhanced, _ = self.cross_attn_global(
+            query=feats_g_proj.unsqueeze(1), key=feats_l, value=feats_l
+        )
+        global_enhanced = self.ln_global(feats_g_proj + global_enhanced.squeeze(1))
+
+        # Fusion
+        if self.fusion_method == "adaptive":
+            fusion_input = torch.cat([local_enhanced, global_enhanced], dim=-1)
+            fusion_weights = self.fusion_gate(fusion_input)  # (B, 2)
+            fused = (
+                fusion_weights[:, 0:1] * local_enhanced
+                + fusion_weights[:, 1:2] * global_enhanced
+            )
+            self.last_fusion_weights = fusion_weights.detach()
+        elif self.fusion_method == "concat":
+            fused = self.fusion_proj(
+                torch.cat([local_enhanced, global_enhanced], dim=-1)
+            )
+        else:  # average
+            fused = (local_enhanced + global_enhanced) / 2
+
+        # Classification
+        logits = self.head(fused)
+        self.last_attn_weights = attn_weights.detach()
+
+        return logits
