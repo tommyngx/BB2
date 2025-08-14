@@ -330,30 +330,6 @@ def save_random_batch_patches(
     # Lưu ảnh greyscale
     vutils.save_image(grid, save_path)
     print(f"Đã lưu random batch patch grid (greyscale) vào {save_path}")
-    if batch is None:
-        print("Không tìm thấy batch nào trong dataloader.")
-        return
-    patches, labels = batch  # patches: (B, num_patches+1, C, H, W)
-    B, N, C, H, W = patches.shape
-
-    # Unnormalize về [0, 1] để lưu ảnh greyscale
-    def unnormalize_grey(img):
-        # img: (C, H, W), chỉ lấy channel 0
-        img0 = img[0].detach().cpu() * std[0] + mean[0]
-        img0 = (img0 - img0.min()) / (img0.max() - img0.min() + 1e-8)  # scale về [0,1]
-        return img0.unsqueeze(0)  # (1, H, W)
-
-    # Ghép các patch của mỗi ảnh thành một hàng (greyscale)
-    rows = []
-    for i in range(B):
-        patch_imgs = [unnormalize_grey(patches[i, j]) for j in range(N)]  # (1, H, W)
-        row = torch.cat(patch_imgs, dim=2)  # (1, H, N*W)
-        rows.append(row)
-    grid = torch.cat(rows, dim=1)  # (1, B*H, N*W)
-
-    # Lưu ảnh greyscale
-    vutils.save_image(grid, save_path)
-    print(f"Đã lưu random batch patch grid (greyscale) vào {save_path}")
 
 
 def rotate_if_landscape(image):
