@@ -1122,3 +1122,65 @@ class MILClassifierV9(nn.Module):
         self.last_fusion_weights = fusion_weights.detach()
 
         return logits
+
+
+class MILClassifierV10(nn.Module):
+    """
+    MILClassifierV10: Only uses global feature for classification.
+    Local features are encoded but not used in prediction.
+    """
+
+    def __init__(
+        self,
+        base_model: nn.Module,  # Backbone (e.g., ResNet50)
+        feature_dim: int,  # Output dim of backbone (e.g., 2048)
+        num_classes: int = 1,
+    ):
+        super().__init__()
+        self.base_model = base_model
+        self.feature_dim = feature_dim
+        self.num_classes = num_classes
+
+        self.head = nn.Linear(feature_dim, num_classes)
+        self._init_weights()
+
+    def _init_weights(self):
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.kaiming_normal_(
+                    module.weight, mode="fan_out", nonlinearity="relu"
+                )
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0.0)
+
+    def _encode_patches(self, x: torch.Tensor) -> torch.Tensor:
+        # Local features are encoded but not used
+        B, N, C, H, W = x.shape
+        x_ = x.contiguous().view(B * N, C, H, W)
+        feats = self.base_model(x_)
+        if feats.dim() == 4:
+            feats = F.adaptive_avg_pool2d(feats, 1).squeeze(-1).squeeze(-1)
+        feats = feats.view(B, N, -1)
+        return feats
+
+    def _encode_global(self, global_img: torch.Tensor) -> torch.Tensor:
+        feats = self.base_model(global_img)
+        if feats.dim() == 4:
+            feats = F.adaptive_avg_pool2d(feats, 1).squeeze(-1).squeeze(-1)
+        return feats
+
+    def forward(
+        self, x_patches: torch.Tensor, mask: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        B, N_plus_1, C, H, W = x_patches.shape
+        N = N_plus_1 - 1
+        x_local = x_patches[:, :N]  # (B, N, C, H, W)
+        x_global = x_patches[:, N]  # (B, C, H, W)
+
+        # Encode local features (not used)
+        _ = self._encode_patches(x_local)
+
+        # Encode global feature (used for prediction)
+        global_feats = self._encode_global(x_global)  # (B, feature_dim)
+        logits = self.head(global_feats)
+        return logits

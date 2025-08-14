@@ -23,6 +23,7 @@ from .mil_py import (
     MILClassifierV7,  # added v7
     MILClassifierV8,  # added v8
     MILClassifierV9,  # added v9
+    MILClassifierV10,  # added v10
 )
 import warnings
 
@@ -129,6 +130,12 @@ def get_patch_model(
             feature_dim=feature_dim,
             num_classes=num_classes,
             # max_patches=num_patches,
+        )
+    elif arch_type == "mil_v10":
+        return MILClassifierV10(
+            base_model=backbone,
+            feature_dim=feature_dim,
+            num_classes=num_classes,
         )
     else:
         raise ValueError(f"Unsupported arch_type: {arch_type}")
