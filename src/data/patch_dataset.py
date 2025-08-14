@@ -20,44 +20,54 @@ import random
 def split_image_into_patches(image, num_patches=2, patch_size=None, overlap_ratio=0.2):
     """
     Split an image into vertical patches with optional overlap.
-
-    Args:
-        image (PIL.Image, np.ndarray, or torch.Tensor): Input image.
-        num_patches (int): Number of patches to split.
-        patch_size (tuple or None): Ignored, kept for compatibility.
-        overlap_ratio (float): Overlap ratio between consecutive patches.
-
-    Returns:
-        list of np.ndarray: List of patch arrays (H, W, C).
+    Đầu ra cùng kiểu và shape như đầu vào (PIL, np.ndarray, torch.Tensor).
+    Patch cuối cùng luôn lấy từ đáy lên, không pad thêm chiều cao.
     """
-    # Convert image to numpy array if needed, but do not change dtype or value range
+    # Ghi nhớ kiểu và shape đầu vào
+    input_type = type(image)
+    orig_shape = None
     if isinstance(image, torch.Tensor):
+        orig_shape = image.shape  # (C, H, W)
         image = image.permute(1, 2, 0).cpu().numpy()
     elif isinstance(image, Image.Image):
         image = np.array(image)
+    elif isinstance(image, np.ndarray):
+        orig_shape = image.shape
+
+    # Đảm bảo (H, W, C)
+    if image.ndim == 3 and image.shape[0] == 3 and image.shape[2] != 3:
+        image = np.transpose(image, (1, 2, 0))
+    elif image.ndim == 3 and image.shape[-1] != 3:
+        if image.shape[1] == 3:
+            image = np.transpose(image, (0, 2, 1))
 
     height, width = image.shape[:2]
     patch_height = height // num_patches
     step = int(patch_height * (1 - overlap_ratio))
+    if num_patches == 1 or step <= 0:
+        starts = [0]
+    else:
+        starts = [i * step for i in range(num_patches - 1)]
+        starts.append(height - patch_height)
+
     patches = []
-    for i in range(num_patches):
+    for i, start_h in enumerate(starts):
+        end_h = start_h + patch_height
+        # Patch cuối cùng luôn lấy từ đáy lên
         if i == num_patches - 1:
-            # Patch cuối cùng: lấy từ đáy lên, không padding
             start_h = height - patch_height
             end_h = height
-        else:
-            start_h = i * step
-            end_h = start_h + patch_height
-            # Nếu patch không đủ chiều cao thì pad
-            if end_h > height:
-                end_h = height
-                start_h = max(0, end_h - patch_height)
         patch = image[start_h:end_h, :, :]
-        # Chỉ pad nếu không phải patch cuối cùng và patch chưa đủ patch_height
-        if i != num_patches - 1 and patch.shape[0] != patch_height:
-            pad_h = patch_height - patch.shape[0]
-            patch = np.pad(patch, ((0, pad_h), (0, 0), (0, 0)), mode="edge")
         patches.append(patch)
+
+    # Chuyển lại về kiểu và shape đầu vào nếu cần
+    if input_type is torch.Tensor:
+        # (H, W, C) -> (C, H, W)
+        patches = [torch.from_numpy(p).permute(2, 0, 1).float() for p in patches]
+    elif input_type is Image.Image:
+        patches = [Image.fromarray(p) for p in patches]
+    # Nếu là np.ndarray thì giữ nguyên
+
     return patches
 
 
