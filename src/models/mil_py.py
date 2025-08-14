@@ -790,3 +790,113 @@ class MILClassifierV6(nn.Module):
         self.last_heatmap = heatmap.detach()
 
         return logits  # , spatial_loss, heatmap
+
+
+class MILClassifierV7(nn.Module):
+    """
+    MILClassifierSimple: Simplified MIL classifier prioritizing global feature
+    - Uses ResNet50 for global feature extraction
+    - Selects only the most important local patch per bag
+    - Simple concatenation for fusion, no cross-attention or spatial constraints
+    - Outputs classification logits only
+    """
+
+    def __init__(
+        self,
+        base_model: nn.Module,  # Single backbone (e.g., ResNet50) for both global and patches
+        feature_dim: int,  # Dimension of backbone output (e.g., 2048 for ResNet50)
+        num_classes: int = 1,
+        dropout: float = 0.3,  # Increased dropout for regularization
+        fusion_dim: int = 512,  # Reduced dimension for fusion
+    ):
+        super().__init__()
+        self.base_model = base_model
+        self.feature_dim = feature_dim
+        self.num_classes = num_classes
+
+        # Patch scoring for selecting top-1 patch
+        self.patch_scorer = nn.Linear(feature_dim, 1)
+
+        # Projection for global and local features
+        self.global_proj = nn.Sequential(
+            nn.Linear(feature_dim, fusion_dim),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+        )
+        self.local_proj = nn.Sequential(
+            nn.Linear(feature_dim, fusion_dim),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+        )
+
+        # Classification head
+        self.head = nn.Sequential(
+            nn.Linear(fusion_dim * 2, fusion_dim),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+            nn.Linear(fusion_dim, num_classes),
+        )
+
+        self._init_weights()
+        self.last_patch_score = None
+        self.last_top_patch_idx = None
+
+    def _init_weights(self):
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.kaiming_normal_(
+                    module.weight, mode="fan_out", nonlinearity="relu"
+                )
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0.0)
+
+    def _encode_patches(self, x: torch.Tensor) -> torch.Tensor:
+        B, N, C, H, W = x.shape
+        x_ = x.contiguous().view(B * N, C, H, W)
+        feats = self.base_model(x_)
+        if feats.dim() == 4:
+            feats = F.adaptive_avg_pool2d(feats, 1).squeeze(-1).squeeze(-1)
+        feats = feats.view(B, N, -1)
+        return feats
+
+    def _encode_global(self, global_img: torch.Tensor) -> torch.Tensor:
+        feats = self.base_model(global_img)
+        if feats.dim() == 4:
+            feats = F.adaptive_avg_pool2d(feats, 1).squeeze(-1).squeeze(-1)
+        return feats
+
+    def forward(
+        self, x_patches: torch.Tensor, mask: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        B, N_plus_1, C, H, W = x_patches.shape
+        N = N_plus_1 - 1
+        x_local = x_patches[:, :N]  # (B, N, C, H, W)
+        x_global = x_patches[:, N]  # (B, C, H, W)
+
+        # Encode global feature
+        global_feats = self._encode_global(x_global)  # (B, feature_dim)
+        global_feats = self.global_proj(global_feats)  # (B, fusion_dim)
+
+        # Encode patches and select top-1
+        local_feats = self._encode_patches(x_local)  # (B, N, feature_dim)
+        patch_scores = self.patch_scorer(local_feats).squeeze(-1)  # (B, N)
+        if mask is not None:
+            patch_scores = patch_scores.masked_fill(mask == 0, -1e9)
+        top_patch_idx = torch.argmax(patch_scores, dim=1)  # (B,)
+        top_patch_feats = local_feats[
+            torch.arange(B), top_patch_idx
+        ]  # (B, feature_dim)
+        top_patch_feats = self.local_proj(top_patch_feats)  # (B, fusion_dim)
+
+        # Fusion: simple concatenation
+        fused = torch.cat(
+            [global_feats, top_patch_feats], dim=-1
+        )  # (B, fusion_dim * 2)
+
+        # Classification
+        logits = self.head(fused)
+
+        self.last_patch_score = patch_scores.detach()
+        self.last_top_patch_idx = top_patch_idx.detach()
+
+        return logits
