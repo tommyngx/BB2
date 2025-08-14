@@ -24,66 +24,40 @@ def split_image_into_patches(image, num_patches=2, patch_size=None, overlap_rati
     Args:
         image (PIL.Image, np.ndarray, or torch.Tensor): Input image.
         num_patches (int): Number of patches to split.
-        patch_size (tuple or None): Target patch size (height, width). If None, calculated automatically.
+        patch_size (tuple or None): Ignored, kept for compatibility.
         overlap_ratio (float): Overlap ratio between consecutive patches.
 
     Returns:
-        list of torch.Tensor: List of patch tensors (C, H, W).
+        list of np.ndarray: List of patch arrays (H, W, C).
     """
+    # Convert image to numpy array if needed, but do not change dtype or value range
     if isinstance(image, torch.Tensor):
-        image = image.permute(1, 2, 0).numpy()
-    else:
+        image = image.permute(1, 2, 0).cpu().numpy()
+    elif isinstance(image, Image.Image):
         image = np.array(image)
 
-    # Đảm bảo image là uint8 và trong range [0, 255]
-    if image.dtype != np.uint8:
-        if image.max() <= 1.0:
-            image = (image * 255).astype(np.uint8)
-        else:
-            image = np.clip(image, 0, 255).astype(np.uint8)
-
     height, width = image.shape[:2]
-    if patch_size is None:
-        patch_height = height // num_patches
-        patch_size = (patch_height, width)
-    else:
-        patch_height = patch_size[0]
+    patch_height = height // num_patches
     step = int(patch_height * (1 - overlap_ratio))
     patches = []
-
-    # --- Tắt debug ---
-    # print(
-    #     f"[DEBUG] Splitting image shape {image.shape}, dtype {image.dtype}, range [{image.min()}, {image.max()}]"
-    # )
-
     for i in range(num_patches):
         if i == num_patches - 1:
+            # Patch cuối cùng: lấy từ đáy lên, không padding
             start_h = height - patch_height
             end_h = height
         else:
             start_h = i * step
             end_h = start_h + patch_height
-        start_h = max(0, start_h)
-        end_h = min(height, end_h)
-
+            # Nếu patch không đủ chiều cao thì pad
+            if end_h > height:
+                end_h = height
+                start_h = max(0, end_h - patch_height)
         patch = image[start_h:end_h, :, :]
-        # print(
-        #     f"[DEBUG] Patch {i}: shape {patch.shape}, range [{patch.min()}, {patch.max()}]"
-        # )
-
-        if patch.shape[0] != patch_height:
+        # Chỉ pad nếu không phải patch cuối cùng và patch chưa đủ patch_height
+        if i != num_patches - 1 and patch.shape[0] != patch_height:
             pad_h = patch_height - patch.shape[0]
             patch = np.pad(patch, ((0, pad_h), (0, 0), (0, 0)), mode="edge")
-
-        patch = cv2.resize(
-            patch, (patch_size[1], patch_size[0]), interpolation=cv2.INTER_LINEAR
-        )
-
-        patch_tensor = torch.from_numpy(patch).permute(2, 0, 1).float()
-        # print(
-        #     f"[DEBUG] Patch {i} after tensor: range [{patch_tensor.min().item()}, {patch_tensor.max().item()}]"
-        # )
-        patches.append(patch_tensor)
+        patches.append(patch)
     return patches
 
 
@@ -158,6 +132,8 @@ class CancerPatchDataset(Dataset):
         if self.transform:
             augmented = self.transform(image=image_np)
             image = augmented["image"]
+            # Xoay nếu cần
+            image = rotate_if_landscape(image)
         else:
             image = image_np
 
@@ -324,3 +300,41 @@ def save_random_batch_patches(
     # Lưu ảnh greyscale
     vutils.save_image(grid, save_path)
     print(f"Đã lưu random batch patch grid (greyscale) vào {save_path}")
+    if batch is None:
+        print("Không tìm thấy batch nào trong dataloader.")
+        return
+    patches, labels = batch  # patches: (B, num_patches+1, C, H, W)
+    B, N, C, H, W = patches.shape
+
+    # Unnormalize về [0, 1] để lưu ảnh greyscale
+    def unnormalize_grey(img):
+        # img: (C, H, W), chỉ lấy channel 0
+        img0 = img[0].detach().cpu() * std[0] + mean[0]
+        img0 = (img0 - img0.min()) / (img0.max() - img0.min() + 1e-8)  # scale về [0,1]
+        return img0.unsqueeze(0)  # (1, H, W)
+
+    # Ghép các patch của mỗi ảnh thành một hàng (greyscale)
+    rows = []
+    for i in range(B):
+        patch_imgs = [unnormalize_grey(patches[i, j]) for j in range(N)]  # (1, H, W)
+        row = torch.cat(patch_imgs, dim=2)  # (1, H, N*W)
+        rows.append(row)
+    grid = torch.cat(rows, dim=1)  # (1, B*H, N*W)
+
+    # Lưu ảnh greyscale
+    vutils.save_image(grid, save_path)
+    print(f"Đã lưu random batch patch grid (greyscale) vào {save_path}")
+
+
+def rotate_if_landscape(image_np):
+    """
+    Xoay ảnh 90 độ nếu chiều rộng lớn hơn chiều cao.
+    Args:
+        image_np (np.ndarray): Ảnh đầu vào (H, W, C)
+    Returns:
+        np.ndarray: Ảnh đã xoay nếu cần thiết
+    """
+    if image_np.shape[1] > image_np.shape[0]:
+        # Xoay 90 độ ngược chiều kim đồng hồ
+        return np.rot90(image_np)
+    return image_np
