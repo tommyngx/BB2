@@ -142,6 +142,12 @@ class CancerPatchDataset(Dataset):
             image, self.num_patches, overlap_ratio=self.overlap_ratio
         )
 
+        # Debug: in thông tin patch
+        for i, patch in enumerate(patches):
+            print(
+                f"[DEBUG] Patch {i}: type={type(patch)}, shape={getattr(patch, 'shape', None)}"
+            )
+
         patch_tensors = []
         h, w = (
             self.img_size
