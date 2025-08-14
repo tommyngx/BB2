@@ -889,9 +889,7 @@ class MILClassifierV7(nn.Module):
         top_patch_feats = self.local_proj(top_patch_feats)  # (B, fusion_dim)
 
         # Fusion: simple concatenation
-        fused = torch.cat(
-            [global_feats, top_patch_feats], dim=-1
-        )  # (B, fusion_dim * 2)
+        fused = torch.cat([global_feats, top_patch_feats], dim=-1)  # (B, fusion_dim)
 
         # Classification
         logits = self.head(fused)
@@ -999,11 +997,12 @@ class MILClassifierV8(nn.Module):
         patch_scores = self.patch_scorer(local_feats).squeeze(-1)  # (B, N)
         if mask is not None:
             patch_scores = patch_scores.masked_fill(mask == 0, -1e9)
-        _, topk_indices = torch.topk(patch_scores, k=self.top_k, dim=1)  # (B, top_k)
+        k = min(self.top_k, N)
+        _, topk_indices = torch.topk(patch_scores, k=k, dim=1)  # (B, k)
         topk_feats = local_feats.gather(
             1, topk_indices.unsqueeze(-1).expand(-1, -1, self.feature_dim)
-        )  # (B, top_k, feature_dim)
-        topk_feats = self.local_proj(topk_feats)  # (B, top_k, fusion_dim)
+        )  # (B, k, feature_dim)
+        topk_feats = self.local_proj(topk_feats)  # (B, k, fusion_dim)
         local_feats = topk_feats.mean(dim=1)  # (B, fusion_dim)
 
         # Fusion: weighted sum
