@@ -159,6 +159,9 @@ if __name__ == "__main__":
             "mil_v7",
             "mil_v8",
             "mil_v9",
+            "mil_v10",  # added v10
+            "mil_v11",  # added v11
+            "mil_v12",  # added v12
         ],
     )
     parser.add_argument("--img_size", type=str, default=None)
