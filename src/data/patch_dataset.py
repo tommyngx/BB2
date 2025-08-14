@@ -370,7 +370,7 @@ def rotate_if_landscape(image):
         image_np = image
 
     if image_np.shape[1] > image_np.shape[0]:
-        image_np = np.rot90(image_np)
+        image_np = np.rot90(image_np).copy()  # copy() để tránh stride âm
         # Nếu đầu vào là PIL.Image thì trả về PIL.Image
         if isinstance(image, Image.Image):
             return Image.fromarray(image_np)
