@@ -136,6 +136,13 @@ class CancerPatchDataset(Dataset):
             self.img_size = img_size
         self.augment_before_split = augment_before_split
         self.overlap_ratio = overlap_ratio
+        # Thêm transform chuẩn hóa giống based_data cho từng patch
+        self.normalize_transform = A.Compose(
+            [
+                A.Normalize([0.5] * 3, [0.5] * 3),
+                ToTensorV2(),
+            ]
+        )
 
     def __len__(self):
         return len(self.df)
@@ -173,17 +180,16 @@ class CancerPatchDataset(Dataset):
             else (self.img_size, self.img_size)
         )
 
-        # Các patch đã được transform (bao gồm Normalize + ToTensorV2) nếu augment ở đầu vào
-        # Nếu image là torch.Tensor thì patch cũng là torch.Tensor, chỉ cần resize về (h, w)
+        # Áp dụng Normalize + ToTensorV2 cho từng patch
         for patch in patches:
             if isinstance(patch, torch.Tensor):
                 patch_np = patch.permute(1, 2, 0).numpy()
             else:
                 patch_np = patch
             patch_np = cv2.resize(patch_np, (w, h))
-            # Chuyển lại về tensor, không cần normalize nữa
-            patch_tensor = torch.from_numpy(patch_np).permute(2, 0, 1).float()
-            patch_tensors.append(patch_tensor)
+            # Chuẩn hóa và chuyển về tensor
+            patch_aug = self.normalize_transform(image=patch_np)["image"]
+            patch_tensors.append(patch_aug)
 
         # Add full augmented image as the last patch
         if isinstance(image, torch.Tensor):
@@ -191,7 +197,8 @@ class CancerPatchDataset(Dataset):
         else:
             augmented_image = np.array(image)
         full_img_resized = cv2.resize(augmented_image, (w, h))
-        full_img_tensor = torch.from_numpy(full_img_resized).permute(2, 0, 1).float()
+        # Chuẩn hóa và chuyển về tensor cho full image
+        full_img_tensor = self.normalize_transform(image=full_img_resized)["image"]
         patch_tensors.append(full_img_tensor)
 
         patch_tensors = torch.stack(patch_tensors)
