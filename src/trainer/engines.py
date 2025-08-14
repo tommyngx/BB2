@@ -85,11 +85,11 @@ def evaluate_model(model, data_loader, device="cpu", mode="Test", return_loss=Fa
         acc_loss_str += f" | AUC: {auc * 100:.2f}%"
     print(acc_loss_str)
     print(
-        f"{mode} Precision: {precision * 100:.2f}% | Recall (Sensitivity): {recall * 100:.2f}%"
+        f"{mode} Precision: {precision * 100:.2f}% | Sens: {recall * 100:.2f}%"
+        + (f" | Spec: {spec * 100:.2f}%" if spec is not None else "")
     )
     if spec is not None:
         print(f"{mode} Specificity: {spec * 100:.2f}%")
-    print(classification_report(all_labels, all_preds, digits=4, zero_division=0))
 
     # In thông số tốt nhất nếu có
     if hasattr(evaluate_model, "best_acc"):
@@ -104,6 +104,8 @@ def evaluate_model(model, data_loader, device="cpu", mode="Test", return_loss=Fa
         evaluate_model.best_acc = acc
         evaluate_model.best_loss = avg_loss
         evaluate_model.best_auc = auc
+
+    print(classification_report(all_labels, all_preds, digits=4, zero_division=0))
 
     return (avg_loss, acc) if return_loss else acc
 
