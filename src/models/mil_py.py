@@ -170,6 +170,8 @@ class MILClassifierV2(nn.Module):
 
 
 class _GatedAttnPool(nn.Module):
+    """Gated Attention Pooling (compatible with all MILClassifier versions)"""
+
     def __init__(self, d_model: int, hidden: int = 256, dropout: float = 0.1):
         super().__init__()
         self.V = nn.Linear(d_model, hidden)
@@ -184,8 +186,11 @@ class _GatedAttnPool(nn.Module):
         nn.init.constant_(self.w.bias, 0.0)
 
     def forward(
-        self, x: torch.Tensor, mask: torch.Tensor = None, temperature: float = 1.0
-    ):
+        self,
+        x: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+        temperature: float = 1.0,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         v = torch.tanh(self.V(x))
         u = torch.sigmoid(self.U(x))
         scores = self.w(self.drop(v * u)).squeeze(-1)
@@ -538,34 +543,6 @@ class MILClassifierV5(nn.Module):
         self.last_attn_weights = attn_weights.detach()
 
         return logits
-
-
-class _GatedAttnPool(nn.Module):
-    """Gated Attention Pooling (from MILClassifierV5, reused for compatibility)"""
-
-    def __init__(self, d_model: int, hidden: int, dropout: float = 0.1):
-        super().__init__()
-        self.attn = nn.Sequential(
-            nn.Linear(d_model, hidden),
-            nn.Tanh(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden, 1),
-        )
-        self.gate = nn.Sequential(
-            nn.Linear(d_model, hidden), nn.Sigmoid(), nn.Dropout(dropout)
-        )
-
-    def forward(
-        self, x: torch.Tensor, mask: Optional[torch.Tensor] = None
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        attn_scores = self.attn(x)
-        gate = self.gate(x)
-        attn_weights = F.softmax(attn_scores * gate, dim=1)
-        if mask is not None:
-            attn_weights = attn_weights * mask
-            attn_weights = attn_weights / (attn_weights.sum(dim=1, keepdim=True) + 1e-8)
-        pooled = torch.sum(x * attn_weights, dim=1)
-        return pooled, attn_weights
 
 
 class MILClassifierV6(nn.Module):
