@@ -135,6 +135,17 @@ class CancerPatchDataset(Dataset):
         image = Image.open(img_path).convert("RGB")
         label = int(self.df.loc[idx, "cancer"])
 
+        # Resize ảnh về đúng chiều rộng img_size trước khi augment, chiều cao giữ nguyên tỉ lệ
+        w_target = (
+            self.img_size[1]
+            if isinstance(self.img_size, (tuple, list))
+            else self.img_size
+        )
+        orig_w, orig_h = image.size
+        if orig_w != w_target:
+            new_h = int(orig_h * w_target / orig_w)
+            image = image.resize((w_target, new_h), Image.BILINEAR)
+
         # Convert to numpy for processing
         image_np = np.array(image)
 
