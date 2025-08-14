@@ -135,6 +135,9 @@ class CancerPatchDataset(Dataset):
         image = Image.open(img_path).convert("RGB")
         label = int(self.df.loc[idx, "cancer"])
 
+        # Nếu ảnh rộng hơn dài thì xoay lại cho đúng orientation
+        image = rotate_if_landscape(image)
+
         # Resize ảnh về đúng chiều rộng img_size trước khi augment, chiều cao giữ nguyên tỉ lệ
         w_target = (
             self.img_size[1]
