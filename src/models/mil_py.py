@@ -1049,7 +1049,7 @@ class MILClassifierV9(nn.Module):
         self.patch_scorer = nn.Linear(feature_dim, 1)
 
         # Fixed fusion weights (global dominates)
-        self.fusion_weights = torch.tensor([0.9, 0.1])  # [global, local]
+        self.fusion_weights = torch.tensor([0.99, 0.01])  # [global, local]
 
         # Linear head (like ResNet50 baseline)
         self.head = nn.Linear(feature_dim, num_classes)
