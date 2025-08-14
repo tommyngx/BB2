@@ -356,15 +356,28 @@ def save_random_batch_patches(
     print(f"Đã lưu random batch patch grid (greyscale) vào {save_path}")
 
 
-def rotate_if_landscape(image_np):
+def rotate_if_landscape(image):
     """
     Xoay ảnh 90 độ nếu chiều rộng lớn hơn chiều cao.
-    Args:
-        image_np (np.ndarray): Ảnh đầu vào (H, W, C)
-    Returns:
-        np.ndarray: Ảnh đã xoay nếu cần thiết
+    Hỗ trợ input là PIL.Image, np.ndarray, torch.Tensor.
     """
+    # Chuyển sang numpy nếu cần
+    if isinstance(image, Image.Image):
+        image_np = np.array(image)
+    elif isinstance(image, torch.Tensor):
+        image_np = image.permute(1, 2, 0).cpu().numpy()
+    else:
+        image_np = image
+
     if image_np.shape[1] > image_np.shape[0]:
-        # Xoay 90 độ ngược chiều kim đồng hồ
-        return np.rot90(image_np)
-    return image_np
+        image_np = np.rot90(image_np)
+        # Nếu đầu vào là PIL.Image thì trả về PIL.Image
+        if isinstance(image, Image.Image):
+            return Image.fromarray(image_np)
+        # Nếu đầu vào là torch.Tensor thì trả về torch.Tensor
+        if isinstance(image, torch.Tensor):
+            return torch.from_numpy(image_np).permute(2, 0, 1).float()
+        # Nếu đầu vào là numpy thì trả về numpy
+        return image_np
+    else:
+        return image
