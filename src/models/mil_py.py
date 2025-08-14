@@ -1021,3 +1021,104 @@ class MILClassifierV8(nn.Module):
         self.last_fusion_weights = fusion_weights.detach()
 
         return logits
+
+
+class MILClassifierV9(nn.Module):
+    """
+    MILClassifierV9: Minimal MIL classifier mimicking ResNet50 baseline
+    - Prioritizes global feature (90%) like ResNet50 with linear head
+    - Uses top-1 patch for minimal local contribution (10%) for paper novelty
+    - No dropout, no projection layers, fixed fusion weights
+    - Robust for small N (2-5 patches), optimized for fast training
+    """
+
+    def __init__(
+        self,
+        base_model: nn.Module,  # ResNet50 backbone
+        feature_dim: int,  # Backbone output dim (e.g., 2048 for ResNet50)
+        num_classes: int = 1,
+        max_patches: int = 5,  # Max number of patches (N=2-5)
+    ):
+        super().__init__()
+        self.base_model = base_model
+        self.feature_dim = feature_dim
+        self.num_classes = num_classes
+        self.max_patches = max_patches
+
+        # Patch scoring for top-1 selection (minimal MIL for paper)
+        self.patch_scorer = nn.Linear(feature_dim, 1)
+
+        # Fixed fusion weights (global dominates)
+        self.fusion_weights = torch.tensor([0.9, 0.1])  # [global, local]
+
+        # Linear head (like ResNet50 baseline)
+        self.head = nn.Linear(feature_dim, num_classes)
+
+        self._init_weights()
+        self.last_patch_scores = None
+        self.last_top_patch_idx = None
+        self.last_fusion_weights = None
+
+    def _init_weights(self):
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.kaiming_normal_(
+                    module.weight, mode="fan_out", nonlinearity="relu"
+                )
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0.0)
+
+    def _encode_patches(self, x: torch.Tensor) -> torch.Tensor:
+        B, N, C, H, W = x.shape
+        if N > self.max_patches:
+            raise ValueError(
+                f"Number of patches ({N}) exceeds max_patches ({self.max_patches})"
+            )
+        x_ = x.contiguous().view(B * N, C, H, W)
+        feats = self.base_model(x_)
+        if feats.dim() == 4:
+            feats = F.adaptive_avg_pool2d(feats, 1).squeeze(-1).squeeze(-1)
+        feats = feats.view(B, N, -1)
+        return feats
+
+    def _encode_global(self, global_img: torch.Tensor) -> torch.Tensor:
+        feats = self.base_model(global_img)
+        if feats.dim() == 4:
+            feats = F.adaptive_avg_pool2d(feats, 1).squeeze(-1).squeeze(-1)
+        return feats
+
+    def forward(
+        self, x_patches: torch.Tensor, mask: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        B, N_plus_1, C, H, W = x_patches.shape
+        N = N_plus_1 - 1
+        x_local = x_patches[:, :N]  # (B, N, C, H, W)
+        x_global = x_patches[:, N]  # (B, C, H, W)
+
+        # Encode global feature (main path)
+        global_feats = self._encode_global(x_global)  # (B, feature_dim)
+
+        # Encode patches and select top-1 (minimal MIL)
+        local_feats = self._encode_patches(x_local)  # (B, N, feature_dim)
+        patch_scores = self.patch_scorer(local_feats).squeeze(-1)  # (B, N)
+        if mask is not None:
+            patch_scores = patch_scores.masked_fill(mask == 0, -1e9)
+        top_patch_idx = torch.argmax(patch_scores, dim=1)  # (B,)
+        top_patch_feats = local_feats[
+            torch.arange(B), top_patch_idx
+        ]  # (B, feature_dim)
+
+        # Fusion: fixed weighted sum (global 90%, local 10%)
+        fusion_weights = self.fusion_weights.to(global_feats.device)
+        fused = (
+            fusion_weights[0] * global_feats + fusion_weights[1] * top_patch_feats
+        )  # (B, feature_dim)
+
+        # Classification (linear head like ResNet50)
+        logits = self.head(fused)
+
+        self.last_patch_scores = patch_scores.detach()
+        self.last_top_patch_idx = top_patch_idx.detach()
+        self.last_fusion_weights = fusion_weights.detach()
+
+        return logits
