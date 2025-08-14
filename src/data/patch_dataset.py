@@ -295,13 +295,11 @@ def save_random_batch_patches(
     """
     import torchvision.utils as vutils
 
-    # Lấy random một batch
+    # Lấy random một batch đầu tiên (hoặc batch đầu nếu không shuffle)
     batch = None
-    for i, (patches, labels) in enumerate(dataloader):
-        if random.random() < 0.5 or batch is None:
-            batch = (patches, labels)
-        if i > 10:  # chỉ duyệt tối đa 10 batch đầu
-            break
+    for patches, labels in dataloader:
+        batch = (patches, labels)
+        break
     if batch is None:
         print("Không tìm thấy batch nào trong dataloader.")
         return
@@ -325,10 +323,3 @@ def save_random_batch_patches(
     # Lưu ảnh greyscale
     vutils.save_image(grid, save_path)
     print(f"Đã lưu random batch patch grid (greyscale) vào {save_path}")
-    try:
-        save_random_batch_patches(train_loader, save_path="random_batch_on_load.png")
-        pass
-    except Exception as e:
-        print(f"[WARNING] Không thể lưu random batch patch khi load dataset: {e}")
-
-    # return train_loader, test_loader
