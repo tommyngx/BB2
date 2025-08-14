@@ -900,3 +900,125 @@ class MILClassifierV7(nn.Module):
         self.last_top_patch_idx = top_patch_idx.detach()
 
         return logits
+
+
+class MILClassifierV8(nn.Module):
+    """
+    MILClassifierV8: Simple classifier combining global and top-K local patch features
+    - Uses ResNet50 for both global and patch feature extraction
+    - Selects top-K patches based on linear scoring
+    - Fuses global and local features with weighted sum
+    - Designed to be lightweight, avoiding MIL pooling or complex attention
+    """
+
+    def __init__(
+        self,
+        base_model: nn.Module,  # ResNet50 backbone
+        feature_dim: int,  # Backbone output dim (e.g., 2048 for ResNet50)
+        num_classes: int = 1,
+        top_k: int = 5,  # Number of top patches to select
+        fusion_dim: int = 512,  # Reduced dimension for fusion
+        dropout: float = 0.3,  # Dropout for regularization
+    ):
+        super().__init__()
+        self.base_model = base_model
+        self.feature_dim = feature_dim
+        self.num_classes = num_classes
+        self.top_k = top_k
+
+        # Patch scoring for top-K selection
+        self.patch_scorer = nn.Linear(feature_dim, 1)
+
+        # Projection layers
+        self.global_proj = nn.Sequential(
+            nn.Linear(feature_dim, fusion_dim),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+        )
+        self.local_proj = nn.Sequential(
+            nn.Linear(feature_dim, fusion_dim),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+        )
+
+        # Fusion weights (learnable)
+        self.fusion_weights = nn.Parameter(torch.tensor([0.7, 0.3]))  # [global, local]
+
+        # Classification head
+        self.head = nn.Sequential(
+            nn.Linear(fusion_dim, fusion_dim // 2),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+            nn.Linear(fusion_dim // 2, num_classes),
+        )
+
+        self._init_weights()
+        self.last_patch_scores = None
+        self.last_topk_indices = None
+        self.last_fusion_weights = None
+
+    def _init_weights(self):
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.kaiming_normal_(
+                    module.weight, mode="fan_out", nonlinearity="relu"
+                )
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0.0)
+        nn.init.constant_(self.fusion_weights, 0.5)  # Initialize equal weights
+
+    def _encode_patches(self, x: torch.Tensor) -> torch.Tensor:
+        B, N, C, H, W = x.shape
+        x_ = x.contiguous().view(B * N, C, H, W)
+        feats = self.base_model(x_)
+        if feats.dim() == 4:
+            feats = F.adaptive_avg_pool2d(feats, 1).squeeze(-1).squeeze(-1)
+        feats = feats.view(B, N, -1)
+        return feats
+
+    def _encode_global(self, global_img: torch.Tensor) -> torch.Tensor:
+        feats = self.base_model(global_img)
+        if feats.dim() == 4:
+            feats = F.adaptive_avg_pool2d(feats, 1).squeeze(-1).squeeze(-1)
+        return feats
+
+    def forward(
+        self, x_patches: torch.Tensor, mask: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        B, N_plus_1, C, H, W = x_patches.shape
+        N = N_plus_1 - 1
+        x_local = x_patches[:, :N]  # (B, N, C, H, W)
+        x_global = x_patches[:, N]  # (B, C, H, W)
+
+        # Encode global feature
+        global_feats = self._encode_global(x_global)  # (B, feature_dim)
+        global_feats = self.global_proj(global_feats)  # (B, fusion_dim)
+
+        # Encode patches and select top-K
+        local_feats = self._encode_patches(x_local)  # (B, N, feature_dim)
+        patch_scores = self.patch_scorer(local_feats).squeeze(-1)  # (B, N)
+        if mask is not None:
+            patch_scores = patch_scores.masked_fill(mask == 0, -1e9)
+        _, topk_indices = torch.topk(patch_scores, k=self.top_k, dim=1)  # (B, top_k)
+        topk_feats = local_feats.gather(
+            1, topk_indices.unsqueeze(-1).expand(-1, -1, self.feature_dim)
+        )  # (B, top_k, feature_dim)
+        topk_feats = self.local_proj(topk_feats)  # (B, top_k, fusion_dim)
+        local_feats = topk_feats.mean(dim=1)  # (B, fusion_dim)
+
+        # Fusion: weighted sum
+        fusion_weights = F.softmax(
+            self.fusion_weights, dim=0
+        )  # [global_weight, local_weight]
+        fused = (
+            fusion_weights[0] * global_feats + fusion_weights[1] * local_feats
+        )  # (B, fusion_dim)
+
+        # Classification
+        logits = self.head(fused)
+
+        self.last_patch_scores = patch_scores.detach()
+        self.last_topk_indices = topk_indices.detach()
+        self.last_fusion_weights = fusion_weights.detach()
+
+        return logits
