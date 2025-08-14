@@ -167,10 +167,10 @@ class CancerPatchDataset(Dataset):
         )
 
         # Debug: in thông tin patch
-        for i, patch in enumerate(patches):
-            print(
-                f"[DEBUG] Patch {i}: type={type(patch)}, shape={getattr(patch, 'shape', None)}"
-            )
+        # for i, patch in enumerate(patches):
+        #    print(
+        #        f"[DEBUG] Patch {i}: type={type(patch)}, shape={getattr(patch, 'shape', None)}"
+        #    )
 
         patch_tensors = []
         h, w = (
