@@ -19,6 +19,7 @@ from .mil_py import (
     MILClassifierV3,
     MILClassifierV4,  # added
     MILClassifierV5,  # added
+    MILClassifierV6,  # added
 )
 import warnings
 
@@ -88,6 +89,14 @@ def get_patch_model(
         )
     elif arch_type == "mil_v5":
         return MILClassifierV5(
+            base_model_local=backbone,
+            base_model_global=backbone,
+            local_dim=feature_dim,
+            global_dim=feature_dim,
+            num_classes=num_classes,
+        )
+    elif arch_type == "mil_v6":
+        return MILClassifierV6(
             base_model_local=backbone,
             base_model_global=backbone,
             local_dim=feature_dim,

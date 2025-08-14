@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import Optional, Tuple
 
 
 class MILClassifier(nn.Module):
@@ -537,3 +538,250 @@ class MILClassifierV5(nn.Module):
         self.last_attn_weights = attn_weights.detach()
 
         return logits
+
+
+class _GatedAttnPool(nn.Module):
+    """Gated Attention Pooling (from MILClassifierV5, reused for compatibility)"""
+
+    def __init__(self, d_model: int, hidden: int, dropout: float = 0.1):
+        super().__init__()
+        self.attn = nn.Sequential(
+            nn.Linear(d_model, hidden),
+            nn.Tanh(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden, 1),
+        )
+        self.gate = nn.Sequential(
+            nn.Linear(d_model, hidden), nn.Sigmoid(), nn.Dropout(dropout)
+        )
+
+    def forward(
+        self, x: torch.Tensor, mask: Optional[torch.Tensor] = None
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        attn_scores = self.attn(x)
+        gate = self.gate(x)
+        attn_weights = F.softmax(attn_scores * gate, dim=1)
+        if mask is not None:
+            attn_weights = attn_weights * mask
+            attn_weights = attn_weights / (attn_weights.sum(dim=1, keepdim=True) + 1e-8)
+        pooled = torch.sum(x * attn_weights, dim=1)
+        return pooled, attn_weights
+
+
+class MILClassifierV6(nn.Module):
+    """
+    MILClassifierV6: Enhanced MIL classifier based on Local Extremum Mapping (LEM)
+    - Incorporates Instance-wise Feature Selection (IFS) and Local Extremum-based Instance Selection (LEIS)
+    - Adds Adjacency Matrix-based Spatial Constraint (AMSC) for spatial consistency
+    - Maintains dual-path (local MIL + global), cross-attention, and adaptive fusion
+    - Outputs classification logits and localization heatmap
+    """
+
+    def __init__(
+        self,
+        base_model_local: nn.Module,
+        base_model_global: nn.Module,
+        local_dim: int,
+        global_dim: int,
+        num_classes: int = 1,
+        attn_hidden: int = 256,
+        attn_dropout: float = 0.1,
+        head_dropout: float = 0.1,
+        cross_attn_heads: int = 8,
+        fusion_method: str = "adaptive",
+        top_k: int = 10,  # For LEIS, select top-K instances
+        spatial_lambda: float = 0.1,  # Weight for AMSC loss
+        grid_size: Tuple[int, int] = (16, 16),  # Grid for spatial adjacency
+    ):
+        super().__init__()
+        self.base_model_local = base_model_local
+        self.base_model_global = base_model_global
+        self.local_dim = local_dim
+        self.global_dim = global_dim
+        self.num_classes = num_classes
+        self.fusion_method = fusion_method
+        self.top_k = top_k
+        self.spatial_lambda = spatial_lambda
+        self.grid_size = grid_size
+
+        # MIL attention pooling (reused for initial scoring)
+        self.mil_pool = _GatedAttnPool(
+            d_model=local_dim, hidden=attn_hidden, dropout=attn_dropout
+        )
+
+        # IFS: Instance-wise Feature Selection
+        self.ifs_scorer = nn.Linear(local_dim, 1)  # Score each instance
+
+        # Project global features to local dimension
+        self.global_proj = nn.Sequential(
+            nn.Linear(global_dim, local_dim),
+            nn.LayerNorm(local_dim),
+            nn.ReLU(inplace=True),
+        )
+
+        # Cross-attention layers
+        self.cross_attn_local = nn.MultiheadAttention(
+            embed_dim=local_dim, num_heads=cross_attn_heads, batch_first=True
+        )
+        self.cross_attn_global = nn.MultiheadAttention(
+            embed_dim=local_dim, num_heads=cross_attn_heads, batch_first=True
+        )
+
+        # Layer norms for residual connections
+        self.ln_local = nn.LayerNorm(local_dim)
+        self.ln_global = nn.LayerNorm(local_dim)
+
+        # Fusion mechanism
+        if fusion_method == "adaptive":
+            self.fusion_gate = nn.Sequential(
+                nn.Linear(local_dim * 2, local_dim),
+                nn.ReLU(inplace=True),
+                nn.Linear(local_dim, 2),
+                nn.Softmax(dim=-1),
+            )
+        elif fusion_method == "concat":
+            self.fusion_proj = nn.Linear(local_dim * 2, local_dim)
+
+        # Classification head
+        self.head = nn.Sequential(
+            nn.LayerNorm(local_dim),
+            nn.Linear(local_dim, local_dim // 2),
+            nn.ReLU(inplace=True),
+            nn.Dropout(head_dropout),
+            nn.Linear(local_dim // 2, num_classes),
+        )
+
+        # Localization head (for heatmap)
+        self.loc_head = nn.Linear(local_dim, 1)  # Score for localization
+
+        self._init_weights()
+        self.last_attn_weights = None
+        self.last_fusion_weights = None
+        self.last_lem_scores = None
+        self.last_heatmap = None
+
+    def _init_weights(self):
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0.0)
+
+    def _encode_patches(self, x: torch.Tensor) -> torch.Tensor:
+        B, N, C, H, W = x.shape
+        x_ = x.contiguous().view(B * N, C, H, W)
+        feats = self.base_model_local(x_)
+        if feats.dim() == 4:
+            feats = F.adaptive_avg_pool2d(feats, 1).squeeze(-1).squeeze(-1)
+        feats = feats.view(B, N, -1)
+        return feats
+
+    def _encode_global(self, global_img: torch.Tensor) -> torch.Tensor:
+        feats_g = self.base_model_global(global_img)
+        if feats_g.dim() == 4:
+            feats_g = F.adaptive_avg_pool2d(feats_g, 1).squeeze(-1).squeeze(-1)
+        return feats_g
+
+    def _compute_adjacency_matrix(self, B: int, N: int, device) -> torch.Tensor:
+        """Compute adjacency matrix for AMSC based on grid positions"""
+        H, W = self.grid_size
+        if N != H * W:
+            raise ValueError(f"Number of patches ({N}) must match grid size ({H}x{W})")
+        adj = torch.zeros(N, N, device=device)
+        for i in range(H):
+            for j in range(W):
+                idx = i * W + j
+                # Connect to 4 neighbors (up, down, left, right)
+                if i > 0:
+                    adj[idx, (i - 1) * W + j] = 1
+                if i < H - 1:
+                    adj[idx, (i + 1) * W + j] = 1
+                if j > 0:
+                    adj[idx, i * W + (j - 1)] = 1
+                if j < W - 1:
+                    adj[idx, i * W + (j + 1)] = 1
+        adj = adj.unsqueeze(0).repeat(B, 1, 1)  # (B, N, N)
+        return adj
+
+    def forward(
+        self, x_patches: torch.Tensor, mask: Optional[torch.Tensor] = None
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        B, N_plus_1, C, H, W = x_patches.shape
+        N = N_plus_1 - 1
+        x_local = x_patches[:, :N]
+        x_global = x_patches[:, N]
+
+        # Encode patches and global image
+        feats_l = self._encode_patches(x_local)  # (B, N, local_dim)
+        feats_g = self._encode_global(x_global)  # (B, global_dim)
+        feats_g_proj = self.global_proj(feats_g)  # (B, local_dim)
+
+        # IFS: Instance-wise Feature Selection
+        ifs_scores = self.ifs_scorer(feats_l).squeeze(-1)  # (B, N)
+        ifs_weights = F.softmax(ifs_scores, dim=1)
+
+        # LEIS: Local Extremum-based Instance Selection
+        feats_l_norm = F.normalize(feats_l, dim=-1)
+        sim_matrix = torch.einsum(
+            "bnd,bmd->bnm", feats_l_norm, feats_l_norm
+        )  # (B, N, N)
+        _, topk_indices = torch.topk(ifs_weights, k=self.top_k, dim=1)  # (B, top_k)
+        lem_mask = torch.zeros_like(ifs_weights).scatter_(
+            1, topk_indices, 1.0
+        )  # (B, N)
+        lem_scores = ifs_weights * lem_mask  # Only keep top-K scores
+        lem_scores = lem_scores / (lem_scores.sum(dim=1, keepdim=True) + 1e-8)
+        pooled_l = torch.sum(
+            feats_l * lem_scores.unsqueeze(-1), dim=1
+        )  # (B, local_dim)
+
+        # AMSC: Adjacency Matrix-based Spatial Constraint
+        adj_matrix = self._compute_adjacency_matrix(B, N, feats_l.device)
+        spatial_loss = self.spatial_lambda * torch.mean(
+            torch.sum(
+                adj_matrix
+                * torch.abs(lem_scores.unsqueeze(-1) - lem_scores.unsqueeze(-2)),
+                dim=(1, 2),
+            )
+        )
+
+        # Cross-attention
+        local_enhanced, _ = self.cross_attn_local(
+            query=pooled_l.unsqueeze(1),
+            key=feats_g_proj.unsqueeze(1),
+            value=feats_g_proj.unsqueeze(1),
+        )
+        local_enhanced = self.ln_local(pooled_l + local_enhanced.squeeze(1))
+
+        global_enhanced, _ = self.cross_attn_global(
+            query=feats_g_proj.unsqueeze(1), key=feats_l, value=feats_l
+        )
+        global_enhanced = self.ln_global(feats_g_proj + global_enhanced.squeeze(1))
+
+        # Fusion
+        if self.fusion_method == "adaptive":
+            fusion_input = torch.cat([local_enhanced, global_enhanced], dim=-1)
+            fusion_weights = self.fusion_gate(fusion_input)  # (B, 2)
+            fused = (
+                fusion_weights[:, 0:1] * local_enhanced
+                + fusion_weights[:, 1:2] * global_enhanced
+            )
+            self.last_fusion_weights = fusion_weights.detach()
+        elif self.fusion_method == "concat":
+            fused = self.fusion_proj(
+                torch.cat([local_enhanced, global_enhanced], dim=-1)
+            )
+        else:  # average
+            fused = (local_enhanced + global_enhanced) / 2
+
+        # Classification
+        logits = self.head(fused)
+
+        # Localization heatmap
+        heatmap = self.loc_head(feats_l).squeeze(-1) * lem_scores  # (B, N)
+        heatmap = F.normalize(heatmap, dim=1)  # Normalize for visualization
+
+        self.last_lem_scores = lem_scores.detach()
+        self.last_heatmap = heatmap.detach()
+
+        return logits, spatial_loss, heatmap
