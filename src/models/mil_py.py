@@ -686,7 +686,8 @@ class MILClassifierV6(nn.Module):
         """Compute adjacency matrix for AMSC based on grid positions"""
         H, W = self.grid_size
         if N != H * W:
-            raise ValueError(f"Number of patches ({N}) must match grid size ({H}x{W})")
+            # Instead of raising, return None to indicate skip
+            return None
         adj = torch.zeros(N, N, device=device)
         for i in range(H):
             for j in range(W):
@@ -738,13 +739,16 @@ class MILClassifierV6(nn.Module):
 
         # AMSC: Adjacency Matrix-based Spatial Constraint
         adj_matrix = self._compute_adjacency_matrix(B, N, feats_l.device)
-        spatial_loss = self.spatial_lambda * torch.mean(
-            torch.sum(
-                adj_matrix
-                * torch.abs(lem_scores.unsqueeze(-1) - lem_scores.unsqueeze(-2)),
-                dim=(1, 2),
+        if adj_matrix is not None:
+            spatial_loss = self.spatial_lambda * torch.mean(
+                torch.sum(
+                    adj_matrix
+                    * torch.abs(lem_scores.unsqueeze(-1) - lem_scores.unsqueeze(-2)),
+                    dim=(1, 2),
+                )
             )
-        )
+        else:
+            spatial_loss = torch.tensor(0.0, device=feats_l.device)
 
         # Cross-attention
         local_enhanced, _ = self.cross_attn_local(
@@ -785,4 +789,4 @@ class MILClassifierV6(nn.Module):
         self.last_lem_scores = lem_scores.detach()
         self.last_heatmap = heatmap.detach()
 
-        return logits, spatial_loss, heatmap
+        return logits  # , spatial_loss, heatmap
