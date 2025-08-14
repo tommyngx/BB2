@@ -309,8 +309,9 @@ def save_random_batch_patches(
     # Unnormalize về [0, 1] để lưu ảnh greyscale
     def unnormalize_grey(img):
         # img: (C, H, W), chỉ lấy channel 0
-        img0 = img[0].clone() * std[0] + mean[0]
-        return img0.clamp(0, 1).unsqueeze(0)  # (1, H, W)
+        img0 = img[0].detach().cpu() * std[0] + mean[0]
+        img0 = (img0 - img0.min()) / (img0.max() - img0.min() + 1e-8)  # scale về [0,1]
+        return img0.unsqueeze(0)  # (1, H, W)
 
     # Ghép các patch của mỗi ảnh thành một hàng (greyscale)
     rows = []
