@@ -725,7 +725,8 @@ class MILClassifierV6(nn.Module):
         sim_matrix = torch.einsum(
             "bnd,bmd->bnm", feats_l_norm, feats_l_norm
         )  # (B, N, N)
-        _, topk_indices = torch.topk(ifs_weights, k=self.top_k, dim=1)  # (B, top_k)
+        k = min(self.top_k, N)
+        _, topk_indices = torch.topk(ifs_weights, k=k, dim=1)  # (B, k)
         lem_mask = torch.zeros_like(ifs_weights).scatter_(
             1, topk_indices, 1.0
         )  # (B, N)
