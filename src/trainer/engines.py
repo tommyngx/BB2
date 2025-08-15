@@ -80,7 +80,7 @@ def evaluate_model(model, data_loader, device="cpu", mode="Test", return_loss=Fa
         spec = None
 
     # Gọn lại phần in ra
-    acc_loss_str = f"{mode} Accuracy: {acc * 100:.2f}% | Loss: {avg_loss:.4f}"
+    acc_loss_str = f"{mode} Accuracy : {acc * 100:.2f}% | Loss: {avg_loss:.4f}"
     if auc is not None:
         acc_loss_str += f" | AUC: {auc * 100:.2f}%"
     print(acc_loss_str)
@@ -91,7 +91,7 @@ def evaluate_model(model, data_loader, device="cpu", mode="Test", return_loss=Fa
 
     # In thông số tốt nhất nếu có
     if hasattr(evaluate_model, "best_acc"):
-        best_str = f"Best Accuracy: {evaluate_model.best_acc * 100:.2f}%"
+        best_str = f"Best Accuracy : {evaluate_model.best_acc * 100:.2f}%"
         if hasattr(evaluate_model, "best_loss"):
             best_str += f" | Loss: {evaluate_model.best_loss:.4f}"
         if hasattr(evaluate_model, "best_auc") and evaluate_model.best_auc is not None:
