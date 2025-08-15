@@ -106,6 +106,12 @@ def load_metadata(data_folder, config_path="config/config.yaml"):
         label_col = "target_label"
     else:
         label_col = target_column
+        unique_vals = df[target_column].unique()
+        # Nếu tất cả giá trị là số nguyên (dù kiểu float), chuyển về int
+        if np.all(np.mod(unique_vals, 1) == 0):
+            class_names = sorted([int(x) for x in unique_vals])
+        else:
+            class_names = sorted(unique_vals)
         class_names = sorted(df[target_column].unique())
     train_df = df[df["split"] == "train"].copy()
     test_df = df[df["split"] == "test"].copy()
