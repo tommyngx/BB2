@@ -103,6 +103,8 @@ def load_metadata(data_folder, config_path="config/config.yaml"):
     df = df[df[target_column].notna()]
     if not np.issubdtype(df[target_column].dtype, np.number):
         df["target_label"], class_names = pd.factorize(df[target_column])
+        for idx, name in enumerate(class_names):
+            print(f"Factorize: {idx} -> {name}")
         label_col = "target_label"
     else:
         label_col = target_column
