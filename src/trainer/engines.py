@@ -88,8 +88,6 @@ def evaluate_model(model, data_loader, device="cpu", mode="Test", return_loss=Fa
         f"{mode} Precision: {precision * 100:.2f}% | Sens: {recall * 100:.2f}%"
         + (f" | Spec: {spec * 100:.2f}%" if spec is not None else "")
     )
-    if spec is not None:
-        print(f"{mode} Specificity: {spec * 100:.2f}%")
 
     # In thông số tốt nhất nếu có
     if hasattr(evaluate_model, "best_acc"):
