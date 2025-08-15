@@ -283,7 +283,7 @@ def get_dataloaders(
 
     # --- Lưu random batch mỗi khi load dataset ---
     try:
-        save_random_batch_patches(train_loader, save_path="random_batch_on_load.png")
+        # save_random_batch_patches(train_loader, save_path="random_batch_on_load.png")
         pass
     except Exception as e:
         print(f"[WARNING] Không thể lưu random batch patch khi load dataset: {e}")
