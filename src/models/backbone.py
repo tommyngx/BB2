@@ -180,9 +180,60 @@ def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
         feature_dim = model.head.in_features
         model.head = nn.Identity()
         return model, feature_dim
+    elif model_type == "dinov3_vitb16":
+        from huggingface_hub import hf_hub_download
+        import torch
+        import timm
+
+        local_path = hf_hub_download(
+            repo_id="Fanqi-Lin-IR/dinov3_vitb16",
+            filename="dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth",
+        )
+        # Load ViT-B/16 architecture from timm with correct img_size
+        model = timm.create_model("vit_base_patch16_224", pretrained=False)
+        model.patch_embed.img_size = (448, 448)
+        model.img_size = (448, 448)
+        model.patch_embed.num_patches = (448 // model.patch_embed.patch_size[0]) * (
+            448 // model.patch_embed.patch_size[1]
+        )
+        import math
+
+        num_patches = model.patch_embed.num_patches
+        embed_dim = model.embed_dim
+        model.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
+        torch.nn.init.trunc_normal_(model.pos_embed, std=0.02)
+
+        state_dict = torch.load(local_path, map_location="cpu")
+        state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
+        # Fix positional embedding shape mismatch if needed
+        if "pos_embed" in state_dict:
+            pos_embed_pretrained = state_dict["pos_embed"]
+            pos_embed_model = model.pos_embed
+            if pos_embed_pretrained.shape != pos_embed_model.shape:
+                cls_token = pos_embed_pretrained[:, 0:1, :]
+                pos_tokens = pos_embed_pretrained[:, 1:, :]
+                old_grid_size = int(pos_tokens.shape[1] ** 0.5)
+                new_grid_size = int(num_patches**0.5)
+                pos_tokens = pos_tokens.reshape(
+                    1, old_grid_size, old_grid_size, -1
+                ).permute(0, 3, 1, 2)
+                pos_tokens = torch.nn.functional.interpolate(
+                    pos_tokens,
+                    size=(new_grid_size, new_grid_size),
+                    mode="bicubic",
+                    align_corners=False,
+                )
+                pos_tokens = pos_tokens.permute(0, 2, 3, 1).reshape(
+                    1, new_grid_size * new_grid_size, -1
+                )
+                new_pos_embed = torch.cat((cls_token, pos_tokens), dim=1)
+                state_dict["pos_embed"] = new_pos_embed
+        model.load_state_dict(state_dict, strict=False)
+        feature_dim = model.head.in_features
+        model.head = nn.Identity()
+        return model, feature_dim
     elif model_type in [
         "dinov3_vits16plus",
-        "dinov3_vitb16",
         "dinov3_convnext_tiny",
         "dinov3_convnext_small",
     ]:
