@@ -57,18 +57,34 @@ def evaluate_model(model, data_loader, device="cpu", mode="Test", return_loss=Fa
         )
     except Exception:
         auc = None
-    precision = precision_score(
-        all_labels,
-        all_preds,
-        average="binary" if len(set(all_labels)) == 2 else "macro",
-        zero_division=0,
-    )
-    recall = recall_score(
-        all_labels,
-        all_preds,
-        average="binary" if len(set(all_labels)) == 2 else "macro",
-        zero_division=0,
-    )
+    # Calculate precision and recall safely for binary/multiclass
+    unique_labels = set(all_labels)
+    if len(unique_labels) == 2:
+        precision = precision_score(
+            all_labels,
+            all_preds,
+            average="binary",
+            zero_division=0,
+        )
+        recall = recall_score(
+            all_labels,
+            all_preds,
+            average="binary",
+            zero_division=0,
+        )
+    else:
+        precision = precision_score(
+            all_labels,
+            all_preds,
+            average="macro",
+            zero_division=0,
+        )
+        recall = recall_score(
+            all_labels,
+            all_preds,
+            average="macro",
+            zero_division=0,
+        )
     cm = confusion_matrix(all_labels, all_preds)
     # Sensitivity (Recall) và Specificity
     if cm.shape == (2, 2):
