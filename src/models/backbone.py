@@ -138,6 +138,18 @@ def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
         # Set model's img_size to 448 if you want to use 448x448 input
         model.patch_embed.img_size = (448, 448)
         model.img_size = (448, 448)
+        # Update model.patch_embed.num_patches and model.pos_embed accordingly
+        model.patch_embed.num_patches = (448 // model.patch_embed.patch_size[0]) * (
+            448 // model.patch_embed.patch_size[1]
+        )
+        # Recreate pos_embed with correct shape
+        import math
+
+        num_patches = model.patch_embed.num_patches
+        embed_dim = model.embed_dim
+        model.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
+        torch.nn.init.trunc_normal_(model.pos_embed, std=0.02)
+
         state_dict = torch.load(local_path, map_location="cpu")
         state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
         # Fix positional embedding shape mismatch if needed
@@ -146,17 +158,10 @@ def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
             pos_embed_model = model.pos_embed
             if pos_embed_pretrained.shape != pos_embed_model.shape:
                 # Interpolate positional embedding
-                # Remove class token if present
-                if pos_embed_pretrained.shape[1] != pos_embed_model.shape[1]:
-                    cls_token = pos_embed_pretrained[:, 0:1, :]
-                    pos_tokens = pos_embed_pretrained[:, 1:, :]
-                else:
-                    cls_token = pos_embed_pretrained[:, 0:1, :]
-                    pos_tokens = pos_embed_pretrained[:, 1:, :]
-                # Calculate new grid size
-                num_patches = model.patch_embed.num_patches
-                new_grid_size = int(num_patches**0.5)
+                cls_token = pos_embed_pretrained[:, 0:1, :]
+                pos_tokens = pos_embed_pretrained[:, 1:, :]
                 old_grid_size = int(pos_tokens.shape[1] ** 0.5)
+                new_grid_size = int(num_patches**0.5)
                 pos_tokens = pos_tokens.reshape(
                     1, old_grid_size, old_grid_size, -1
                 ).permute(0, 3, 1, 2)
