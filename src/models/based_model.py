@@ -55,13 +55,17 @@ def get_based_model(model_type="resnet50", num_classes=2):
 
             def forward(self, x):
                 x = self.transformer(x)
-                # Một số backbone DINOv3 có thể không có .norm, cần kiểm tra
+                # Some DINOv3 backbones may not have .norm, check before using
                 if hasattr(self.transformer, "norm"):
                     x = self.transformer.norm(x)
                 x = self.classifier(x)
                 return x
 
         model = DinoVisionTransformerClassifier(transformer, feature_dim, num_classes)
+        # Freeze backbone only if using dinov3
+        if model_type.startswith("dinov3"):
+            for param in model.transformer.parameters():
+                param.requires_grad = False
     else:
         raise ValueError("Unsupported model_type for base model")
     return model
