@@ -140,6 +140,37 @@ def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
         model.img_size = (448, 448)
         state_dict = torch.load(local_path, map_location="cpu")
         state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
+        # Fix positional embedding shape mismatch if needed
+        if "pos_embed" in state_dict:
+            pos_embed_pretrained = state_dict["pos_embed"]
+            pos_embed_model = model.pos_embed
+            if pos_embed_pretrained.shape != pos_embed_model.shape:
+                # Interpolate positional embedding
+                # Remove class token if present
+                if pos_embed_pretrained.shape[1] != pos_embed_model.shape[1]:
+                    cls_token = pos_embed_pretrained[:, 0:1, :]
+                    pos_tokens = pos_embed_pretrained[:, 1:, :]
+                else:
+                    cls_token = pos_embed_pretrained[:, 0:1, :]
+                    pos_tokens = pos_embed_pretrained[:, 1:, :]
+                # Calculate new grid size
+                num_patches = model.patch_embed.num_patches
+                new_grid_size = int(num_patches**0.5)
+                old_grid_size = int(pos_tokens.shape[1] ** 0.5)
+                pos_tokens = pos_tokens.reshape(
+                    1, old_grid_size, old_grid_size, -1
+                ).permute(0, 3, 1, 2)
+                pos_tokens = torch.nn.functional.interpolate(
+                    pos_tokens,
+                    size=(new_grid_size, new_grid_size),
+                    mode="bicubic",
+                    align_corners=False,
+                )
+                pos_tokens = pos_tokens.permute(0, 2, 3, 1).reshape(
+                    1, new_grid_size * new_grid_size, -1
+                )
+                new_pos_embed = torch.cat((cls_token, pos_tokens), dim=1)
+                state_dict["pos_embed"] = new_pos_embed
         model.load_state_dict(state_dict, strict=False)
         feature_dim = model.head.in_features
         model.head = nn.Identity()
