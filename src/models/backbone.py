@@ -109,36 +109,28 @@ def get_dino_backbone(
         feature_dim = transformer.norm.normalized_shape[0]
         return transformer, feature_dim
     elif model_type == "dinov3_vits16":
-        transformer = hub.load(
-            repo_dir, "dinov3_vits16", source="local", weights=weights
-        )
+        transformer = hub.load(repo_dir, "dinov3_vits16")
         feature_dim = transformer.norm.normalized_shape[0]
         # Để freeze backbone khi train:
         # for param in transformer.parameters():
         #     param.requires_grad = False
         return transformer, feature_dim
     elif model_type == "dinov3_vits16plus":
-        transformer = hub.load(
-            repo_dir, "dinov3_vits16plus", source="local", weights=weights
-        )
+        transformer = hub.load(repo_dir, "dinov3_vits16plus")
         feature_dim = transformer.norm.normalized_shape[0]
         # Để freeze backbone khi train:
         # for param in transformer.parameters():
         #     param.requires_grad = False
         return transformer, feature_dim
     elif model_type == "dinov3_vitb16":
-        transformer = hub.load(
-            repo_dir, "dinov3_vitb16", source="local", weights=weights
-        )
+        transformer = hub.load(repo_dir, "dinov3_vitb16")
         feature_dim = transformer.norm.normalized_shape[0]
         # Để freeze backbone khi train:
         # for param in transformer.parameters():
         #     param.requires_grad = False
         return transformer, feature_dim
     elif model_type == "dinov3_convnext_tiny":
-        transformer = hub.load(
-            repo_dir, "dinov3_convnext_tiny", source="local", weights=weights
-        )
+        transformer = hub.load(repo_dir, "dinov3_convnext_tiny")
         feature_dim = (
             transformer.norm.normalized_shape[0]
             if hasattr(transformer, "norm")
@@ -149,9 +141,7 @@ def get_dino_backbone(
         #     param.requires_grad = False
         return transformer, feature_dim
     elif model_type == "dinov3_convnext_small":
-        transformer = hub.load(
-            repo_dir, "dinov3_convnext_small", source="local", weights=weights
-        )
+        transformer = hub.load(repo_dir, "dinov3_convnext_small")
         feature_dim = (
             transformer.norm.normalized_shape[0]
             if hasattr(transformer, "norm")
