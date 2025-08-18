@@ -23,7 +23,7 @@ def get_based_model(model_type="resnet50", num_classes=2):
         "resnest101",
         "resnest50s2",
         "regnety",
-        "convnextv2",
+        "convnextv2base",
         "convnextv2_tiny",
         "efficientnetv2",
         "efficientnetv2s",

@@ -52,7 +52,7 @@ def get_timm_backbone(model_type):
         model = timm_models.create_model("regnety_080_tv", pretrained=True)
         feature_dim = model.head.fc.in_features
         model.head.fc = nn.Identity()
-    elif model_type == "convnextv2":
+    elif model_type == "convnextv2base":
         model = timm_models.create_model(
             "timm/convnextv2_base.fcmae_ft_in22k_in1k", pretrained=True
         )
