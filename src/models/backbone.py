@@ -102,38 +102,46 @@ def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
         "dinov2_vitb14": ("facebookresearch/dinov2", "dinov2_vitb14"),
         "dinov2_vits14": ("facebookresearch/dinov2", "dinov2_vits14"),
     }
+    # HuggingFace model hub ids for dinov3
     dino3_models = {
-        "dinov3_vits16": ("facebook/dinov3-vits16-pretrain-lvd1689m", "dinov3_vits16"),
-        "dinov3_vits16plus": (
-            "facebook/dinov3-vits16plus-pretrain-lvd1689m",
-            "dinov3_vits16plus",
-        ),
-        "dinov3_vitb16": ("facebook/dinov3-vitb16-pretrain-lvd1689m", "dinov3_vitb16"),
-        "dinov3_convnext_tiny": (
-            "facebook/dinov3-convnext-tiny-pretrain-lvd1689m",
-            "dinov3_convnext_tiny",
-        ),
-        "dinov3_convnext_small": (
-            "facebook/dinov3-convnext-small-pretrain-lvd1689m",
-            "dinov3_convnext_small",
-        ),
+        "dinov3_vits16": "facebook/dinov3-vits16",
+        "dinov3_vits16plus": "facebook/dinov3-vits16plus",
+        "dinov3_vitb16": "facebook/dinov3-vitb16",
+        "dinov3_convnext_tiny": "facebook/dinov3-convnext-tiny",
+        "dinov3_convnext_small": "facebook/dinov3-convnext-small",
     }
 
     if model_type in dino2_models:
         repo, name = dino2_models[model_type]
         transformer = hub.load(repo, name)
+        # Common way to get feature_dim for all DINOv2 models
+        if hasattr(transformer, "norm") and hasattr(
+            transformer.norm, "normalized_shape"
+        ):
+            feature_dim = transformer.norm.normalized_shape[0]
+        else:
+            raise RuntimeError("Cannot determine feature_dim for this DINOv2 backbone")
+        return transformer, feature_dim
     elif model_type in dino3_models:
-        repo, name = dino3_models[model_type]
-        transformer = hub.load(repo, name)
+        model_id = dino3_models[model_type]
+        from transformers import AutoImageProcessor, AutoModel
+
+        processor = AutoImageProcessor.from_pretrained(model_id)
+        transformer = AutoModel.from_pretrained(model_id)
+        # Try to get feature_dim from transformer config or attributes
+        if hasattr(transformer, "config") and hasattr(
+            transformer.config, "hidden_size"
+        ):
+            feature_dim = transformer.config.hidden_size
+        elif hasattr(transformer, "norm") and hasattr(
+            transformer.norm, "normalized_shape"
+        ):
+            feature_dim = transformer.norm.normalized_shape[0]
+        elif hasattr(transformer, "head") and hasattr(transformer.head, "in_features"):
+            feature_dim = transformer.head.in_features
+        else:
+            raise RuntimeError("Cannot determine feature_dim for this DINOv3 backbone")
+        # Return processor if needed for preprocessing, else just transformer and feature_dim
+        return transformer, feature_dim
     else:
         raise ValueError("Unsupported DINO backbone type")
-
-    # Common way to get feature_dim for all DINO models
-    if hasattr(transformer, "norm") and hasattr(transformer.norm, "normalized_shape"):
-        feature_dim = transformer.norm.normalized_shape[0]
-    elif hasattr(transformer, "head") and hasattr(transformer.head, "in_features"):
-        feature_dim = transformer.head.in_features
-    else:
-        raise RuntimeError("Cannot determine feature_dim for this DINO backbone")
-
-    return transformer, feature_dim
