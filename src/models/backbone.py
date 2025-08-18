@@ -87,9 +87,7 @@ def get_fastervit_backbone():
     return model, feature_dim
 
 
-def get_dino_backbone(
-    model_type="dinov2_vitb14", weights=None, repo_dir="facebookresearch/dinov3"
-):
+def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
     """
     Supported model_type:
         - dinov2_vitb14 (default)
@@ -100,56 +98,42 @@ def get_dino_backbone(
         - dinov3_convnext_tiny
         - dinov3_convnext_small
     """
-    if model_type == "dinov2_vitb14":
-        transformer = hub.load("facebookresearch/dinov2", "dinov2_vitb14")
-        feature_dim = transformer.norm.normalized_shape[0]
-        return transformer, feature_dim
-    elif model_type == "dinov2_vits14":
-        transformer = hub.load("facebookresearch/dinov2", "dinov2_vits14")
-        feature_dim = transformer.norm.normalized_shape[0]
-        return transformer, feature_dim
-    elif model_type == "dinov3_vits16":
-        transformer = hub.load(repo_dir, "dinov3_vits16")
-        feature_dim = transformer.norm.normalized_shape[0]
-        # Để freeze backbone khi train:
-        # for param in transformer.parameters():
-        #     param.requires_grad = False
-        return transformer, feature_dim
-    elif model_type == "dinov3_vits16plus":
-        transformer = hub.load(repo_dir, "dinov3_vits16plus")
-        feature_dim = transformer.norm.normalized_shape[0]
-        # Để freeze backbone khi train:
-        # for param in transformer.parameters():
-        #     param.requires_grad = False
-        return transformer, feature_dim
-    elif model_type == "dinov3_vitb16":
-        transformer = hub.load(repo_dir, "dinov3_vitb16")
-        feature_dim = transformer.norm.normalized_shape[0]
-        # Để freeze backbone khi train:
-        # for param in transformer.parameters():
-        #     param.requires_grad = False
-        return transformer, feature_dim
-    elif model_type == "dinov3_convnext_tiny":
-        transformer = hub.load(repo_dir, "dinov3_convnext_tiny")
-        feature_dim = (
-            transformer.norm.normalized_shape[0]
-            if hasattr(transformer, "norm")
-            else transformer.head.in_features
-        )
-        # Để freeze backbone khi train:
-        # for param in transformer.parameters():
-        #     param.requires_grad = False
-        return transformer, feature_dim
-    elif model_type == "dinov3_convnext_small":
-        transformer = hub.load(repo_dir, "dinov3_convnext_small")
-        feature_dim = (
-            transformer.norm.normalized_shape[0]
-            if hasattr(transformer, "norm")
-            else transformer.head.in_features
-        )
-        # Để freeze backbone khi train:
-        # for param in transformer.parameters():
-        #     param.requires_grad = False
-        return transformer, feature_dim
+    dino2_models = {
+        "dinov2_vitb14": ("facebookresearch/dinov2", "dinov2_vitb14"),
+        "dinov2_vits14": ("facebookresearch/dinov2", "dinov2_vits14"),
+    }
+    dino3_models = {
+        "dinov3_vits16": ("facebook/dinov3-vits16-pretrain-lvd1689m", "dinov3_vits16"),
+        "dinov3_vits16plus": (
+            "facebook/dinov3-vits16plus-pretrain-lvd1689m",
+            "dinov3_vits16plus",
+        ),
+        "dinov3_vitb16": ("facebook/dinov3-vitb16-pretrain-lvd1689m", "dinov3_vitb16"),
+        "dinov3_convnext_tiny": (
+            "facebook/dinov3-convnext-tiny-pretrain-lvd1689m",
+            "dinov3_convnext_tiny",
+        ),
+        "dinov3_convnext_small": (
+            "facebook/dinov3-convnext-small-pretrain-lvd1689m",
+            "dinov3_convnext_small",
+        ),
+    }
+
+    if model_type in dino2_models:
+        repo, name = dino2_models[model_type]
+        transformer = hub.load(repo, name)
+    elif model_type in dino3_models:
+        repo, name = dino3_models[model_type]
+        transformer = hub.load(repo, name)
     else:
         raise ValueError("Unsupported DINO backbone type")
+
+    # Common way to get feature_dim for all DINO models
+    if hasattr(transformer, "norm") and hasattr(transformer.norm, "normalized_shape"):
+        feature_dim = transformer.norm.normalized_shape[0]
+    elif hasattr(transformer, "head") and hasattr(transformer.head, "in_features"):
+        feature_dim = transformer.head.in_features
+    else:
+        raise RuntimeError("Cannot determine feature_dim for this DINO backbone")
+
+    return transformer, feature_dim
