@@ -128,7 +128,7 @@ def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
         model_id = dino3_models[model_type]
         from transformers import AutoImageProcessor, AutoModel
 
-        processor = AutoImageProcessor.from_pretrained(model_id)
+        # processor = AutoImageProcessor.from_pretrained(model_id)
         transformer = AutoModel.from_pretrained(model_id)
         # Try to get feature_dim from transformer config or attributes
         if hasattr(transformer, "config") and hasattr(
