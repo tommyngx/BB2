@@ -25,7 +25,7 @@ def get_based_model(model_type="resnet50", num_classes=2):
         "regnety",
         "convnextv2",
         "convnextv2_tiny",
-        "efficientnetnetv2",
+        "efficientnetv2",
     ]:
         model, _ = get_timm_backbone(model_type)
         # timm backbone already has num_classes argument in create_model
