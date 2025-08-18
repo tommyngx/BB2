@@ -65,7 +65,9 @@ def get_timm_backbone(model_type):
         feature_dim = model.head.fc.in_features
         model.head.fc = nn.Identity()
     elif model_type == "efficientnetv2":
-        model = timm_models.create_model("efficientnetv2_m", pretrained=False)
+        model = timm_models.create_model(
+            "efficientnetv2_rw_m.agc_in1k", pretrained=False
+        )
         feature_dim = model.classifier.in_features
         model.classifier = nn.Identity()
     else:
