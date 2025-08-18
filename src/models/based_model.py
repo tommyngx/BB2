@@ -25,7 +25,7 @@ def get_based_model(model_type="resnet50", num_classes=2):
         "regnety",
         "convnextv2",
         "convnextv2_tiny",
-        "efficientnetv2",
+        "efficientnetnetv2",
     ]:
         model, _ = get_timm_backbone(model_type)
         # timm backbone already has num_classes argument in create_model
@@ -33,8 +33,19 @@ def get_based_model(model_type="resnet50", num_classes=2):
     elif model_type == "fastervit":
         model, feature_dim = get_fastervit_backbone()
         model.head = get_linear_head(feature_dim, num_classes)
-    elif model_type == "dinov2":
-        transformer, feature_dim = get_dino_backbone()
+    elif model_type in [
+        "dinov2",
+        "dinov2_vitb14",
+        "dinov2_vits14",
+        "dinov3_vits16",
+        "dinov3_vits16plus",
+        "dinov3_vitb16",
+        "dinov3_convnext_tiny",
+        "dinov3_convnext_small",
+    ]:
+        # Map "dinov2" to default dinov2_vitb14
+        dino_type = "dinov2_vitb14" if model_type == "dinov2" else model_type
+        transformer, feature_dim = get_dino_backbone(dino_type)
 
         class DinoVisionTransformerClassifier(nn.Module):
             def __init__(self, transformer, feature_dim, num_classes):
@@ -44,7 +55,9 @@ def get_based_model(model_type="resnet50", num_classes=2):
 
             def forward(self, x):
                 x = self.transformer(x)
-                x = self.transformer.norm(x)
+                # Một số backbone DINOv3 có thể không có .norm, cần kiểm tra
+                if hasattr(self.transformer, "norm"):
+                    x = self.transformer.norm(x)
                 x = self.classifier(x)
                 return x
 

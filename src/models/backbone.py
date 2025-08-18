@@ -87,7 +87,79 @@ def get_fastervit_backbone():
     return model, feature_dim
 
 
-def get_dino_backbone():
-    transformer = hub.load("facebookresearch/dinov2", "dinov2_vitb14")
-    feature_dim = transformer.norm.normalized_shape[0]
-    return transformer, feature_dim
+def get_dino_backbone(
+    model_type="dinov2_vitb14", weights=None, repo_dir="facebookresearch/dinov3"
+):
+    """
+    Supported model_type:
+        - dinov2_vitb14 (default)
+        - dinov2_vits14
+        - dinov3_vits16
+        - dinov3_vits16plus
+        - dinov3_vitb16
+        - dinov3_convnext_tiny
+        - dinov3_convnext_small
+    """
+    if model_type == "dinov2_vitb14":
+        transformer = hub.load("facebookresearch/dinov2", "dinov2_vitb14")
+        feature_dim = transformer.norm.normalized_shape[0]
+        return transformer, feature_dim
+    elif model_type == "dinov2_vits14":
+        transformer = hub.load("facebookresearch/dinov2", "dinov2_vits14")
+        feature_dim = transformer.norm.normalized_shape[0]
+        return transformer, feature_dim
+    elif model_type == "dinov3_vits16":
+        transformer = hub.load(
+            repo_dir, "dinov3_vits16", source="local", weights=weights
+        )
+        feature_dim = transformer.norm.normalized_shape[0]
+        # Để freeze backbone khi train:
+        # for param in transformer.parameters():
+        #     param.requires_grad = False
+        return transformer, feature_dim
+    elif model_type == "dinov3_vits16plus":
+        transformer = hub.load(
+            repo_dir, "dinov3_vits16plus", source="local", weights=weights
+        )
+        feature_dim = transformer.norm.normalized_shape[0]
+        # Để freeze backbone khi train:
+        # for param in transformer.parameters():
+        #     param.requires_grad = False
+        return transformer, feature_dim
+    elif model_type == "dinov3_vitb16":
+        transformer = hub.load(
+            repo_dir, "dinov3_vitb16", source="local", weights=weights
+        )
+        feature_dim = transformer.norm.normalized_shape[0]
+        # Để freeze backbone khi train:
+        # for param in transformer.parameters():
+        #     param.requires_grad = False
+        return transformer, feature_dim
+    elif model_type == "dinov3_convnext_tiny":
+        transformer = hub.load(
+            repo_dir, "dinov3_convnext_tiny", source="local", weights=weights
+        )
+        feature_dim = (
+            transformer.norm.normalized_shape[0]
+            if hasattr(transformer, "norm")
+            else transformer.head.in_features
+        )
+        # Để freeze backbone khi train:
+        # for param in transformer.parameters():
+        #     param.requires_grad = False
+        return transformer, feature_dim
+    elif model_type == "dinov3_convnext_small":
+        transformer = hub.load(
+            repo_dir, "dinov3_convnext_small", source="local", weights=weights
+        )
+        feature_dim = (
+            transformer.norm.normalized_shape[0]
+            if hasattr(transformer, "norm")
+            else transformer.head.in_features
+        )
+        # Để freeze backbone khi train:
+        # for param in transformer.parameters():
+        #     param.requires_grad = False
+        return transformer, feature_dim
+    else:
+        raise ValueError("Unsupported DINO backbone type")
