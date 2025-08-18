@@ -65,8 +65,16 @@ def get_timm_backbone(model_type):
         feature_dim = model.head.fc.in_features
         model.head.fc = nn.Identity()
     elif model_type == "efficientnetv2":
+        # Default: efficientnetv2_rw_m.agc_in1k (214 MB)
         model = timm_models.create_model(
-            "efficientnetv2_rw_m.agc_in1k", pretrained=False
+            "efficientnetv2_rw_m.agc_in1k", pretrained=True
+        )
+        feature_dim = model.classifier.in_features
+        model.classifier = nn.Identity()
+    elif model_type == "efficientnetv2s":
+        # efficientnetv2_rw_s.ra2_in1k (96 MB)
+        model = timm_models.create_model(
+            "efficientnetv2_rw_s.ra2_in1k", pretrained=True
         )
         feature_dim = model.classifier.in_features
         model.classifier = nn.Identity()
