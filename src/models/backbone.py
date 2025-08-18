@@ -125,7 +125,6 @@ def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
             raise RuntimeError("Cannot determine feature_dim for this DINOv2 backbone")
         return transformer, feature_dim
     elif model_type == "dinov3_vits16":
-        # Load .pth from HuggingFace using hf_hub_download
         from huggingface_hub import hf_hub_download
         import torch
         import timm
@@ -134,10 +133,12 @@ def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
             repo_id="Fanqi-Lin-IR/dinov3_vits16_pretrain",
             filename="dinov3_vits16_pretrain.pth",
         )
-        # Load ViT-S/16 architecture from timm
+        # Load ViT-S/16 architecture from timm with correct img_size
         model = timm.create_model("vit_small_patch16_224", pretrained=False)
+        # Set model's img_size to 448 if you want to use 448x448 input
+        model.patch_embed.img_size = (448, 448)
+        model.img_size = (448, 448)
         state_dict = torch.load(local_path, map_location="cpu")
-        # Remove 'module.' prefix if present
         state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
         model.load_state_dict(state_dict, strict=False)
         feature_dim = model.head.in_features
