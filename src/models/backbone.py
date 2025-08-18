@@ -104,8 +104,10 @@ def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
     }
     # HuggingFace model hub ids for dinov3
     dino3_models = {
-        "dinov3_vits16": "facebook/dinov3-vits16",
-        "dinov3_vits16plus": "facebook/dinov3-vits16plus",
+        # "dinov3_vits16": "facebook/dinov3-vits16",
+        "dinov3_vits16": "Fanqi-Lin-IR/dinov3_vits16_pretrain",
+        # "dinov3_vits16plus": "facebook/dinov3-vits16plus",
+        "dinov3_vith16plus": "Fanqi-Lin-IR/dinov3_vith16plus",
         "dinov3_vitb16": "facebook/dinov3-vitb16",
         "dinov3_convnext_tiny": "facebook/dinov3-convnext-tiny",
         "dinov3_convnext_small": "facebook/dinov3-convnext-small",
