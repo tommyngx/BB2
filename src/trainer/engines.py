@@ -397,6 +397,23 @@ def train_model(
         writer.writerow(
             [datetime.now().isoformat(), "finished", "", "", "", "", "", "", ""]
         )
+
+    # Evaluate best weight trong top2_accs
+    if top2_accs:
+        best_acc = max(top2_accs)
+        best_weight_name = f"{model_key}_{int(round(best_acc * 10000))}.pth"
+        best_weight_path = os.path.join(model_dir, best_weight_name)
+        if os.path.exists(best_weight_path):
+            print(
+                f"\n🔎 Evaluating best model: {best_weight_name} (acc={best_acc:.4f})"
+            )
+            model.load_state_dict(torch.load(best_weight_path, map_location=device))
+            evaluate_model(model, test_loader, device=device, mode="Best Test")
+        else:
+            print(f"Best weight file {best_weight_name} not found.")
+    else:
+        print("No best weight found for evaluation.")
+
     print(f"Training log saved to {log_file}")
     print(f"{model_name} training finished.")
     return model
