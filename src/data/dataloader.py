@@ -11,17 +11,31 @@ def print_dataset_stats2(train_df, test_df, name="Dataset"):
     print(f"Total samples: {total}")
     print(f"  - Train: {len(train_df)} ({len(train_df) / total:.1%})")
     print(f"  - Test:  {len(test_df)} ({len(test_df) / total:.1%})")
-    if "patient_id" in train_df.columns or "patient_id" in test_df.columns:
-        n_train_patients = (
-            train_df["patient_id"].nunique()
-            if "patient_id" in train_df.columns
-            else "N/A"
-        )
-        n_test_patients = (
-            test_df["patient_id"].nunique()
-            if "patient_id" in test_df.columns
-            else "N/A"
-        )
+    # Check for patient_id, id, or image_id columns
+    train_cols = [c.lower() for c in train_df.columns]
+    test_cols = [c.lower() for c in test_df.columns]
+    patient_id_col = None
+    for col in ["patient_id", "id", "image_id"]:
+        if col in train_cols or col in test_cols:
+            patient_id_col = col
+            break
+    if patient_id_col is not None:
+
+        def normalize_pid(val):
+            if isinstance(val, str):
+                for suffix in ["_R", "_L", "_MLO", "_CC"]:
+                    if val.endswith(suffix):
+                        return val[: -len(suffix)]
+            return val
+
+        if patient_id_col in train_cols:
+            n_train_patients = train_df[patient_id_col].map(normalize_pid).nunique()
+        else:
+            n_train_patients = "N/A"
+        if patient_id_col in test_cols:
+            n_test_patients = test_df[patient_id_col].map(normalize_pid).nunique()
+        else:
+            n_test_patients = "N/A"
         print(f"Unique patients (train): {n_train_patients}")
         print(f"Unique patients (test):  {n_test_patients}")
     print("\nLabel distribution (cancer):")
