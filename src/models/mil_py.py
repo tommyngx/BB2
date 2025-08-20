@@ -342,18 +342,30 @@ class MILClassifierV4(nn.Module):
 
         # Fusion layers for 'concat' and 'fuse'
         if fusion == "concat":
+            # self.fusion_proj = nn.Sequential(
+            #     nn.LayerNorm(feature_dim * 2),
+            #     nn.Dropout(head_dropout),
+            #     nn.Linear(feature_dim * 2, feature_dim),
+            #     nn.ReLU(inplace=True),
+            # )
             self.fusion_proj = nn.Sequential(
                 nn.LayerNorm(feature_dim * 2),
                 nn.Dropout(head_dropout),
-                nn.Linear(feature_dim * 2, feature_dim),
-                nn.ReLU(inplace=True),
+                # nn.Linear(feature_dim * 2, feature_dim),
+                # nn.ReLU(inplace=True),
             )
         elif fusion == "fuse":
+            # self.fusion_gate = nn.Sequential(
+            #     nn.Linear(feature_dim * 2, feature_dim),
+            #     nn.ReLU(inplace=True),
+            #     nn.Linear(feature_dim, 2),
+            #     nn.Softmax(dim=-1),
+            # )
             self.fusion_gate = nn.Sequential(
                 nn.Linear(feature_dim * 2, feature_dim),
                 nn.ReLU(inplace=True),
-                nn.Linear(feature_dim, 2),
-                nn.Softmax(dim=-1),
+                # nn.Linear(feature_dim, 2),
+                # nn.Softmax(dim=-1),
             )
 
         # Head classifier
@@ -384,20 +396,21 @@ class MILClassifierV4(nn.Module):
     def _encode_patches(self, x: torch.Tensor) -> torch.Tensor:
         B, N, C, H, W = x.shape
         x_ = x.contiguous().view(B * N, C, H, W)
-        feats = self.base_model(x_)
+        feats = self.base_model_local(x_)
         if feats.dim() == 4:
             feats = F.adaptive_avg_pool2d(feats, 1).squeeze(-1).squeeze(-1)
         feats = feats.view(B, N, -1)
         return feats
 
     def _encode_global(self, global_img: torch.Tensor) -> torch.Tensor:
-        feats_g = self.base_model(global_img)
+        feats_g = self.base_model_global(global_img)
         if feats_g.dim() == 4:
             feats_g = F.adaptive_avg_pool2d(feats_g, 1).squeeze(-1).squeeze(-1)
         return feats_g
 
     def forward(self, x_patches: torch.Tensor, mask: torch.Tensor = None):
         # x_patches: (B, N+1, C, H, W)
+        # Use first N patches for MIL, last patch as global image
         B, N_plus_1, C, H, W = x_patches.shape
         N = N_plus_1 - 1
         x_local = x_patches[:, :N]  # (B, N, C, H, W)
@@ -419,14 +432,19 @@ class MILClassifierV4(nn.Module):
         elif self.fusion == "concat":
             # Concatenate pooled local and global features, then project
             fused = torch.cat([pooled_l, feats_g], dim=1)  # (B, 2*feature_dim)
-            fused = self.fusion_proj(fused)  # (B, feature_dim)
+            fused = self.fusion_proj(fused)  # (B, 2*feature_dim)  # Không giảm chiều
         elif self.fusion == "fuse":
             # Adaptive fusion (weighted sum)
             fusion_input = torch.cat([pooled_l, feats_g], dim=-1)  # (B, 2*feature_dim)
-            fusion_weights = self.fusion_gate(fusion_input)  # (B, 2)
+            fusion_weights = self.fusion_gate(
+                fusion_input
+            )  # (B, feature_dim)  # Không giảm chiều
+            # fused = (
+            #     fusion_weights[:, 0:1] * pooled_l + fusion_weights[:, 1:2] * feats_g
+            # )  # (B, feature_dim)
             fused = (
-                fusion_weights[:, 0:1] * pooled_l + fusion_weights[:, 1:2] * feats_g
-            )  # (B, feature_dim)
+                fusion_weights  # (B, feature_dim)  # Tạm thời chỉ trả về fusion_weights
+            )
         else:
             raise ValueError(f"Unknown fusion method: {self.fusion}")
 
