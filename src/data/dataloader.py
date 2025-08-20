@@ -29,8 +29,10 @@ def print_dataset_stats2(train_df, test_df, name="Dataset"):
         def normalize_pid(val):
             if isinstance(val, str):
                 for suffix in ["_R", "_L", "_MLO", "_CC"]:
-                    if val.endswith(suffix):
-                        return val[: -len(suffix)]
+                    idx = val.find(suffix)
+                    if idx > 0:  # chỉ cắt nếu phía trước suffix còn giá trị
+                        return val[:idx]
+                return val
             return val
 
         if patient_id_col_train is not None:
