@@ -309,6 +309,7 @@ class MILClassifierV4(nn.Module):
     - Global feature làm query trong cross-attention, ALL local patches làm key/value
     - Đầu ra fused qua head classifier
     - Sử dụng 1 backbone duy nhất cho cả local và global để chống overfit
+    - Thêm biến fusion: 'concat', 'fuse', 'cross_attention'
     """
 
     def __init__(
@@ -320,11 +321,13 @@ class MILClassifierV4(nn.Module):
         attn_dropout: float = 0.1,
         head_dropout: float = 0.1,
         cross_attn_heads: int = 4,
+        fusion: str = "fuse",  # NEW: fusion method
     ):
         super().__init__()
         self.base_model = base_model
         self.feature_dim = feature_dim
         self.num_classes = num_classes
+        self.fusion = fusion
 
         # MIL attention pooling cho local patch
         self.mil_pool = _GatedAttnPool(
@@ -336,6 +339,22 @@ class MILClassifierV4(nn.Module):
             embed_dim=feature_dim, num_heads=cross_attn_heads, batch_first=True
         )
         self.global_proj = nn.Linear(feature_dim, feature_dim)
+
+        # Fusion layers for 'concat' and 'fuse'
+        if fusion == "concat":
+            self.fusion_proj = nn.Sequential(
+                nn.LayerNorm(feature_dim * 2),
+                nn.Dropout(head_dropout),
+                nn.Linear(feature_dim * 2, feature_dim),
+                nn.ReLU(inplace=True),
+            )
+        elif fusion == "fuse":
+            self.fusion_gate = nn.Sequential(
+                nn.Linear(feature_dim * 2, feature_dim),
+                nn.ReLU(inplace=True),
+                nn.Linear(feature_dim, 2),
+                nn.Softmax(dim=-1),
+            )
 
         # Head classifier
         self.head = nn.Sequential(
@@ -351,6 +370,16 @@ class MILClassifierV4(nn.Module):
                 nn.init.constant_(m.bias, 0.0)
         nn.init.xavier_uniform_(self.global_proj.weight)
         nn.init.constant_(self.global_proj.bias, 0.0)
+        if fusion == "concat":
+            for m in self.fusion_proj:
+                if isinstance(m, nn.Linear):
+                    nn.init.xavier_uniform_(m.weight)
+                    nn.init.constant_(m.bias, 0.0)
+        elif fusion == "fuse":
+            for m in self.fusion_gate:
+                if isinstance(m, nn.Linear):
+                    nn.init.xavier_uniform_(m.weight)
+                    nn.init.constant_(m.bias, 0.0)
 
     def _encode_patches(self, x: torch.Tensor) -> torch.Tensor:
         B, N, C, H, W = x.shape
@@ -381,11 +410,25 @@ class MILClassifierV4(nn.Module):
         feats_g = self._encode_global(x_global)  # (B, feature_dim)
         feats_g_proj = self.global_proj(feats_g).unsqueeze(1)  # (B, 1, feature_dim)
 
-        # Cross-attention: global query, ALL local patches as key/value
-        cross_attn_out, _ = self.cross_attn(
-            query=feats_g_proj, key=feats_l, value=feats_l
-        )  # (B, 1, feature_dim)
-        fused = cross_attn_out.squeeze(1)  # (B, feature_dim)
+        if self.fusion == "cross_attention":
+            # Cross-attention: global query, ALL local patches as key/value
+            cross_attn_out, _ = self.cross_attn(
+                query=feats_g_proj, key=feats_l, value=feats_l
+            )  # (B, 1, feature_dim)
+            fused = cross_attn_out.squeeze(1)  # (B, feature_dim)
+        elif self.fusion == "concat":
+            # Concatenate pooled local and global features, then project
+            fused = torch.cat([pooled_l, feats_g], dim=1)  # (B, 2*feature_dim)
+            fused = self.fusion_proj(fused)  # (B, feature_dim)
+        elif self.fusion == "fuse":
+            # Adaptive fusion (weighted sum)
+            fusion_input = torch.cat([pooled_l, feats_g], dim=-1)  # (B, 2*feature_dim)
+            fusion_weights = self.fusion_gate(fusion_input)  # (B, 2)
+            fused = (
+                fusion_weights[:, 0:1] * pooled_l + fusion_weights[:, 1:2] * feats_g
+            )  # (B, feature_dim)
+        else:
+            raise ValueError(f"Unknown fusion method: {self.fusion}")
 
         logits = self.head(fused)
         # Add saving of last attention weights and features
@@ -1159,9 +1202,6 @@ class MILClassifierV10(nn.Module):
         # _ = self._encode_patches(x_local)
 
         # Encode global feature (used for prediction)
-        global_feats = self._encode_global(x_global)  # (B, feature_dim)
-        logits = self.head(global_feats)
-        return logits
         global_feats = self._encode_global(x_global)  # (B, feature_dim)
         logits = self.head(global_feats)
         return logits
