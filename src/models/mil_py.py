@@ -391,6 +391,10 @@ class MILClassifierV4(nn.Module):
         fused = cross_attn_out.squeeze(1)  # (B, local_dim)
 
         logits = self.head(fused)
+        # Add saving of last attention weights and features
+        self.last_attn_weights = attn.detach()
+        self.last_global_feat = feats_g.detach()
+        self.last_local_feat = pooled_l.detach()
         return logits
 
 
