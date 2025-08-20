@@ -85,8 +85,9 @@ def get_patch_model(
         )
     elif arch_type == "mil_v4":
         return MILClassifierV4(
-            base_model_local=backbone,
-            base_model_global=backbone,
+            # base_model_local=backbone,
+            # base_model_global=backbone,
+            base_model=backbone,
             local_dim=feature_dim,
             global_dim=feature_dim,
             num_classes=num_classes,
