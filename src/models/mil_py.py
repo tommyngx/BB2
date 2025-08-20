@@ -321,7 +321,7 @@ class MILClassifierV4(nn.Module):
         attn_dropout: float = 0.1,
         head_dropout: float = 0.1,
         cross_attn_heads: int = 4,
-        fusion: str = "fuse",  # NEW: fusion method
+        fusion: str = "concat",  # NEW: fusion method
     ):
         super().__init__()
         self.base_model = base_model
