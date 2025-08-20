@@ -354,9 +354,12 @@ class MILClassifierV4(nn.Module):
                 nn.ReLU(inplace=True),
             )
         elif fusion == "fuse":
+            # Adaptive Fusion: learnable gate with softmax over 2 weights
             self.fusion_gate = nn.Sequential(
                 nn.Linear(feature_dim * 2, feature_dim),
                 nn.ReLU(inplace=True),
+                nn.Linear(feature_dim, 2),
+                nn.Softmax(dim=-1),
             )
 
         # Head classifier
@@ -388,14 +391,14 @@ class MILClassifierV4(nn.Module):
     def _encode_patches(self, x: torch.Tensor) -> torch.Tensor:
         B, N, C, H, W = x.shape
         x_ = x.contiguous().view(B * N, C, H, W)
-        feats = self.base_model(x_)  # Use self.base_model
+        feats = self.base_model(x_)
         if feats.dim() == 4:
             feats = F.adaptive_avg_pool2d(feats, 1).squeeze(-1).squeeze(-1)
         feats = feats.view(B, N, -1)
         return feats
 
     def _encode_global(self, global_img: torch.Tensor) -> torch.Tensor:
-        feats_g = self.base_model(global_img)  # Use self.base_model
+        feats_g = self.base_model(global_img)
         if feats_g.dim() == 4:
             feats_g = F.adaptive_avg_pool2d(feats_g, 1).squeeze(-1).squeeze(-1)
         return feats_g
@@ -424,9 +427,13 @@ class MILClassifierV4(nn.Module):
             fused = torch.cat([pooled_l, feats_g], dim=1)  # (B, 2*feature_dim)
             fused = self.fusion_proj(fused)  # (B, feature_dim)
         elif self.fusion == "fuse":
+            # Adaptive Fusion: learn weights for local/global, weighted sum
             fusion_input = torch.cat([pooled_l, feats_g], dim=-1)  # (B, 2*feature_dim)
-            fusion_weights = self.fusion_gate(fusion_input)  # (B, feature_dim)
-            fused = fusion_weights  # (B, feature_dim)
+            fusion_weights = self.fusion_gate(fusion_input)  # (B, 2)
+            fused = (
+                fusion_weights[:, 0:1] * pooled_l + fusion_weights[:, 1:2] * feats_g
+            )  # (B, feature_dim)
+            self.last_fusion_weights = fusion_weights.detach()
         else:
             raise ValueError(f"Unknown fusion method: {self.fusion}")
 
@@ -1204,14 +1211,6 @@ class MILClassifierV10(nn.Module):
         global_feats = self._encode_global(x_global)  # (B, feature_dim)
         logits = self.head(global_feats)
         return logits
-        # Encode local features (not used)
-        # _ = self._encode_patches(x_local)
-
-        # Encode global feature (used for prediction)
-        global_feats = self._encode_global(x_global)  # (B, feature_dim)
-        logits = self.head(global_feats)
-        return logits
-        B, N_plus_1, C, H, W = x_patches.shape
         N = N_plus_1 - 1
         x_local = x_patches[:, :N]  # (B, N, C, H, W)
         x_global = x_patches[:, N]  # (B, C, H, W)
