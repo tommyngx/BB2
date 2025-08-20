@@ -384,14 +384,14 @@ class MILClassifierV4(nn.Module):
     def _encode_patches(self, x: torch.Tensor) -> torch.Tensor:
         B, N, C, H, W = x.shape
         x_ = x.contiguous().view(B * N, C, H, W)
-        feats = self.base_model_local(x_)
+        feats = self.base_model(x_)  # Use self.base_model
         if feats.dim() == 4:
             feats = F.adaptive_avg_pool2d(feats, 1).squeeze(-1).squeeze(-1)
         feats = feats.view(B, N, -1)
         return feats
 
     def _encode_global(self, global_img: torch.Tensor) -> torch.Tensor:
-        feats_g = self.base_model_global(global_img)
+        feats_g = self.base_model(global_img)  # Use self.base_model
         if feats_g.dim() == 4:
             feats_g = F.adaptive_avg_pool2d(feats_g, 1).squeeze(-1).squeeze(-1)
         return feats_g
