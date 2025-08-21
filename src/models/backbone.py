@@ -84,7 +84,7 @@ def get_timm_backbone(model_type):
         model.head.fc = nn.Identity()
     elif model_type == "eva02_small":
         model = timm_models.create_model(
-            "eva02_small_patch14_224.mim_in22k", pretrained=True
+            "eva02_base_patch14_448.mim_in22k_ft_in1k", pretrained=True
         )
         # Eva02 model's head is usually called 'head'
         # Try to get feature_dim from common attributes
