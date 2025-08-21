@@ -100,7 +100,7 @@ def get_timm_backbone(model_type):
             raise ValueError(
                 "Cannot determine feature_dim for eva02_small_patch14_224.mim_in22k"
             )
-    elif model_type == "timm/vit_small":
+    elif model_type == "vit_small":
         model = timm_models.create_model(
             "vit_small_patch14_reg4_dinov2.lvd142m",
             pretrained=True,
