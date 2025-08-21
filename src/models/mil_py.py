@@ -1211,14 +1211,3 @@ class MILClassifierV10(nn.Module):
         global_feats = self._encode_global(x_global)  # (B, feature_dim)
         logits = self.head(global_feats)
         return logits
-        N = N_plus_1 - 1
-        x_local = x_patches[:, :N]  # (B, N, C, H, W)
-        x_global = x_patches[:, N]  # (B, C, H, W)
-
-        # Encode local features (not used)
-        # _ = self._encode_patches(x_local)
-
-        # Encode global feature (used for prediction)
-        global_feats = self._encode_global(x_global)  # (B, feature_dim)
-        logits = self.head(global_feats)
-        return logits
