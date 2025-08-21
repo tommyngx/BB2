@@ -82,6 +82,18 @@ def get_timm_backbone(model_type):
         model = timm_models.create_model("maxvit_tiny_tf_224.in1k", pretrained=True)
         feature_dim = model.head.fc.in_features
         model.head.fc = nn.Identity()
+    elif model_type == "eva02_small":
+        model = timm_models.create_model(
+            "eva02_small_patch14_224.mim_in22k", pretrained=True
+        )
+        # Eva02 model's head is usually called 'head'
+        if hasattr(model.head, "in_features"):
+            feature_dim = model.head.in_features
+            model.head = nn.Identity()
+        else:
+            raise ValueError(
+                "Cannot determine feature_dim for eva02_small_patch14_224.mim_in22k"
+            )
     else:
         raise ValueError("Unsupported timm backbone type")
     return model, feature_dim
