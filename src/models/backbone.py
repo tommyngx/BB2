@@ -87,8 +87,12 @@ def get_timm_backbone(model_type):
             "eva02_small_patch14_224.mim_in22k", pretrained=True
         )
         # Eva02 model's head is usually called 'head'
-        if hasattr(model.head, "in_features"):
+        # Try to get feature_dim from common attributes
+        if hasattr(model, "head") and hasattr(model.head, "in_features"):
             feature_dim = model.head.in_features
+            model.head = nn.Identity()
+        elif hasattr(model, "num_features"):
+            feature_dim = model.num_features
             model.head = nn.Identity()
         else:
             raise ValueError(

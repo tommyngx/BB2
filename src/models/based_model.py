@@ -28,7 +28,7 @@ def get_based_model(model_type="resnet50", num_classes=2):
         "efficientnetv2",
         "efficientnetv2s",
         "maxvit_tiny",
-        "eva02_small",
+        "eva02_small",  # sửa lại đúng tên model_type
     ]:
         model, feature_dim = get_timm_backbone(model_type)
         # Replace the head with a linear classifier for all timm backbones
