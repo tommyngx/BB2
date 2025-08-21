@@ -164,8 +164,8 @@ def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
         - dinov3_convnext_small
     """
     dino2_models = {
-        "dinov2_vitb14": ("facebookresearch/dinov2", "dinov2_vitb14"),
-        "dinov2_vits14": ("facebookresearch/dinov2", "dinov2_vits14"),
+        "dinov2_small": "vit_small_patch14_dinov2.lvd142m",
+        "dinov2_base": "vit_base_patch14_dinov2.lvd142m",
     }
     # HuggingFace model hub ids for dinov3
     dino3_models = {
@@ -179,16 +179,21 @@ def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
     }
 
     if model_type in dino2_models:
-        repo, name = dino2_models[model_type]
-        transformer = hub.load(repo, name)
-        # Common way to get feature_dim for all DINOv2 models
-        if hasattr(transformer, "norm") and hasattr(
-            transformer.norm, "normalized_shape"
-        ):
-            feature_dim = transformer.norm.normalized_shape[0]
-        else:
-            raise RuntimeError("Cannot determine feature_dim for this DINOv2 backbone")
+        if model_type not in dino2_models:
+            raise ValueError(
+                f"Unsupported model_type: {model_type}. Choose from {list(dino2_models.keys())}"
+            )
+        transformer = timm_models.create_model(
+            dino2_models[model_type],
+            pretrained=weights is not None,
+            num_classes=0,
+            dynamic_img_size=True,
+        )
+        feature_dim = (
+            transformer.num_features
+        )  # 384 for vit_small_patch14_dinov2.lvd142m
         return transformer, feature_dim
+
     elif model_type == "dinov3_vits16":
         from huggingface_hub import hf_hub_download
         import torch
