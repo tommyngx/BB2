@@ -46,9 +46,11 @@ def get_patch_model(
         "efficientnetv2",
         "efficientnetv2s",
         "maxvit_tiny",
+        "maxvit_small",
+        "maxvit_base",
         "eva02_small",  # sửa lại đúng tên model_type
-        "vit_small",  # thêm model mới
         "eva02_base",  # thêm eva02_base
+        "vit_small",  # thêm model mới
     ]:
         backbone, feature_dim = get_timm_backbone(model_type)
     elif model_type == "fastervit":
