@@ -78,6 +78,10 @@ def get_timm_backbone(model_type):
         )
         feature_dim = model.classifier.in_features
         model.classifier = nn.Identity()
+    elif model_type == "maxvit_tiny":
+        model = timm_models.create_model("maxvit_tiny_tf_224.in1k", pretrained=True)
+        feature_dim = model.head.fc.in_features
+        model.head.fc = nn.Identity()
     else:
         raise ValueError("Unsupported timm backbone type")
     return model, feature_dim

@@ -27,6 +27,7 @@ def get_based_model(model_type="resnet50", num_classes=2):
         "convnextv2_tiny",
         "efficientnetv2",
         "efficientnetv2s",
+        "maxvit_tiny",
     ]:
         model, feature_dim = get_timm_backbone(model_type)
         # Replace the head with a linear classifier for all timm backbones
