@@ -29,8 +29,8 @@ def get_based_model(model_type="resnet50", num_classes=2):
         "efficientnetv2s",
         "maxvit_tiny",
         "eva02_small",  # sửa lại đúng tên model_type
-        "vit_small",  # thêm model mới
         "eva02_base",  # thêm eva02_base
+        "vit_small",  # thêm model mới
     ]:
         model, feature_dim = get_timm_backbone(model_type)
         # Replace the head with a linear classifier for all timm backbones
@@ -58,7 +58,7 @@ def get_based_model(model_type="resnet50", num_classes=2):
         "dinov3_convnext_small",
     ]:
         # Map "dinov2" to default dinov2_vitb14
-        dino_type = "dinov2_small" if model_type == "dinov2" else model_type
+        dino_type = "dinov2_s" if model_type == "dinov2" else model_type
         transformer, feature_dim = get_dino_backbone(dino_type)
 
         class DinoVisionTransformerClassifier(nn.Module):
