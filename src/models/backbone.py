@@ -82,6 +82,10 @@ def get_timm_backbone(model_type):
         model = timm_models.create_model("maxvit_tiny_tf_224.in1k", pretrained=True)
         feature_dim = model.head.fc.in_features
         model.head.fc = nn.Identity()
+    elif model_type == "maxvit_small":
+        model = timm_models.create_model("maxvit_small_tf_224.in1k", pretrained=True)
+        feature_dim = model.head.fc.in_features
+        model.head.fc = nn.Identity()
     elif model_type == "eva02_small":
         model = timm_models.create_model(
             "eva02_small_patch14_224.mim_in22k",

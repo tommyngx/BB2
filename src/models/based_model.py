@@ -28,6 +28,7 @@ def get_based_model(model_type="resnet50", num_classes=2):
         "efficientnetv2",
         "efficientnetv2s",
         "maxvit_tiny",
+        "maxvit_small",
         "eva02_small",  # sửa lại đúng tên model_type
         "eva02_base",  # thêm eva02_base
         "vit_small",  # thêm model mới
