@@ -117,6 +117,22 @@ def get_timm_backbone(model_type):
             raise ValueError(
                 "Cannot determine feature_dim for vit_small_patch14_reg4_dinov2.lvd142m"
             )
+    elif model_type == "eva02_base":
+        model = timm_models.create_model(
+            "eva02_base_patch14_448.mim_in22k_ft_in1k",
+            pretrained=True,
+            dynamic_img_size=True,
+        )
+        if hasattr(model, "head") and hasattr(model.head, "in_features"):
+            feature_dim = model.head.in_features
+            model.head = nn.Identity()
+        elif hasattr(model, "num_features"):
+            feature_dim = model.num_features
+            model.head = nn.Identity()
+        else:
+            raise ValueError(
+                "Cannot determine feature_dim for eva02_base_patch14_448.mim_in22k_ft_in1k"
+            )
     else:
         raise ValueError("Unsupported timm backbone type")
     return model, feature_dim

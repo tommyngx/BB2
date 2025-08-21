@@ -30,6 +30,7 @@ def get_based_model(model_type="resnet50", num_classes=2):
         "maxvit_tiny",
         "eva02_small",  # sửa lại đúng tên model_type
         "vit_small",  # thêm model mới
+        "eva02_base",  # thêm eva02_base
     ]:
         model, feature_dim = get_timm_backbone(model_type)
         # Replace the head with a linear classifier for all timm backbones
