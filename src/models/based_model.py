@@ -80,7 +80,8 @@ def get_based_model(model_type="resnet50", num_classes=2):
         # Freeze backbone only if using dinov3
         if model_type.startswith("dinov3"):
             for param in model.transformer.parameters():
-                param.requires_grad = False
+                # param.requires_grad = False
+                param.requires_grad = True
     else:
         raise ValueError("Unsupported model_type for base model")
     return model
