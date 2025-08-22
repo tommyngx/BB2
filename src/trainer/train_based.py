@@ -165,7 +165,9 @@ if __name__ == "__main__":
 
     from src.models.based_model import get_based_model
 
-    train_df, test_df, class_names = load_metadata(data_folder, args.config)
+    train_df, test_df, class_names = load_metadata(
+        data_folder, args.config, print_stats=False
+    )
     model = get_based_model(model_type=model_type, num_classes=len(class_names))
 
     if args.mode == "train":
