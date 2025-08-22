@@ -8,6 +8,8 @@ import os
 import torch
 from src.data.based_data import get_dataloaders
 from src.data.dataloader import load_metadata
+
+from src.data.dataloader import load_metadata
 from src.trainer.engines import train_model, evaluate_model
 from src.utils.common import load_config, get_arg_or_config, clear_cuda_memory
 
@@ -163,7 +165,8 @@ if __name__ == "__main__":
 
     from src.models.based_model import get_based_model
 
-    model = get_based_model(model_type=model_type)
+    train_df, test_df, class_names = load_metadata(data_folder, args.config)
+    model = get_based_model(model_type=model_type, num_classes=len(class_names))
 
     if args.mode == "train":
         run_train(
