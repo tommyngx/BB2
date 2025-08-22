@@ -146,12 +146,12 @@ def load_metadata(data_folder, config_path="config/config.yaml", print_stats=Tru
 
     if print_stats:
         print_dataset_stats2(train_df, test_df, name="Dataset")
-    # Nếu có nhiều hơn 2 class, in ra danh sách class
-    if train_df[label_col].nunique() > 2:
-        print(
-            "Detected multi-class classification. Classes:",
-            list(class_names),
-        )
+        # Nếu có nhiều hơn 2 class, in ra danh sách class
+        if train_df[label_col].nunique() > 2:
+            print(
+                "Detected multi-class classification. Classes:",
+                list(class_names),
+            )
     return train_df, test_df, class_names
 
 
