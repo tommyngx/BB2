@@ -261,6 +261,8 @@ def train_model(
             images, labels = batch
             images, labels = images.to(device), labels.to(device)
             print("Labels:", labels)
+            outputs = model(images)
+            print("outputs.shape:", outputs.shape)
             optimizer.zero_grad()
             if scaler is not None:
                 with autocast():
