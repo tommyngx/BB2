@@ -139,7 +139,13 @@ def train_model(
     # Multi-GPU support
     if device != "cpu" and torch.cuda.device_count() > 1:
         print(f"Using {torch.cuda.device_count()} GPUs with DataParallel")
+        print("Multi-GPU is available and will be used for training.")
         model = nn.DataParallel(model)
+    else:
+        if device != "cpu" and torch.cuda.device_count() == 1:
+            print("Only one GPU detected. Multi-GPU is not available.")
+        elif device == "cpu":
+            print("Running on CPU. Multi-GPU is not available.")
     model = model.to(device)
     if train_df is not None:
         class_counts = train_df["cancer"].value_counts()
