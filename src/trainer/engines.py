@@ -20,6 +20,9 @@ from src.utils.plot import plot_metrics, plot_confusion_matrix
 
 
 def evaluate_model(model, data_loader, device="cpu", mode="Test", return_loss=False):
+    # Multi-GPU unwrap if needed
+    if isinstance(model, nn.DataParallel):
+        model = model.module
     model = model.to(device)
     model.eval()
     correct = 0
@@ -133,6 +136,10 @@ def train_model(
     arch_type=None,
     num_patches=None,
 ):
+    # Multi-GPU support
+    if device != "cpu" and torch.cuda.device_count() > 1:
+        print(f"Using {torch.cuda.device_count()} GPUs with DataParallel")
+        model = nn.DataParallel(model)
     model = model.to(device)
     if train_df is not None:
         class_counts = train_df["cancer"].value_counts()
@@ -336,6 +343,7 @@ def train_model(
                         )
                     break
 
+        # Save/load model: handle DataParallel
         acc4 = int(round(test_acc * 10000))
         weight_name = f"{model_key}_{acc4}.pth"
         weight_path = os.path.join(model_dir, weight_name)
@@ -363,7 +371,11 @@ def train_model(
             related_weights = sorted(related_weights, key=lambda x: x[0], reverse=True)
             top2_paths = set(path for _, path in related_weights[:2])
             if weight_path in top2_paths:
-                torch.save(model.state_dict(), weight_path)
+                # Save only model.module if DataParallel
+                if isinstance(model, nn.DataParallel):
+                    torch.save(model.module.state_dict(), weight_path)
+                else:
+                    torch.save(model.state_dict(), weight_path)
                 print(f"✅ Saved new model: {weight_name} (acc = {test_acc:.6f})")
             for _, fname_path in related_weights:
                 if fname_path not in top2_paths and os.path.exists(fname_path):
@@ -407,7 +419,13 @@ def train_model(
             print(
                 f"\n🔎 Evaluating best model: {best_weight_name} (acc={best_acc:.4f})"
             )
-            model.load_state_dict(torch.load(best_weight_path, map_location=device))
+            # Load weights into model.module if DataParallel
+            if isinstance(model, nn.DataParallel):
+                model.module.load_state_dict(
+                    torch.load(best_weight_path, map_location=device)
+                )
+            else:
+                model.load_state_dict(torch.load(best_weight_path, map_location=device))
             evaluate_model(model, test_loader, device=device, mode="Best Test")
         else:
             print(f"Best weight file {best_weight_name} not found.")
