@@ -120,6 +120,18 @@ def run_test(
     test_loss, test_acc = evaluate_model(
         model, test_loader, device=device, mode="Test", return_loss=True
     )
+    # Save the full model (architecture + weights) after test
+    if pretrained_model_path:
+        full_model_path = (
+            pretrained_model_path.replace(".pth", "_full.pth")
+            if pretrained_model_path.endswith(".pth")
+            else pretrained_model_path + "_full"
+        )
+        try:
+            torch.save(model, full_model_path)
+            print(f"Saved full model (architecture + weights) to {full_model_path}")
+        except Exception as e:
+            print(f"⚠️ Error saving full model: {e}")
     return test_loss, test_acc
 
 
