@@ -141,6 +141,30 @@ def get_timm_backbone(model_type):
             raise ValueError(
                 "Cannot determine feature_dim for eva02_base_patch14_448.mim_in22k_ft_in1k"
             )
+    elif model_type == "swinv2_small":
+        model = timm_models.create_model(
+            "swinv2_small_window8_256.ms_in1k",
+            pretrained=True,
+            dynamic_img_size=True,
+        )
+        feature_dim = model.head.fc.in_features
+        model.head.fc = nn.Identity()
+    elif model_type == "swinv2_tiny":
+        model = timm_models.create_model(
+            "swinv2_tiny_window8_256.ms_in1k",
+            pretrained=True,
+            dynamic_img_size=True,
+        )
+        feature_dim = model.head.fc.in_features
+        model.head.fc = nn.Identity()
+    elif model_type == "swinv2_base":
+        model = timm_models.create_model(
+            "swinv2_base_window8_256.ms_in1k",
+            pretrained=True,
+            dynamic_img_size=True,
+        )
+        feature_dim = model.head.fc.in_features
+        model.head.fc = nn.Identity()
     else:
         raise ValueError("Unsupported timm backbone type")
     return model, feature_dim
