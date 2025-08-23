@@ -146,6 +146,7 @@ def get_timm_backbone(model_type):
             "swinv2_small_window8_256.ms_in1k",
             pretrained=False,
             dynamic_img_size=True,
+            img_size=448,
         )
         feature_dim = model.head.fc.in_features
         model.head.fc = nn.Identity()
@@ -154,6 +155,7 @@ def get_timm_backbone(model_type):
             "swinv2_tiny_window8_256.ms_in1k",
             pretrained=False,
             dynamic_img_size=True,
+            img_size=448,
         )
         feature_dim = model.head.fc.in_features
         model.head.fc = nn.Identity()
@@ -162,6 +164,7 @@ def get_timm_backbone(model_type):
             "swinv2_base_window8_256.ms_in1k",
             pretrained=False,
             dynamic_img_size=True,
+            img_size=448,
         )
         feature_dim = model.head.fc.in_features
         model.head.fc = nn.Identity()
