@@ -152,7 +152,7 @@ def get_timm_backbone(model_type):
         model.head.fc = nn.Identity()
     elif model_type == "swinv2_tiny":
         model = timm_models.create_model(
-            "swinv2_tiny_window8_256.ms_in1k",
+            "swinv2_cr_tiny_ns_224.sw_in1k",
             pretrained=False,
             dynamic_img_size=True,
             img_size=448,
