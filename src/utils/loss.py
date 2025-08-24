@@ -28,6 +28,99 @@ class FocalLoss(nn.Module):
             return focal_loss
 
 
+class FocalLoss2(nn.Module):
+    """
+    Focal Loss + Label Smoothing cho classification nhiều lớp.
+    - gamma=0  => CrossEntropy với Label Smoothing.
+    - smoothing=0 => Focal Loss thuần.
+    """
+
+    def __init__(
+        self,
+        gamma=2.0,
+        smoothing=0.1,
+        alpha=None,
+        reduction="mean",
+        ignore_index=None,
+        eps=1e-6,
+    ):
+        super().__init__()
+        assert gamma >= 0.0, "gamma must be non-negative"
+        assert 0.0 <= smoothing < 1.0, "smoothing must be in [0, 1)"
+        assert reduction in ("mean", "sum", "none")
+
+        self.gamma = float(gamma)
+        self.smoothing = float(smoothing)
+        self.reduction = reduction
+        self.ignore_index = ignore_index
+        self.eps = float(eps)
+
+        if alpha is None:
+            self.register_buffer("alpha", None)
+        else:
+            if isinstance(alpha, (float, int)):
+                a = torch.tensor(float(alpha), dtype=torch.float32)
+            else:
+                a = torch.as_tensor(alpha, dtype=torch.float32)
+                assert (a >= 0).all(), "alpha must contain non-negative values"
+            self.register_buffer("alpha", a)
+
+    def forward(self, logits, targets):
+        assert torch.is_tensor(logits) and torch.is_tensor(targets)
+        assert logits.ndim == 2, "logits must have shape [B, C]"
+        B, C = logits.shape
+        assert C > 1, "num_classes must be >= 2 for label smoothing"
+        assert targets.shape == (B,), "targets must have shape [batch_size]"
+        if targets.dtype != torch.long:
+            assert targets.dtype in (torch.int, torch.long)
+            targets = targets.long()
+        assert targets.min() >= 0 and targets.max() < C, "targets out of range"
+
+        # mask ignore_index
+        if self.ignore_index is not None:
+            keep = targets != self.ignore_index
+            if keep.sum() == 0:
+                return logits.sum() * 0.0  # giữ graph
+            logits = logits[keep]
+            targets = targets[keep]
+            B = logits.size(0)
+
+        if self.alpha is not None and self.alpha.ndim > 0:
+            assert self.alpha.numel() == C, "alpha must have shape [num_classes]"
+
+        device, dtype = logits.device, logits.dtype
+
+        # label smoothing
+        with torch.no_grad():
+            true_dist = torch.full(
+                (B, C), self.smoothing / (C - 1), device=device, dtype=dtype
+            )
+            true_dist.scatter_(1, targets.view(-1, 1), 1.0 - self.smoothing)
+
+        logp = F.log_softmax(logits, dim=1)
+        p = logp.exp().clamp(min=self.eps, max=1.0 - self.eps)
+
+        focal = (1.0 - p) ** self.gamma if self.gamma > 0 else torch.ones_like(p)
+
+        if self.alpha is None:
+            alpha = 1.0
+        else:
+            alpha = self.alpha.to(device=device, dtype=dtype)
+            if alpha.ndim > 0:
+                alpha = alpha.unsqueeze(0)  # [1, C]
+
+        per_class = -true_dist * focal * logp
+        per_class = per_class * alpha
+        loss = per_class.sum(dim=1)
+
+        if self.reduction == "mean":
+            return loss.mean()
+        elif self.reduction == "sum":
+            return loss.sum()
+        else:
+            return loss  # 'none'
+
+
 class LDAMLoss(nn.Module):
     def __init__(self, cls_num_list, max_m=0.5, weight=None, s=30.0):
         super().__init__()

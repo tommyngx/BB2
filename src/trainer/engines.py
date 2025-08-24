@@ -15,7 +15,7 @@ from sklearn.metrics import (
 import csv
 from datetime import datetime
 
-from src.utils.loss import FocalLoss, LDAMLoss
+from src.utils.loss import FocalLoss, LDAMLoss, FocalLoss2
 from src.utils.plot import plot_metrics, plot_confusion_matrix
 
 
@@ -170,6 +170,9 @@ def train_model(
             weight=weights,  # truyền weight vào LDAMLoss
         ).to(device)
         print("Using LDAM Loss")
+    elif loss_type == "focal2":
+        criterion = FocalLoss2(alpha=weights)
+        print("Using Focal Loss v2")
     else:
         criterion = nn.CrossEntropyLoss(weight=weights)
         print(
