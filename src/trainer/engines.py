@@ -15,7 +15,7 @@ from sklearn.metrics import (
 import csv
 from datetime import datetime
 
-from src.utils.loss import FocalLoss
+from src.utils.loss import FocalLoss, LDAMLoss
 from src.utils.plot import plot_metrics, plot_confusion_matrix
 
 
@@ -164,6 +164,11 @@ def train_model(
     if loss_type == "focal":
         criterion = FocalLoss(alpha=weights)
         print("Using Focal Loss")
+    elif loss_type == "ldam":
+        criterion = LDAMLoss(
+            cls_num_list=train_df["cancer"].value_counts().sort_index().tolist()
+        ).to(device)
+        print("Using LDAM Loss")
     else:
         criterion = nn.CrossEntropyLoss(weight=weights)
         print(
