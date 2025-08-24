@@ -166,7 +166,8 @@ def train_model(
         print("Using Focal Loss")
     elif loss_type == "ldam":
         criterion = LDAMLoss(
-            cls_num_list=train_df["cancer"].value_counts().sort_index().tolist()
+            cls_num_list=train_df["cancer"].value_counts().sort_index().tolist(),
+            weight=weights,  # truyền weight vào LDAMLoss
         ).to(device)
         print("Using LDAM Loss")
     else:
