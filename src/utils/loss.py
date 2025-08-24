@@ -39,13 +39,12 @@ class LDAMLoss(nn.Module):
 
         self.s = float(s)
 
-        # Tính margin: m_j ∝ n_j^{-1/4}, chuẩn hóa để m_j ≤ max_m
-        m_list = 1.0 / torch.sqrt(
-            torch.sqrt(torch.tensor(cls_num_list, dtype=torch.float32))
-        )
+        # Tính margin: m_j ∝ n_j^{-1/4}, chuẩn hóa để max(m_j) = max_m
+        n = torch.tensor(cls_num_list, dtype=torch.float32)
+        m_list = 1.0 / torch.sqrt(torch.sqrt(n))
         m_list = m_list * (
             float(max_m) / m_list.max().clamp_min(1e-6)
-        )  # Tăng clamp_min cho ổn định
+        )  # Tăng clamp_min
         self.register_buffer("m_list", m_list)
 
         # Xử lý weight
@@ -54,6 +53,7 @@ class LDAMLoss(nn.Module):
             assert w.numel() == len(cls_num_list), (
                 "weight must have same length as cls_num_list"
             )
+            assert (w >= 0).all(), "weight must contain non-negative values"
             self.register_buffer("weight", w)
         else:
             self.weight = None
@@ -63,23 +63,24 @@ class LDAMLoss(nn.Module):
         assert torch.is_tensor(logits) and torch.is_tensor(targets), (
             "logits and targets must be tensors"
         )
-        assert targets.dtype in (torch.long, torch.int), "targets must be integer type"
-        assert logits.size(1) == self.m_list.numel(), (
+        B, C = logits.shape
+        assert C == self.m_list.numel(), (
             "logits must have shape [batch_size, num_classes]"
         )
-        assert targets.min() >= 0 and targets.max() < self.m_list.numel(), (
-            "targets out of range"
-        )
-
+        assert targets.shape == (B,), "targets must have shape [batch_size]"
         if targets.dtype != torch.long:
+            assert targets.dtype in (torch.int, torch.long), (
+                "targets must be integer type"
+            )
             targets = targets.long()
+        assert targets.min() >= 0 and targets.max() < C, "targets out of range"
 
-        # Truy xuất margin và đảm bảo dtype khớp
+        # Margin cho từng mẫu, khớp dtype với logits
         batch_m = self.m_list[targets].to(dtype=logits.dtype)  # [B]
 
         # Trừ margin vào logit của lớp đúng
         logits_m = logits.clone()
-        row_idx = torch.arange(logits.size(0), device=logits.device)
+        row_idx = torch.arange(B, device=logits.device)
         logits_m[row_idx, targets] -= batch_m
 
         # Scale và tính cross entropy
@@ -87,4 +88,4 @@ class LDAMLoss(nn.Module):
         weight = (
             None if self.weight is None else self.weight.to(logits.device, logits.dtype)
         )
-        return F.cross_entropy(logits_s, targets, weight=weight, reduction="mean")
+        return F.cross_entropy(logits_s, targets, weight=weight)
