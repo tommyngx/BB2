@@ -37,6 +37,7 @@ def get_patch_model(
     if model_type in ["resnet50", "resnet101", "resnext50"]:
         backbone, feature_dim = get_resnet_backbone(model_type)
     elif model_type in [
+        "resnet34",
         "resnest50",
         "resnest101",
         "resnest50s2",

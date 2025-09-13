@@ -19,6 +19,7 @@ def get_based_model(model_type="resnet50", num_classes=2):
         model = backbone
         model.fc = get_linear_head(feature_dim, num_classes)
     elif model_type in [
+        "resnet34",
         "resnest50",
         "resnest101",
         "resnest50s2",
