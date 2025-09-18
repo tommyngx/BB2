@@ -208,7 +208,11 @@ if __name__ == "__main__":
     train_df, test_df, class_names = load_metadata(
         data_folder, args.config, target_column=target_column, print_stats=False
     )
-    num_classes = len(class_names) if class_names else len(train_df["cancer"].unique())
+    num_classes = (
+        len(class_names)
+        if class_names is not None and not class_names.empty
+        else len(train_df["cancer"].unique())
+    )
 
     model = get_patch_model(
         model_type=model_type,
