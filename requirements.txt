@@ -28,3 +28,5 @@ torchmetrics
 pyyaml
 fastervit
 ultralytics
+
+mambavision==1.1.0
