@@ -178,7 +178,8 @@ def get_timm_backbone(model_type):
         from transformers import AutoModelForImageClassification
 
         model = AutoModelForImageClassification.from_pretrained(
-            "nvidia/MambaVision-T-1K"
+            "nvidia/MambaVision-T-1K",
+            trust_remote_code=True,
         )
         # Try to get feature_dim from config or classifier
         if hasattr(model, "config") and hasattr(model.config, "hidden_size"):
