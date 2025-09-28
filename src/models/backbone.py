@@ -195,7 +195,11 @@ def get_timm_backbone(model_type):
     elif model_type == "mambaout_tiny":
         model = timm_models.create_model("mambaout_tiny.in1k", pretrained=True)
         # Use head.fc for feature_dim and replace with Identity
-        if hasattr(model, "head") and hasattr(model.head, "fc") and hasattr(model.head.fc, "in_features"):
+        if (
+            hasattr(model, "head")
+            and hasattr(model.head, "fc")
+            and hasattr(model.head.fc, "in_features")
+        ):
             feature_dim = model.head.fc.in_features
             model.head.fc = nn.Identity()
         else:
@@ -395,9 +399,6 @@ def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
         else:
             raise RuntimeError("Cannot determine feature_dim for this DINOv3 backbone")
         # Return processor if needed for preprocessing, else just transformer and feature_dim
-        return transformer, feature_dim
-    else:
-        raise ValueError("Unsupported DINO backbone type")
         return transformer, feature_dim
     else:
         raise ValueError("Unsupported DINO backbone type")
