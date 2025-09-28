@@ -173,6 +173,37 @@ def get_timm_backbone(model_type):
         )
         feature_dim = model.head.fc.in_features
         model.head.fc = nn.Identity()
+    # --- MambaVision-T support ---
+    elif model_type == "mamba_t":
+        from transformers import AutoModelForImageClassification
+
+        model = AutoModelForImageClassification.from_pretrained(
+            "nvidia/MambaVision-T-1K"
+        )
+        # Try to get feature_dim from config or classifier
+        if hasattr(model, "config") and hasattr(model.config, "hidden_size"):
+            feature_dim = model.config.hidden_size
+        elif hasattr(model, "classifier") and hasattr(model.classifier, "in_features"):
+            feature_dim = model.classifier.in_features
+            model.classifier = nn.Identity()
+        else:
+            raise RuntimeError("Cannot determine feature_dim for MambaVision-T-1K")
+        return model, feature_dim
+    # --- End MambaVision-T support ---
+    # --- MambaOut-Tiny support ---
+    elif model_type == "mambaout_tiny":
+        model = timm_models.create_model("mambaout_tiny.in1k", pretrained=True)
+        # Try to get feature_dim from classifier or head
+        if hasattr(model, "classifier") and hasattr(model.classifier, "in_features"):
+            feature_dim = model.classifier.in_features
+            model.classifier = nn.Identity()
+        elif hasattr(model, "head") and hasattr(model.head, "in_features"):
+            feature_dim = model.head.in_features
+            model.head = nn.Identity()
+        else:
+            raise RuntimeError("Cannot determine feature_dim for mambaout_tiny.in1k")
+        return model, feature_dim
+    # --- End MambaOut-Tiny support ---
     else:
         raise ValueError("Unsupported timm backbone type")
     return model, feature_dim
