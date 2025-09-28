@@ -182,12 +182,17 @@ def get_timm_backbone(model_type):
             trust_remote_code=True,
         )
         # Try to get feature_dim from config or classifier
-        if hasattr(model, "config") and hasattr(model.config, "hidden_size"):
+        if hasattr(model, "config") and hasattr(model.config, "hidden_dim"):
+            feature_dim = model.config.hidden_dim
+        elif hasattr(model, "config") and hasattr(model.config, "hidden_size"):
             feature_dim = model.config.hidden_size
         elif hasattr(model, "classifier") and hasattr(model.classifier, "in_features"):
             feature_dim = model.classifier.in_features
             model.classifier = nn.Identity()
         else:
+            # In debug info nếu vẫn lỗi
+            print("DEBUG: model.config =", model.config)
+            print("DEBUG: model.classifier =", model.classifier)
             raise RuntimeError("Cannot determine feature_dim for MambaVision-T-1K")
         return model, feature_dim
     # --- End MambaVision-T support ---
