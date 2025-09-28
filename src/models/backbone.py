@@ -181,9 +181,8 @@ def get_timm_backbone(model_type):
             "nvidia/MambaVision-T-1K",
             trust_remote_code=True,
         )
-        # Thử lấy feature_dim từ các thuộc tính trực tiếp hoặc trong .model
         feature_dim = None
-        # 1. Trực tiếp
+        # Ưu tiên lấy trực tiếp
         if hasattr(model, "head") and hasattr(model.head, "in_features"):
             feature_dim = model.head.in_features
             model.head = nn.Identity()
@@ -193,21 +192,16 @@ def get_timm_backbone(model_type):
         elif hasattr(model, "classifier") and hasattr(model.classifier, "in_features"):
             feature_dim = model.classifier.in_features
             model.classifier = nn.Identity()
-        # 2. Trong .model (thường gặp với HuggingFace)
-        elif hasattr(model, "model"):
-            inner = model.model
-            if hasattr(inner, "head") and hasattr(inner.head, "in_features"):
-                feature_dim = inner.head.in_features
-                inner.head = nn.Identity()
-            elif hasattr(inner, "fc") and hasattr(inner.fc, "in_features"):
-                feature_dim = inner.fc.in_features
-                inner.fc = nn.Identity()
-            elif hasattr(inner, "classifier") and hasattr(
-                inner.classifier, "in_features"
-            ):
-                feature_dim = inner.classifier.in_features
-                inner.classifier = nn.Identity()
-        if feature_dim is None:
+        # Nếu không có, kiểm tra trong .model và chuẩn hóa về model.head
+        elif (
+            hasattr(model, "model")
+            and hasattr(model.model, "head")
+            and hasattr(model.model.head, "in_features")
+        ):
+            model.head = model.model.head  # chuẩn hóa về model.head
+            feature_dim = model.head.in_features
+            model.head = nn.Identity()
+        else:
             print("DEBUG: model.head =", getattr(model, "head", None))
             print("DEBUG: model.fc =", getattr(model, "fc", None))
             print("DEBUG: model.classifier =", getattr(model, "classifier", None))
