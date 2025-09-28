@@ -182,19 +182,17 @@ def get_timm_backbone(model_type):
             trust_remote_code=True,
         )
         # In ra 3 layer cuối cùng của mô hình mamba_t
-        print("=== 3 layer cuối cùng của mô hình mamba_t ===")
-        layers = list(model.children())
+        #print("=== 3 layer cuối cùng của mô hình mamba_t ===")
+        #layers = list(model.children())
         for i, layer in enumerate(layers[-3:], 1):
             print(f"Layer {-3 + i}: {layer}")
-        # Lấy feature_dim từ classifier.in_features
-        if hasattr(model, "classifier") and hasattr(model.classifier, "in_features"):
-            feature_dim = model.classifier.in_features
-            model.classifier = nn.Identity()
+        # Lấy feature_dim từ head.in_features
+        if hasattr(model, "head") and hasattr(model.head, "in_features"):
+            feature_dim = model.head.in_features
+            model.head = nn.Identity()
         else:
-            print("DEBUG: model.classifier =", getattr(model, "classifier", None))
+            print("DEBUG: model.head =", getattr(model, "head", None))
             raise RuntimeError("Cannot determine feature_dim for MambaVision-T-1K")
-
-        # Nếu muốn in sâu hơn, có thể dùng list(model.named_modules())[-3:]
         return model, feature_dim
     # --- End MambaVision-T support ---
     # --- MambaOut-Tiny support ---
@@ -406,5 +404,7 @@ def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
             raise RuntimeError("Cannot determine feature_dim for this DINOv3 backbone")
         # Return processor if needed for preprocessing, else just transformer and feature_dim
         return transformer, feature_dim
+    else:
+        raise ValueError("Unsupported DINO backbone type")
     else:
         raise ValueError("Unsupported DINO backbone type")
