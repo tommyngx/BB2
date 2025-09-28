@@ -191,7 +191,7 @@ def get_timm_backbone(model_type):
             model.classifier = nn.Identity()
         else:
             # In debug info nếu vẫn lỗi
-            print("DEBUG: model.config =", model.config)
+            # print("DEBUG: model.config =", model.config)
             print("DEBUG: model.classifier =", getattr(model, "classifier", None))
             raise RuntimeError("Cannot determine feature_dim for MambaVision-T-1K")
         return model, feature_dim
