@@ -182,8 +182,8 @@ def get_timm_backbone(model_type):
             trust_remote_code=True,
         )
         # In ra 3 layer cuối cùng của mô hình mamba_t
-        #print("=== 3 layer cuối cùng của mô hình mamba_t ===")
-        #layers = list(model.children())
+        # print("=== 3 layer cuối cùng của mô hình mamba_t ===")
+        # layers = list(model.children())
         for i, layer in enumerate(layers[-3:], 1):
             print(f"Layer {-3 + i}: {layer}")
         # Lấy feature_dim từ head.in_features
@@ -404,7 +404,5 @@ def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
             raise RuntimeError("Cannot determine feature_dim for this DINOv3 backbone")
         # Return processor if needed for preprocessing, else just transformer and feature_dim
         return transformer, feature_dim
-    else:
-        raise ValueError("Unsupported DINO backbone type")
     else:
         raise ValueError("Unsupported DINO backbone type")
