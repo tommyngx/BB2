@@ -181,11 +181,12 @@ def get_timm_backbone(model_type):
             "nvidia/MambaVision-T-1K",
             trust_remote_code=True,
         )
-        # Lấy feature_dim từ config.dim
-        if hasattr(model, "config") and hasattr(model.config, "dim"):
-            feature_dim = model.config.dim
+        # Lấy feature_dim từ classifier.in_features
+        if hasattr(model, "classifier") and hasattr(model.classifier, "in_features"):
+            feature_dim = model.classifier.in_features
+            model.classifier = nn.Identity()
         else:
-            print("DEBUG: model.config =", model.config)
+            print("DEBUG: model.classifier =", getattr(model, "classifier", None))
             raise RuntimeError("Cannot determine feature_dim for MambaVision-T-1K")
         return model, feature_dim
     # --- End MambaVision-T support ---
