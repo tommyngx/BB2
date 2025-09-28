@@ -181,11 +181,9 @@ def get_timm_backbone(model_type):
             "nvidia/MambaVision-T-1K",
             trust_remote_code=True,
         )
-        # Lấy feature_dim từ config
-        if hasattr(model, "config") and hasattr(model.config, "hidden_dim"):
-            feature_dim = model.config.hidden_dim
-        elif hasattr(model, "config") and hasattr(model.config, "hidden_size"):
-            feature_dim = model.config.hidden_size
+        # Lấy feature_dim từ config.dim
+        if hasattr(model, "config") and hasattr(model.config, "dim"):
+            feature_dim = model.config.dim
         else:
             print("DEBUG: model.config =", model.config)
             raise RuntimeError("Cannot determine feature_dim for MambaVision-T-1K")
