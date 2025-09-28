@@ -181,11 +181,6 @@ def get_timm_backbone(model_type):
             "nvidia/MambaVision-T-1K",
             trust_remote_code=True,
         )
-        # In ra 3 layer cuối cùng của mô hình mamba_t
-        # print("=== 3 layer cuối cùng của mô hình mamba_t ===")
-        # layers = list(model.children())
-        for i, layer in enumerate(layers[-3:], 1):
-            print(f"Layer {-3 + i}: {layer}")
         # Lấy feature_dim từ head.in_features
         if hasattr(model, "head") and hasattr(model.head, "in_features"):
             feature_dim = model.head.in_features
