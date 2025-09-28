@@ -188,6 +188,12 @@ def get_timm_backbone(model_type):
         else:
             print("DEBUG: model.classifier =", getattr(model, "classifier", None))
             raise RuntimeError("Cannot determine feature_dim for MambaVision-T-1K")
+        # In ra 3 layer cuối cùng của mô hình mamba_t
+        print("=== 3 layer cuối cùng của mô hình mamba_t ===")
+        layers = list(model.children())
+        for i, layer in enumerate(layers[-3:], 1):
+            print(f"Layer {-3 + i}: {layer}")
+        # Nếu muốn in sâu hơn, có thể dùng list(model.named_modules())[-3:]
         return model, feature_dim
     # --- End MambaVision-T support ---
     # --- MambaOut-Tiny support ---
