@@ -230,7 +230,6 @@ def main():
                 "v4" in arch_type_meta.lower() or "global" in arch_type_meta.lower()
             )
 
-            # Create patch images for visualization
             patch_images = split_image_into_patches(
                 img, num_patches_meta, input_size_meta, add_global=has_global
             )
@@ -255,25 +254,25 @@ def main():
             else:
                 num_to_visualize = num_patches_result
 
-            # Tách patch_heatmaps và patch_imgs (không tính global)
+            # Separate local patches and global patch
             if has_global:
                 patch_heatmaps = gradcam_map[:-1]
                 patch_imgs = patch_images[:-1]
+                global_heatmap = gradcam_map[-1]
+                global_img = patch_images[-1]
             else:
                 patch_heatmaps = gradcam_map
                 patch_imgs = patch_images
+                global_heatmap = None
+                global_img = None
 
-            # Visualize each patch with its heatmap
+            # Visualize each local patch individually
             for patch_idx in range(len(patch_heatmaps)):
-                patch_cam = patch_heatmaps[patch_idx]  # Shape: (H, W)
-                patch_img = patch_imgs[patch_idx]  # PIL Image or np.ndarray
-
-                # Convert to PIL if needed
+                patch_cam = patch_heatmaps[patch_idx]
+                patch_img = patch_imgs[patch_idx]
                 if isinstance(patch_img, np.ndarray):
                     patch_img = Image.fromarray(patch_img)
-
                 pred_str = f"Patch {patch_idx + 1}: {pred_class}"
-
                 post_gradcam(
                     patch_cam,
                     patch_img,
@@ -285,16 +284,16 @@ def main():
                     gt_label=None,
                 )
 
-            # Tổng hợp các patch heatmap thành một heatmap lớn (top-down)
-            patch_heatmaps_resized = []
+            # Merge all local patch heatmaps vertically (top-down) and visualize
+            merged_patch_heatmaps = []
             for idx, cam in enumerate(patch_heatmaps):
                 target_w = original_img_size[0]
                 patch_h = patch_imgs[idx].size[1]
                 cam_img = Image.fromarray(cam).resize(
                     (target_w, patch_h), Image.Resampling.BILINEAR
                 )
-                patch_heatmaps_resized.append(np.array(cam_img))
-            combined_heatmap = np.vstack(patch_heatmaps_resized)
+                merged_patch_heatmaps.append(np.array(cam_img))
+            combined_heatmap = np.vstack(merged_patch_heatmaps)
             combined_heatmap_img = Image.fromarray(combined_heatmap).resize(
                 original_img_size, Image.Resampling.BILINEAR
             )
@@ -312,17 +311,15 @@ def main():
                 gt_label=None,
             )
 
-            # Nếu có global, plot hình global cuối cùng
-            if has_global:
-                patch_cam = gradcam_map[-1]
-                patch_img = patch_images[-1]
-                if isinstance(patch_img, np.ndarray):
-                    patch_img = Image.fromarray(patch_img)
+            # Visualize the global patch last (if present)
+            if has_global and global_heatmap is not None and global_img is not None:
+                if isinstance(global_img, np.ndarray):
+                    global_img = Image.fromarray(global_img)
                 pred_str = f"Global: {pred_class}"
                 print("\n=== Global Image ===")
                 post_gradcam(
-                    patch_cam,
-                    patch_img,
+                    global_heatmap,
+                    global_img,
                     bbx_list=None,
                     option=5,
                     blend_alpha=0.5,
