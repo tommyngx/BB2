@@ -343,7 +343,7 @@ def post_gradcam(
             )
             ax.add_patch(rect)
 
-    main_title = f"Original Image"
+    main_title = f"Viz"
     if gt_label is not None:
         main_title += f",|GT: {gt_label}|"
     if pred is not None:
