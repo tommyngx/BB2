@@ -184,12 +184,6 @@ def main():
             gt,
         )
 
-        # Debug: Print all available layers
-        # print("\nAvailable layers in model:")
-        # for name, module in model_out.named_modules():
-        #    print(f"  {name}")
-        # print(f"\nTarget layer: {target_layer}")
-
         from src.gradcam.gradcam_utils_patch import (
             mil_gradcam,
             mil_gradcam_plus_plus,
@@ -204,75 +198,71 @@ def main():
         if gradcam_map.ndim == 3:
             num_patches_result = gradcam_map.shape[0]
 
-            # Get model metadata to split image into patches
+            # Get model metadata
             _, input_size_meta, _, _, _, num_patches_meta, arch_type_meta = model_tuple
 
-            # Split original image into patches (same as in pre_mil_gradcam)
-            patch_images = split_image_into_patches(
-                img, num_patches_meta, input_size_meta
-            )
-
-            # Check if arch_type has global image (like mil_v4)
+            # Check if has global image
             has_global = (
                 "v4" in arch_type_meta.lower() or "global" in arch_type_meta.lower()
             )
 
-            # IMPORTANT: Add global image to patch_images BEFORE checking num_patches_result
-            if has_global:
-                # Add global image as the last patch - resize to exact input_size
-                # input_size_meta is (height, width), PIL resize expects (width, height)
-                resize_size_pil = (input_size_meta[1], input_size_meta[0])  # (W, H)
-                global_img = img.resize(resize_size_pil, Image.Resampling.BILINEAR)
-                patch_images.append(global_img)
-
-            # Verify patch count consistency
-            expected_num_patches = len(patch_images)
-            if num_patches_result != expected_num_patches:
-                print(
-                    f"⚠️ WARNING: GradCAM returned {num_patches_result} heatmaps but expected {expected_num_patches} patches!"
-                )
-                print(
-                    f"   This may indicate the model aggregated patches instead of keeping them separate."
-                )
-                # Adjust to use the smaller number to avoid index errors
-                num_patches_result = min(num_patches_result, expected_num_patches)
+            # Create patch images for visualization
+            # Need to recreate the EXACT same patches as in pre_mil_gradcam
+            patch_images = split_image_into_patches(
+                img, num_patches_meta, input_size_meta, add_global=has_global
+            )
 
             print(
                 f"\nVisualizing {num_patches_result} patches{' (including 1 global image)' if has_global else ''}:"
             )
-            if has_global:
-                print(f"Global image resized to: {global_img.size} (W×H)")
+            print(f"  Created {len(patch_images)} patch images for visualization")
 
-            # Visualize each patch image with its GradCAM
-            for patch_idx in range(num_patches_result):
+            # Verify consistency
+            if num_patches_result != len(patch_images):
+                print(
+                    f"  ⚠️ WARNING: GradCAM has {num_patches_result} heatmaps but we have {len(patch_images)} patch images!"
+                )
+                print(
+                    f"     Using min({num_patches_result}, {len(patch_images)}) for visualization"
+                )
+                num_to_visualize = min(num_patches_result, len(patch_images))
+            else:
+                num_to_visualize = num_patches_result
+
+            # Visualize each patch with its heatmap
+            for patch_idx in range(num_to_visualize):
                 patch_cam = gradcam_map[patch_idx]  # Shape: (H, W)
-                patch_img = patch_images[patch_idx]  # PIL Image of the patch
+                patch_img = patch_images[patch_idx]  # PIL Image or np.ndarray
+
+                # Convert to PIL if needed
+                if isinstance(patch_img, np.ndarray):
+                    patch_img = Image.fromarray(patch_img)
 
                 # Determine if this is the global patch
-                is_global = has_global and (patch_idx == num_patches_result - 1)
+                is_global = has_global and (patch_idx == num_to_visualize - 1)
 
                 print(
-                    f"\n=== {'Global Image' if is_global else f'Patch {patch_idx + 1}'} ==="
+                    f"\n=== {'Global Image' if is_global else f'Patch {patch_idx + 1}/{num_patches_meta}'} ==="
                 )
-                print(f"Patch image size: {patch_img.size} (W×H)")
-                print(f"Heatmap shape: {patch_cam.shape} (H×W)")
+                print(f"  Patch image size: {patch_img.size} (W×H)")
+                print(f"  Heatmap shape: {patch_cam.shape} (H×W)")
 
-                # Create custom pred string with patch info
+                # Create custom pred string
                 if is_global:
-                    pred_str = f"Global Image: {pred_class}"
+                    pred_str = f"Global: {pred_class}"
                 else:
                     pred_str = f"Patch {patch_idx + 1}: {pred_class}"
 
-                # Call post_mil_gradcam for this patch IMAGE with its heatmap
+                # Visualize
                 post_mil_gradcam(
                     patch_cam,
-                    patch_img,  # Use patch image, not original image
-                    bbx_list=None,  # No bounding boxes for individual patches
-                    option=3,  # Option 3: Original patch | Heatmap | Blended
+                    patch_img,
+                    bbx_list=None,
+                    option=3,
                     blend_alpha=0.5,
                     pred=pred_str,
                     prob=prob_class,
-                    gt_label=None,  # Don't show GT for individual patches
+                    gt_label=None,
                 )
         else:
             # Standard model - single heatmap

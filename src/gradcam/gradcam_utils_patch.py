@@ -22,47 +22,19 @@ def split_image_into_patches(
     """
     Split an image into vertical patches with optional overlap.
     Optionally add a global (full resized) image as the last patch.
-
-    Parameters
-    ----------
-    img : PIL.Image.Image or np.ndarray or torch.Tensor
-        Input image to split.
-    num_patches : int
-        Number of vertical patches to create (e.g., 2, 4).
-    patch_size : tuple of int, optional
-        Size to resize each patch and global image to (H, W).
-    add_global : bool, optional
-        If True, add a resized global image as the last patch. Default is False.
-
-    Returns
-    -------
-    patches : list of PIL.Image.Image or list of np.ndarray or list of torch.Tensor
-        List of patch images with same type as input.
-        If add_global=True, the last element is the global image.
-
-    Notes
-    -----
-    - Image is divided into vertical patches with 20% overlap
-    - Last vertical patch is always taken from bottom to top
-    - If add_global=True, total patches = num_patches + 1 (vertical patches + global)
     """
     overlap_ratio = 0.2
 
-    # Remember input type and original shape
+    # Remember input type
     input_type = type(img)
-    orig_shape = None
-
-    # Keep original image for global patch
     original_img = img
 
     # Convert to numpy for processing
     if isinstance(img, torch.Tensor):
-        orig_shape = img.shape  # (C, H, W)
         image = img.permute(1, 2, 0).cpu().numpy()
     elif isinstance(img, Image.Image):
         image = np.array(img)
     elif isinstance(img, np.ndarray):
-        orig_shape = img.shape
         image = img
     else:
         raise TypeError(f"Unsupported input type: {type(img)}")
@@ -111,7 +83,6 @@ def split_image_into_patches(
 
     # Convert back to original input type
     if input_type is torch.Tensor:
-        # (H, W, C) -> (C, H, W)
         patches = [torch.from_numpy(p).permute(2, 0, 1).float() for p in patches]
     elif input_type is Image.Image:
         patches = [Image.fromarray(p) for p in patches]
