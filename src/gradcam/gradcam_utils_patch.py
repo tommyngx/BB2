@@ -17,12 +17,9 @@ def split_image_into_patches(
     img: Image.Image,
     num_patches: int,
     patch_size: tuple[int, int] = None,
-    add_global: bool = False,  # ← SỬA: default là False
+    add_global: bool = False,
 ) -> list[Image.Image]:
-    """
-    Split an image into vertical patches with optional overlap.
-    Optionally add a global (full resized) image as the last patch.
-    """
+    """Split an image into patches with optional global view."""
     overlap_ratio = 0.2
 
     # Remember input type
@@ -69,16 +66,24 @@ def split_image_into_patches(
     # Add global image as last patch if requested
     if add_global:
         if isinstance(original_img, Image.Image):
-            # Resize to patch_size if provided
+            # ← SỬA: Giữ aspect ratio khi resize cho global patch
             if patch_size is not None:
+                # Calculate new size preserving aspect ratio
+                width, height = original_img.size
+                ratio = width / height
+                if ratio > 1:  # Wider than tall
+                    new_width = patch_size[1]  # Match target width
+                    new_height = int(new_width / ratio)
+                else:  # Taller than wide
+                    new_height = patch_size[0]  # Match target height
+                    new_width = int(new_height * ratio)
                 global_patch = original_img.resize(
-                    (patch_size[1], patch_size[0]), Image.Resampling.BILINEAR
+                    (new_width, new_height), Image.Resampling.BILINEAR
                 )
             else:
                 global_patch = original_img
             patches.append(np.array(global_patch))
         else:
-            # For numpy/tensor, use the original converted image
             patches.append(image)
 
     # Convert back to original input type
@@ -294,11 +299,9 @@ def post_mil_gradcam(
     pred: str | None = None,
     prob: float | None = None,
     gt_label: str | None = None,
-    original_img_size: tuple[
-        int, int
-    ] = None,  # ← GIỮ parameter này nhưng không dùng nữa
+    original_img_size: tuple[int, int] = None,
 ) -> None:
-    """Visualize GradCAM heatmap with multiple display options."""
+    """Visualize GradCAM heatmap."""
     cam_img = Image.fromarray(cam).resize(img.size, resample=Image.Resampling.BILINEAR)
     cam_img_np = np.array(cam_img)
 
@@ -319,82 +322,27 @@ def post_mil_gradcam(
     if prob is not None:
         main_title += f",Prob: {prob * 100:.1f}%"
 
-    if option == 1:
-        fig, ax = plt.subplots()
-        ax.imshow(img)
-        ax.imshow(cam_img_np, cmap="jet", alpha=0.5)
-        if bbx_list is not None:
-            draw_bbx(ax, bbx_list)
-        ax.set_title(main_title)
-        ax.axis("off")
-        plt.tight_layout()
-        plt.show()
-    elif option == 2:
-        fig, axs = plt.subplots(1, 2, figsize=(10, 5))
-        axs[0].imshow(img)
-        if bbx_list is not None:
-            draw_bbx(axs[0], bbx_list)
-        axs[0].set_title(main_title)
-        axs[0].axis("off")
-        axs[1].imshow(cam_img_np, cmap="jet")
-        axs[1].set_title("GradCAM Heatmap")
-        axs[1].axis("off")
-        plt.tight_layout()
-        plt.show()
-    elif option == 3:
-        blend = np.array(img).astype(np.float32) / 255.0
-        cam_color = plt.cm.jet(cam_img_np / 255.0)[..., :3]
-        blend_img = (1 - blend_alpha) * blend + blend_alpha * cam_color
-        fig, axs = plt.subplots(1, 3, figsize=(15, 5))
-        axs[0].imshow(img)
-        if bbx_list is not None:
-            draw_bbx(axs[0], bbx_list)
-        axs[0].set_title(main_title)
-        axs[0].axis("off")
-        axs[1].imshow(cam_img_np, cmap="jet")
-        axs[1].set_title("GradCAM Heatmap")
-        axs[1].axis("off")
-        axs[2].imshow(blend_img)
-        axs[2].set_title("Blended Image")
-        axs[2].axis("off")
-        plt.tight_layout()
-        plt.show()
-    elif option == 4:
-        otsu_thresh = threshold_otsu(cam_img_np)
-        mask = cam_img_np > otsu_thresh
-        blend = np.array(img).astype(np.float32) / 255.0
-        cam_color = plt.cm.jet(cam_img_np / 255.0)[..., :3]
-        blend_img = blend.copy()
-        blend_img[mask] = (1 - blend_alpha) * blend_img[mask] + blend_alpha * cam_color[
-            mask
-        ]
-        fig, axs = plt.subplots(1, 3, figsize=(15, 5))
-        axs[0].imshow(img)
-        if bbx_list is not None:
-            draw_bbx(axs[0], bbx_list)
-        axs[0].set_title(main_title)
-        axs[0].axis("off")
-        axs[1].imshow(cam_img_np, cmap="jet")
-        axs[1].set_title("GradCAM Heatmap")
-        axs[1].axis("off")
-        axs[2].imshow(blend_img)
-        axs[2].set_title("Blended Image (Otsu filtered)")
-        axs[2].axis("off")
-        plt.tight_layout()
-        plt.show()
-    elif option == 5:
-        blend = np.array(img).astype(np.float32) / 255.0
-        cam_color = plt.cm.jet(cam_img_np / 255.0)[..., :3]
-        blend_img = (1 - blend_alpha) * blend + blend_alpha * cam_color
-        otsu_thresh = threshold_otsu(cam_img_np)
-        mask = cam_img_np > otsu_thresh
-        blend_img_otsu = blend.copy()
-        blend_img_otsu[mask] = (1 - blend_alpha) * blend_img_otsu[
-            mask
-        ] + blend_alpha * cam_color[mask]
+    # Check if this is a global patch
+    is_global = "Global" in (
+        pred or ""
+    )  # Detect if this is global patch from pred string
 
-        # ← SỬA: Dùng figsize cố định như based (20, 5) thay vì dynamic
-        fig, axs = plt.subplots(1, 4, figsize=(20, 5))
+    if is_global:
+        # For global patch: Calculate figsize based on original aspect ratio
+        img_width, img_height = img.size
+        ratio = img_width / img_height
+        base_height = 5
+        if ratio > 1:  # Landscape
+            figsize = (20, int(20 / ratio))  # Keep width=20, adjust height
+        else:  # Portrait
+            figsize = (int(20 * ratio), 20)  # Keep height=20, adjust width
+    else:
+        # For local patches: Use fixed square figsize
+        figsize = (20, 5)  # Standard size for patches
+
+    # Use calculated figsize
+    if option == 5:
+        fig, axs = plt.subplots(1, 4, figsize=figsize)
 
         axs[0].imshow(img)
         if bbx_list is not None:
@@ -417,7 +365,105 @@ def post_mil_gradcam(
         plt.tight_layout()
         plt.show()
     else:
-        raise ValueError("option must be 1, 2, 3, 4, or 5")
+        if option == 1:
+            fig, ax = plt.subplots()
+            ax.imshow(img)
+            ax.imshow(cam_img_np, cmap="jet", alpha=0.5)
+            if bbx_list is not None:
+                draw_bbx(ax, bbx_list)
+            ax.set_title(main_title)
+            ax.axis("off")
+            plt.tight_layout()
+            plt.show()
+        elif option == 2:
+            fig, axs = plt.subplots(1, 2, figsize=(10, 5))
+            axs[0].imshow(img)
+            if bbx_list is not None:
+                draw_bbx(axs[0], bbx_list)
+            axs[0].set_title(main_title)
+            axs[0].axis("off")
+            axs[1].imshow(cam_img_np, cmap="jet")
+            axs[1].set_title("GradCAM Heatmap")
+            axs[1].axis("off")
+            plt.tight_layout()
+            plt.show()
+        elif option == 3:
+            blend = np.array(img).astype(np.float32) / 255.0
+            cam_color = plt.cm.jet(cam_img_np / 255.0)[..., :3]
+            blend_img = (1 - blend_alpha) * blend + blend_alpha * cam_color
+            fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+            axs[0].imshow(img)
+            if bbx_list is not None:
+                draw_bbx(axs[0], bbx_list)
+            axs[0].set_title(main_title)
+            axs[0].axis("off")
+            axs[1].imshow(cam_img_np, cmap="jet")
+            axs[1].set_title("GradCAM Heatmap")
+            axs[1].axis("off")
+            axs[2].imshow(blend_img)
+            axs[2].set_title("Blended Image")
+            axs[2].axis("off")
+            plt.tight_layout()
+            plt.show()
+        elif option == 4:
+            otsu_thresh = threshold_otsu(cam_img_np)
+            mask = cam_img_np > otsu_thresh
+            blend = np.array(img).astype(np.float32) / 255.0
+            cam_color = plt.cm.jet(cam_img_np / 255.0)[..., :3]
+            blend_img = blend.copy()
+            blend_img[mask] = (1 - blend_alpha) * blend_img[
+                mask
+            ] + blend_alpha * cam_color[mask]
+            fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+            axs[0].imshow(img)
+            if bbx_list is not None:
+                draw_bbx(axs[0], bbx_list)
+            axs[0].set_title(main_title)
+            axs[0].axis("off")
+            axs[1].imshow(cam_img_np, cmap="jet")
+            axs[1].set_title("GradCAM Heatmap")
+            axs[1].axis("off")
+            axs[2].imshow(blend_img)
+            axs[2].set_title("Blended Image (Otsu filtered)")
+            axs[2].axis("off")
+            plt.tight_layout()
+            plt.show()
+        elif option == 5:
+            blend = np.array(img).astype(np.float32) / 255.0
+            cam_color = plt.cm.jet(cam_img_np / 255.0)[..., :3]
+            blend_img = (1 - blend_alpha) * blend + blend_alpha * cam_color
+            otsu_thresh = threshold_otsu(cam_img_np)
+            mask = cam_img_np > otsu_thresh
+            blend_img_otsu = blend.copy()
+            blend_img_otsu[mask] = (1 - blend_alpha) * blend_img_otsu[
+                mask
+            ] + blend_alpha * cam_color[mask]
+
+            # ← SỬA: Dùng figsize cố định như based (20, 5) thay vì dynamic
+            fig, axs = plt.subplots(1, 4, figsize=(20, 5))
+
+            axs[0].imshow(img)
+            if bbx_list is not None:
+                draw_bbx(axs[0], bbx_list)
+            axs[0].set_title(main_title)
+            axs[0].axis("off")
+
+            axs[1].imshow(cam_img_np, cmap="jet")
+            axs[1].set_title("GradCAM Heatmap")
+            axs[1].axis("off")
+
+            axs[2].imshow(blend_img)
+            axs[2].set_title("Blended Image")
+            axs[2].axis("off")
+
+            axs[3].imshow(blend_img_otsu)
+            axs[3].set_title("Blended Image (Otsu filtered)")
+            axs[3].axis("off")
+
+            plt.tight_layout()
+            plt.show()
+        else:
+            raise ValueError("option must be 1, 2, 3, 4, or 5")
 
 
 def mil_gradcam_plus_plus(
