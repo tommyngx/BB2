@@ -308,18 +308,15 @@ def mil_gradcam(
 
     def forward_hook(module, input, output):
         activations.append(output.detach())
-        print(f"DEBUG forward_hook: output.shape = {output.shape}")
 
     def backward_hook(module, grad_in, grad_out):
         gradients.append(grad_out[0].detach())
-        print(f"DEBUG backward_hook: grad_out[0].shape = {grad_out[0].shape}")
 
     layer = dict([*model.named_modules()])[target_layer]
 
     handle_f = layer.register_forward_hook(forward_hook)
     handle_b = layer.register_full_backward_hook(backward_hook)
 
-    print(f"DEBUG mil_gradcam: input_tensor.shape = {input_tensor.shape}")
     output = model(input_tensor)
     if class_idx is None:
         class_idx = output.argmax(dim=1).item()
@@ -330,28 +327,17 @@ def mil_gradcam(
     grads = gradients[0]
     acts = activations[0]
 
-    print(f"DEBUG mil_gradcam: grads.shape = {grads.shape}")
-    print(f"DEBUG mil_gradcam: acts.shape = {acts.shape}")
-
     # Get number of input patches from input_tensor
     num_input_patches = input_tensor.shape[1] if input_tensor.dim() == 5 else 1
     print(f"DEBUG: num_input_patches from input = {num_input_patches}")
+    print(f"DEBUG: grads.shape = {grads.shape}, acts.shape = {acts.shape}")
 
-    # For MIL models: grads/acts might be aggregated by model
-    # We need to distribute the gradients back to all input patches
-    if grads.dim() == 5:  # [B, N_out, C, H, W] - model kept patches separate
+    # Process based on activation dimensions
+    if grads.dim() == 5:  # [B, N_out, C, H, W]
         B, N_out, C, H, W = grads.shape
-        print(f"DEBUG: Model kept {N_out} patches separate in activations")
+        print(f"DEBUG: Model has {N_out} feature patches in activations")
 
-        # If N_out < num_input_patches, model aggregated some patches
-        if N_out < num_input_patches:
-            print(
-                f"⚠️ Model aggregated {num_input_patches} input patches into {N_out} feature patches!"
-            )
-            print(
-                f"   Will create {num_input_patches} heatmaps by repeating/interpolating"
-            )
-
+        # Calculate heatmap for each activation patch
         cams = []
         for i in range(N_out):
             g = grads[0, i]  # [C, H, W]
@@ -361,41 +347,50 @@ def mil_gradcam(
             cam = torch.relu(cam)
             cams.append(cam)
 
-        # If model aggregated patches, distribute gradients back
+        # If model aggregated patches (N_out < num_input_patches), distribute heatmaps
         if N_out < num_input_patches:
-            # Simple strategy: repeat last N heatmaps to match input count
-            while len(cams) < num_input_patches:
-                cams.append(cams[-1].clone())  # Duplicate last heatmap
+            print(
+                f"⚠️ Model aggregated {num_input_patches} patches into {N_out} features"
+            )
+            print(
+                f"   Distributing {N_out} heatmaps to {num_input_patches} input patches"
+            )
 
-        cam = torch.stack(cams[:num_input_patches], dim=0)  # [num_input_patches, H, W]
-        print(f"DEBUG: Final stacked cam shape: {cam.shape}")
+            # Strategy: Assign first N_out-1 heatmaps to first N_out-1 patches,
+            # then duplicate last heatmap for remaining patches
+            final_cams = cams[:N_out]
+
+            # Add duplicates of the last heatmap for remaining patches
+            while len(final_cams) < num_input_patches:
+                final_cams.append(cams[-1].clone())
+
+            cam = torch.stack(final_cams, dim=0)  # [num_input_patches, H, W]
+        else:
+            cam = torch.stack(cams[:num_input_patches], dim=0)
 
     elif grads.dim() == 4:  # [B, C, H, W] - fully aggregated
         print(f"DEBUG: Model fully aggregated all patches")
-        # Create num_input_patches copies of the same heatmap
         weights = grads.mean(dim=(2, 3), keepdim=True)
         cam_single = (weights * acts).sum(dim=1, keepdim=True)
         cam_single = torch.relu(cam_single).squeeze()  # [H, W]
 
         # Replicate for all input patches
-        cam = torch.stack(
-            [cam_single] * num_input_patches, dim=0
-        )  # [num_input_patches, H, W]
-        print(f"DEBUG: Replicated cam to shape: {cam.shape}")
+        cam = torch.stack([cam_single] * num_input_patches, dim=0)
     else:
-        # Unexpected shape
         print(f"⚠️ Unexpected grads.dim() = {grads.dim()}")
+        # Fallback
         while grads.dim() > 4:
             grads = grads.mean(dim=1)
             acts = acts.mean(dim=1)
         weights = grads.mean(dim=(2, 3), keepdim=True)
         cam = (weights * acts).sum(dim=1, keepdim=True)
-        cam = torch.relu(cam)
-        cam = cam.squeeze()
+        cam = torch.relu(cam).squeeze()
+        if cam.ndim == 2:
+            cam = torch.stack([cam] * num_input_patches, dim=0)
 
     # Convert to numpy
     cam = cam.cpu().numpy()
-    print(f"DEBUG: cam.shape before normalization: {cam.shape}")
+    print(f"DEBUG: cam.shape after processing: {cam.shape}")
 
     # Normalize each patch heatmap independently
     if cam.ndim == 3:  # [N, H, W]
@@ -409,7 +404,8 @@ def mil_gradcam(
                 c = np.zeros_like(c)
             normalized_cams.append(np.uint8(c * 255))
         cam = np.stack(normalized_cams, axis=0)
-    else:  # [H, W]
+    else:
+        # Should not reach here if logic above is correct
         if cam.ndim == 0:
             cam = np.array([[cam]])
         elif cam.ndim == 1:
