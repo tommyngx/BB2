@@ -274,7 +274,7 @@ def main():
                     patch_cam,
                     patch_img,
                     bbx_list=None,
-                    option=3,
+                    option=5,
                     blend_alpha=0.5,
                     pred=pred_str,
                     prob=prob_class,
