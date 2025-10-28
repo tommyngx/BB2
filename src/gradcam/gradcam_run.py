@@ -210,7 +210,7 @@ def main():
             # Create patch images for visualization
             # Need to recreate the EXACT same patches as in pre_mil_gradcam
             patch_images = split_image_into_patches(
-                img, num_patches_meta, input_size_meta, add_global=has_global
+                img, num_patches_meta, input_size_meta, add_global=True
             )
 
             print(
