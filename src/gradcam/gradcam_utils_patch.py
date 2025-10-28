@@ -315,9 +315,9 @@ def post_mil_gradcam(
             ax.add_patch(rect)
 
     # ← XÓA logic aspect ratio, dùng figsize cố định như based
-    main_title = f"Original Image"
+    main_title = f"Viz"
     if gt_label is not None:
-        main_title += f",|GT: {gt_label}|"
+        main_title += f"|GT: {gt_label}|"
     if pred is not None:
         main_title += f"Pred: {pred}|"
     if prob is not None:

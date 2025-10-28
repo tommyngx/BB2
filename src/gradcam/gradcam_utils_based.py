@@ -345,7 +345,7 @@ def post_gradcam(
 
     main_title = f"Viz"
     if gt_label is not None:
-        main_title += f",|GT: {gt_label}|"
+        main_title += f" |GT: {gt_label}|"
     if pred is not None:
         main_title += f"Pred: {pred}|"
     if prob is not None:
