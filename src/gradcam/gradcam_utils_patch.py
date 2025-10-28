@@ -256,51 +256,7 @@ def mil_gradcam(
     input_tensor: torch.Tensor,
     target_layer: str,
     class_idx: int | None = None,
-    show_patches: bool = True,
 ) -> ndarray:
-    """
-    Run GradCAM for MIL/patch-based models.
-    Prints input tensor info and optionally plots all patches in a grid before running GradCAM.
-    Returns GradCAM heatmap as ndarray.
-    """
-    # Debug: print input tensor info
-    print("DEBUG: mil_gradcam called")
-    print("DEBUG: input_tensor.shape:", input_tensor.shape)
-    print("DEBUG: target_layer:", target_layer)
-    print("DEBUG: class_idx:", class_idx)
-    if input_tensor.dim() == 5:
-        batch, num_patches, c, h, w = input_tensor.shape
-        print(
-            f"Batch size: {batch}, Num patches: {num_patches}, Channels: {c}, Height: {h}, Width: {w}"
-        )
-    else:
-        print("Tensor shape not compatible with patch visualization.")
-
-    # Plot all patches side by side in a grid (only for MIL/patch input)
-    if show_patches and input_tensor.dim() == 5:
-        import matplotlib.pyplot as plt
-
-        patches = input_tensor[0]  # shape: [num_patches, 3, H, W]
-        num_patches = patches.shape[0]
-        grid_size = int(np.ceil(np.sqrt(num_patches)))
-        fig, axs = plt.subplots(
-            grid_size, grid_size, figsize=(2 * grid_size, 2 * grid_size)
-        )
-        for i in range(grid_size * grid_size):
-            ax = axs[i // grid_size, i % grid_size]
-            if i < num_patches:
-                patch_np = patches[i].cpu().numpy()
-                patch_np = np.transpose(patch_np, (1, 2, 0))
-                patch_np = (patch_np - patch_np.min()) / (
-                    patch_np.max() - patch_np.min() + 1e-8
-                )
-                ax.imshow(patch_np)
-                ax.set_title(f"Patch {i + 1}")
-            ax.axis("off")
-        plt.suptitle("All patches (input to MIL model)")
-        plt.tight_layout()
-        plt.show()
-
     activations = []
     gradients = []
 
@@ -316,90 +272,52 @@ def mil_gradcam(
     handle_b = layer.register_full_backward_hook(backward_hook)
 
     output = model(input_tensor)
-    print("DEBUG: model output shape:", output.shape)
     if class_idx is None:
         class_idx = output.argmax(dim=1).item()
-    print("DEBUG: used class_idx for backward:", class_idx)
 
     model.zero_grad()
     output[0, class_idx].backward()
 
     grads = gradients[0]
     acts = activations[0]
-    print("DEBUG: grads.shape:", grads.shape)
-    print("DEBUG: acts.shape:", acts.shape)
 
     # Handle MIL models: aggregate across instance/batch dimensions if needed
+    # Reduce to [B, C, H, W] or [C, H, W]
     while grads.dim() > 4:
-        print("DEBUG: grads/acts have >4 dims, averaging over dim=1")
         grads = grads.mean(dim=1)
         acts = acts.mean(dim=1)
-        print("DEBUG: grads.shape after mean:", grads.shape)
-        print("DEBUG: acts.shape after mean:", acts.shape)
 
+    # Compute weights and CAM
     weights = grads.mean(dim=(2, 3), keepdim=True)
     cam = (weights * acts).sum(dim=1, keepdim=True)
     cam = torch.relu(cam)
-    cam = cam.cpu().numpy()
-    cam = np.squeeze(cam)
 
-    # Debug: print cam shape and dtype before post-processing
-    print("DEBUG: GradCAM raw output shape:", cam.shape)
-    print("DEBUG: GradCAM raw output dtype:", cam.dtype)
+    # Convert to numpy: [B, 1, H, W] -> numpy array
+    cam = cam.cpu().numpy()
+
+    # Explicitly squeeze ALL singleton dimensions
+    cam = np.squeeze(cam)
 
     # Safety check: ensure 2D
     if cam.ndim == 0:
-        print("DEBUG: cam.ndim == 0, reshaping to (1, 1)")
         cam = np.array([[cam]])
     elif cam.ndim == 1:
-        print("DEBUG: cam.ndim == 1, shape:", cam.shape)
+        # Try to reshape to square
         size = int(np.sqrt(cam.size))
         if size * size == cam.size:
-            print(f"DEBUG: Reshaping cam to ({size}, {size})")
             cam = cam.reshape(size, size)
         else:
-            print("DEBUG: Reshaping cam to (1, -1)")
             cam = cam.reshape(1, -1)
-    elif cam.ndim > 2:
-        print("DEBUG: cam.ndim > 2, shape:", cam.shape)
-        # Keep squeezing until 2D or can't squeeze anymore
-        while cam.ndim > 2 and 1 in cam.shape:
-            cam = np.squeeze(cam)
-            print("DEBUG: After squeeze iteration, shape:", cam.shape)
-        # If still >2D, take the largest 2D slice
-        if cam.ndim > 2:
-            print("DEBUG: Still >2D after squeezing, taking last two dims")
-            # Find first two non-singleton dimensions
-            non_singleton_dims = [i for i, s in enumerate(cam.shape) if s > 1]
-            if len(non_singleton_dims) >= 2:
-                # Take last two non-singleton dims
-                cam = cam.reshape(
-                    -1,
-                    cam.shape[non_singleton_dims[-2]],
-                    cam.shape[non_singleton_dims[-1]],
-                )
-                cam = cam[0]  # Take first element
-            else:
-                # Fallback: flatten and try to make square
-                cam = cam.flatten()
-                size = int(np.sqrt(cam.size))
-                if size * size == cam.size:
-                    cam = cam.reshape(size, size)
-                else:
-                    cam = cam.reshape(1, -1)
-        print("DEBUG: Final 2D cam shape:", cam.shape)
 
+    # Normalize to [0, 255]
     cam_min = cam.min()
     cam_max = cam.max()
-    print("DEBUG: cam min:", cam_min, "cam max:", cam_max)
     if cam_max > cam_min:
         cam = (cam - cam_min) / (cam_max - cam_min)
     else:
         cam = np.zeros_like(cam)
 
     cam = np.uint8(cam * 255)
-    print("DEBUG: Final cam shape for Image.fromarray:", cam.shape)
-    print("DEBUG: Final cam dtype for Image.fromarray:", cam.dtype)
 
     handle_f.remove()
     handle_b.remove()
@@ -504,53 +422,6 @@ def post_mil_gradcam(
     >>> # Otsu filtered visualization for cleaner focus
     >>> post_gradcam(cam, img, option=4, blend_alpha=0.7, pred="Bird", prob=0.78)
     """
-    # Debug: check cam shape BEFORE Image.fromarray
-    print("DEBUG post_mil_gradcam: Received cam.shape:", cam.shape)
-    print("DEBUG post_mil_gradcam: Received cam.dtype:", cam.dtype)
-    print("DEBUG post_mil_gradcam: Received cam.ndim:", cam.ndim)
-
-    # Ensure cam is 2D before calling fromarray
-    if cam.ndim != 2:
-        print("ERROR: cam is not 2D! Attempting to fix...")
-        # Squeeze all singleton dimensions
-        original_shape = cam.shape
-        cam = np.squeeze(cam)
-        print(f"DEBUG: After squeeze, cam.shape: {cam.shape} (was {original_shape})")
-
-        # If still not 2D, force to 2D
-        if cam.ndim != 2:
-            if cam.ndim > 2:
-                # Take last 2 non-singleton dimensions
-                non_singleton_dims = [i for i, s in enumerate(cam.shape) if s > 1]
-                print(f"DEBUG: Non-singleton dims indices: {non_singleton_dims}")
-                if len(non_singleton_dims) >= 2:
-                    # Reshape to last two non-singleton dims
-                    h_idx = non_singleton_dims[-2]
-                    w_idx = non_singleton_dims[-1]
-                    new_shape = (cam.shape[h_idx], cam.shape[w_idx])
-                    cam = cam.reshape(-1, *new_shape)[0]
-                    print(f"DEBUG: Reshaped to {new_shape}")
-                else:
-                    # Flatten and make square
-                    cam = cam.flatten()
-                    size = int(np.sqrt(cam.size))
-                    if size * size == cam.size:
-                        cam = cam.reshape(size, size)
-                    else:
-                        cam = cam.reshape(1, -1)
-                    print(f"DEBUG: Flattened and reshaped to {cam.shape}")
-            elif cam.ndim == 1:
-                size = int(np.sqrt(cam.size))
-                if size * size == cam.size:
-                    cam = cam.reshape(size, size)
-                else:
-                    cam = cam.reshape(1, -1)
-                print(f"DEBUG: 1D reshaped to {cam.shape}")
-            elif cam.ndim == 0:
-                cam = np.array([[cam]])
-                print("DEBUG: 0D reshaped to (1, 1)")
-        print("DEBUG: Final fixed cam.shape:", cam.shape)
-
     cam_img = Image.fromarray(cam).resize(img.size, resample=Image.Resampling.BILINEAR)
     cam_img_np = np.array(cam_img)
 
