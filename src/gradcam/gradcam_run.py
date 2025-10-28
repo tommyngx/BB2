@@ -188,6 +188,7 @@ def main():
         )
 
         gradcam_map = mil_gradcam(model_out, input_tensor, target_layer, class_idx)
+        print("hello check it out!")
         # gradcam_map = mil_gradcam_plus_plus(model_out, input_tensor, target_layer, class_idx)
         post_mil_gradcam(
             gradcam_map,
