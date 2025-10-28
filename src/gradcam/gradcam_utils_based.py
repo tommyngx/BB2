@@ -433,7 +433,7 @@ def post_gradcam(
         axs[2].set_title("Blended Image")
         axs[2].axis("off")
         axs[3].imshow(blend_img_otsu)
-        axs[3].set_title("Blended Image (Otsu filtered)")
+        axs[3].set_title("Blended Image (Otsu)")
         axs[3].axis("off")
         plt.show()
     else:
