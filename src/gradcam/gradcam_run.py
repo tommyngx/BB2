@@ -217,12 +217,15 @@ def main():
                 "v4" in arch_type_meta.lower() or "global" in arch_type_meta.lower()
             )
             if has_global:
-                # Add global image as the last patch
-                global_img = img.resize(input_size_meta, Image.Resampling.BILINEAR)
+                # Add global image as the last patch - resize to exact input_size
+                # input_size_meta is (height, width), PIL resize expects (width, height)
+                resize_size_pil = (input_size_meta[1], input_size_meta[0])  # (W, H)
+                global_img = img.resize(resize_size_pil, Image.Resampling.BILINEAR)
                 patch_images.append(global_img)
                 print(
                     f"\nVisualizing {num_patches_result} patches (including 1 global image):"
                 )
+                print(f"Global image resized to: {global_img.size} (W×H)")
             else:
                 print(f"\nVisualizing {num_patches_result} patches separately:")
 
@@ -237,6 +240,8 @@ def main():
                 print(
                     f"\n=== {'Global Image' if is_global else f'Patch {patch_idx + 1}'} ==="
                 )
+                print(f"Patch image size: {patch_img.size} (W×H)")
+                print(f"Heatmap shape: {patch_cam.shape} (H×W)")
 
                 # Create custom pred string with patch info
                 if is_global:
