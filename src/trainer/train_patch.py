@@ -383,7 +383,7 @@ if __name__ == "__main__":
     )
     num_classes = (
         len(class_names)
-        if class_names is not None and not class_names.empty
+        if class_names is not None and len(class_names) > 0
         else len(train_df["cancer"].unique())
     )
 
