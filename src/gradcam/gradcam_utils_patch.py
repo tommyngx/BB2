@@ -381,7 +381,7 @@ def post_mil_gradcam(
     pred: str | None = None,
     prob: float | None = None,
     gt_label: str | None = None,
-    original_img_size: tuple[int, int] = None,  # ← THÊM parameter (W, H)
+    original_img_size: tuple[int, int] = None,
 ) -> None:
     """Visualize GradCAM heatmap with multiple display options."""
     cam_img = Image.fromarray(cam).resize(img.size, resample=Image.Resampling.BILINEAR)
@@ -397,19 +397,25 @@ def post_mil_gradcam(
 
     # Calculate aspect ratio from ORIGINAL image (not resized patch)
     if original_img_size is not None:
-        img_width, img_height = original_img_size  # Use original size
+        img_width, img_height = original_img_size
+        print(f"  [DEBUG] Using original_img_size: {img_width}x{img_height} (W×H)")
     else:
-        img_width, img_height = img.size  # Fallback to current img size
+        img_width, img_height = img.size
+        print(f"  [DEBUG] Using img.size: {img_width}x{img_height} (W×H)")
 
     aspect_ratio = img_width / img_height
+    print(f"  [DEBUG] Calculated aspect_ratio: {aspect_ratio:.4f}")
 
-    # Base height for figure (adjust this to control overall size)
+    # Base height for figure
     base_height = 5
 
     # Calculate figure width based on aspect ratio and number of panels
     def get_figsize(num_panels):
         panel_width = base_height * aspect_ratio
         total_width = panel_width * num_panels
+        print(
+            f"  [DEBUG] get_figsize({num_panels}): ({total_width:.2f}, {base_height})"
+        )
         return (total_width, base_height)
 
     main_title = f"Original Image"
@@ -493,21 +499,30 @@ def post_mil_gradcam(
         blend_img_otsu[mask] = (1 - blend_alpha) * blend_img_otsu[
             mask
         ] + blend_alpha * cam_color[mask]
-        fig, axs = plt.subplots(1, 4, figsize=get_figsize(4))
-        axs[0].imshow(img)
+
+        figsize = get_figsize(4)
+        print(f"  [DEBUG] Creating figure with figsize: {figsize}")
+        fig, axs = plt.subplots(1, 4, figsize=figsize)
+
+        # Set aspect='auto' to allow matplotlib to use figsize properly
+        axs[0].imshow(img, aspect="auto")
         if bbx_list is not None:
             draw_bbx(axs[0], bbx_list)
         axs[0].set_title(main_title)
         axs[0].axis("off")
-        axs[1].imshow(cam_img_np, cmap="jet")
+
+        axs[1].imshow(cam_img_np, cmap="jet", aspect="auto")
         axs[1].set_title("GradCAM Heatmap")
         axs[1].axis("off")
-        axs[2].imshow(blend_img)
+
+        axs[2].imshow(blend_img, aspect="auto")
         axs[2].set_title("Blended Image")
         axs[2].axis("off")
-        axs[3].imshow(blend_img_otsu)
+
+        axs[3].imshow(blend_img_otsu, aspect="auto")
         axs[3].set_title("Blended Image (Otsu filtered)")
         axs[3].axis("off")
+
         plt.tight_layout()
         plt.show()
     else:
