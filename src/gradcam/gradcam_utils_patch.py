@@ -138,9 +138,9 @@ def pre_mil_gradcam(
             img, num_patches, resize_size, add_global=has_global
         )
 
-        print(
-            f"DEBUG: Split into {len(patches)} patches (num_patches={num_patches}, add_global={has_global})"
-        )
+        # print(
+        #    f"DEBUG: Split into {len(patches)} patches (num_patches={num_patches}, add_global={has_global})"
+        # )
 
         # Preprocess each patch - ensure each patch is resized to input_size
         preprocess = transforms.Compose(
@@ -157,11 +157,11 @@ def pre_mil_gradcam(
 
         # Stack patches: shape [N, 3, H, W] or [N+1, 3, H, W] if has_global
         patches_tensor = torch.stack(patch_tensors, dim=0)
-        print(f"DEBUG: Stacked patches tensor shape: {patches_tensor.shape}")
+        # print(f"DEBUG: Stacked patches tensor shape: {patches_tensor.shape}")
 
         # Add batch dimension: [1, N, 3, H, W] or [1, N+1, 3, H, W]
         input_tensor = patches_tensor.unsqueeze(0)
-        print(f"DEBUG: Final input_tensor shape: {input_tensor.shape}")
+        # print(f"DEBUG: Final input_tensor shape: {input_tensor.shape}")
     else:
         # For standard models: single image preprocessing
         preprocess = transforms.Compose(
