@@ -17,7 +17,7 @@ def split_image_into_patches(
     img: Image.Image,
     num_patches: int,
     patch_size: tuple[int, int] = None,
-    add_global: bool = True,
+    add_global: bool = False,  # ← SỬA: default là False
 ) -> list[Image.Image]:
     """
     Split an image into vertical patches with optional overlap.
