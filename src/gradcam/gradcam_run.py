@@ -184,10 +184,10 @@ def main():
         )
 
         # Debug: Print all available layers
-        print("\nAvailable layers in model:")
-        for name, module in model_out.named_modules():
-            print(f"  {name}")
-        print(f"\nTarget layer: {target_layer}")
+        # print("\nAvailable layers in model:")
+        # for name, module in model_out.named_modules():
+        #    print(f"  {name}")
+        # print(f"\nTarget layer: {target_layer}")
 
         from src.gradcam.gradcam_utils_patch import (
             mil_gradcam,
