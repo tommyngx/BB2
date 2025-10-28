@@ -285,7 +285,7 @@ def main():
                     pred=pred_str,
                     prob=prob_class,
                     gt_label=None,
-                    original_img_size=original_img_size,  # ← THÊM parameter này
+                    original_img_size=original_img_size,  # ← TRUYỀN PARAMETER
                 )
         else:
             # Standard model - single heatmap
@@ -298,7 +298,7 @@ def main():
                 pred=pred_class,
                 prob=prob_class,
                 gt_label=gt,
-                original_img_size=original_img_size,  # ← THÊM parameter này
+                original_img_size=original_img_size,  # ← TRUYỀN PARAMETER
             )
 
 
