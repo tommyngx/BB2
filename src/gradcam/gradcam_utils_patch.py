@@ -148,11 +148,17 @@ def mil_gradcam(
     target_layer: str,
     class_idx: int | None = None,
 ) -> ndarray:
+    """
+    Generate GradCAM for MIL/patch-based models.
+
+    Returns
+    -------
+    cam : ndarray
+        - For MIL models: shape [num_patches, H, W] - one heatmap per patch
+        - For standard models: shape [H, W] - single heatmap
+    """
     activations = []
     gradients = []
-    print("inside mil_gradcam function")
-    print("input_tensor shape:", input_tensor.shape)
-    print("target_layer:", target_layer)
 
     def forward_hook(module, input, output):
         activations.append(output.detach())
@@ -175,43 +181,51 @@ def mil_gradcam(
     grads = gradients[0]
     acts = activations[0]
 
-    # Handle MIL models: aggregate across instance/batch dimensions if needed
-    # Reduce to [B, C, H, W] or [C, H, W]
-    while grads.dim() > 4:
-        grads = grads.mean(dim=1)
-        acts = acts.mean(dim=1)
+    # For MIL models: keep instance dimension [B, N, C, H, W]
+    # Process each instance separately to get per-patch heatmaps
+    if grads.dim() == 5:  # [B, N, C, H, W]
+        B, N, C, H, W = grads.shape
+        cams = []
+        for i in range(N):
+            g = grads[0, i]  # [C, H, W]
+            a = acts[0, i]  # [C, H, W]
+            weights = g.mean(dim=(1, 2), keepdim=True)  # [C, 1, 1]
+            cam = (weights * a).sum(dim=0)  # [H, W]
+            cam = torch.relu(cam)
+            cams.append(cam)
+        cam = torch.stack(cams, dim=0)  # [N, H, W]
+    else:
+        # Standard model: [B, C, H, W]
+        while grads.dim() > 4:
+            grads = grads.mean(dim=1)
+            acts = acts.mean(dim=1)
+        weights = grads.mean(dim=(2, 3), keepdim=True)
+        cam = (weights * acts).sum(dim=1, keepdim=True)
+        cam = torch.relu(cam)
+        cam = cam.squeeze()  # Remove batch and channel dims
 
-    # Compute weights and CAM
-    weights = grads.mean(dim=(2, 3), keepdim=True)
-    cam = (weights * acts).sum(dim=1, keepdim=True)
-    cam = torch.relu(cam)
-
-    # Convert to numpy: [B, 1, H, W] -> numpy array
+    # Convert to numpy
     cam = cam.cpu().numpy()
 
-    # Explicitly squeeze ALL singleton dimensions
-    cam = np.squeeze(cam)
-
-    # Safety check: ensure 2D
-    if cam.ndim == 0:
-        cam = np.array([[cam]])
-    elif cam.ndim == 1:
-        # Try to reshape to square
-        size = int(np.sqrt(cam.size))
-        if size * size == cam.size:
-            cam = cam.reshape(size, size)
+    # Normalize each patch heatmap independently
+    if cam.ndim == 3:  # [N, H, W]
+        normalized_cams = []
+        for i in range(cam.shape[0]):
+            c = cam[i]
+            c_min, c_max = c.min(), c.max()
+            if c_max > c_min:
+                c = (c - c_min) / (c_max - c_min)
+            else:
+                c = np.zeros_like(c)
+            normalized_cams.append(np.uint8(c * 255))
+        cam = np.stack(normalized_cams, axis=0)
+    else:  # [H, W]
+        cam_min, cam_max = cam.min(), cam.max()
+        if cam_max > cam_min:
+            cam = (cam - cam_min) / (cam_max - cam_min)
         else:
-            cam = cam.reshape(1, -1)
-
-    # Normalize to [0, 255]
-    cam_min = cam.min()
-    cam_max = cam.max()
-    if cam_max > cam_min:
-        cam = (cam - cam_min) / (cam_max - cam_min)
-    else:
-        cam = np.zeros_like(cam)
-
-    cam = np.uint8(cam * 255)
+            cam = np.zeros_like(cam)
+        cam = np.uint8(cam * 255)
 
     handle_f.remove()
     handle_b.remove()
