@@ -110,7 +110,7 @@ def main():
         result
     )
 
-    print("Model:", model_out)
+    print("Model name:", type(model_out).__name__)
     print("Input tensor shape:", input_tensor.shape)
     print("Image:", img)
     print("Target layer:", target_layer)
