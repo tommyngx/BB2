@@ -14,19 +14,21 @@ import math
 
 
 def split_image_into_patches(
-    img: Image.Image, num_patches: int, patch_size: tuple[int, int]
+    img: Image.Image, num_patches: int, patch_size: tuple[int, int] = None
 ) -> list[Image.Image]:
     """
-    Split an image into a grid of patches.
+    Split an image into vertical patches with optional overlap.
+    Output same type and shape as input (PIL.Image).
+    Last patch always taken from bottom up, no padding added.
 
     Parameters
     ----------
     img : PIL.Image.Image
         Input image to split.
     num_patches : int
-        Total number of patches (must be a perfect square, e.g., 4, 9, 16).
-    patch_size : tuple of int
-        Size of each patch as (height, width).
+        Number of vertical patches to create (e.g., 2, 4).
+    patch_size : tuple of int, optional
+        Not used in this implementation. Kept for compatibility.
 
     Returns
     -------
@@ -35,39 +37,56 @@ def split_image_into_patches(
 
     Notes
     -----
-    - The image is divided into a grid where grid_size = sqrt(num_patches).
-    - Each patch is resized to patch_size.
-    - The input image is first resized to ensure consistent patch sizes.
+    - Image is divided into vertical patches with 20% overlap
+    - Last patch is always taken from bottom to top
+    - All patches have the same height
     """
-    import math
+    overlap_ratio = 0.2
 
-    grid_size = int(math.sqrt(num_patches))
+    # Ghi nhớ kiểu đầu vào
+    input_type = type(img)
 
-    # First, resize the image to a size that divides evenly
-    # Use patch_size * grid_size to ensure even division
-    target_size = (
-        patch_size[1] * grid_size,
-        patch_size[0] * grid_size,
-    )  # (width, height)
-    img_resized = img.resize(target_size, Image.Resampling.BILINEAR)
+    # Convert PIL to numpy for processing
+    if isinstance(img, torch.Tensor):
+        image = img.permute(1, 2, 0).cpu().numpy()
+    elif isinstance(img, Image.Image):
+        image = np.array(img)
+    else:
+        image = img
 
-    width, height = img_resized.size
-    patch_width = width // grid_size
-    patch_height = height // grid_size
+    # Ensure (H, W, C) format
+    if image.ndim == 3 and image.shape[0] == 3 and image.shape[2] != 3:
+        image = np.transpose(image, (1, 2, 0))
+    elif image.ndim == 3 and image.shape[-1] != 3:
+        if image.shape[1] == 3:
+            image = np.transpose(image, (0, 2, 1))
+
+    height, width = image.shape[:2]
+    patch_height = height // num_patches
+    step = int(patch_height * (1 - overlap_ratio))
+
+    if num_patches == 1 or step <= 0:
+        starts = [0]
+    else:
+        starts = [i * step for i in range(num_patches - 1)]
+        starts.append(height - patch_height)
 
     patches = []
-    for i in range(grid_size):
-        for j in range(grid_size):
-            left = j * patch_width
-            top = i * patch_height
-            right = left + patch_width
-            bottom = top + patch_height
-            patch = img_resized.crop((left, top, right, bottom))
-            # Ensure patch is exactly the right size (should already be, but double-check)
-            if patch.size != (patch_size[1], patch_size[0]):
-                patch = patch.resize(
-                    (patch_size[1], patch_size[0]), Image.Resampling.BILINEAR
-                )
+    for i, start_h in enumerate(starts):
+        end_h = start_h + patch_height
+        # Last patch always taken from bottom up
+        if i == num_patches - 1:
+            start_h = height - patch_height
+            end_h = height
+        patch = image[start_h:end_h, :, :]
+
+        # Convert back to original input type
+        if input_type is torch.Tensor:
+            patch_tensor = torch.from_numpy(patch).permute(2, 0, 1).float()
+            patches.append(patch_tensor)
+        elif input_type is Image.Image:
+            patches.append(Image.fromarray(patch))
+        else:
             patches.append(patch)
 
     return patches
