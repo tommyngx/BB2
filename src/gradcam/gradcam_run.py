@@ -209,10 +209,7 @@ def main():
             image_path=image_path,
         )
 
-        from src.gradcam.gradcam_utils_patch import (
-            mil_gradcam,
-            mil_gradcam_plus_plus,
-        )
+        from src.gradcam.gradcam_utils_patch import mil_gradcam
 
         # Import post_gradcam từ based
         from src.gradcam.gradcam_utils_based import post_gradcam
