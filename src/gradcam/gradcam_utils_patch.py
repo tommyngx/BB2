@@ -355,7 +355,9 @@ def mil_gradcam(
         cam = cam.squeeze()
         print("DEBUG: After squeeze, shape:", cam.shape)
         if cam.ndim > 2:
-            print("DEBUG: Reshaping cam to last two dims:", cam.shape[-2], cam.shape[-1])
+            print(
+                "DEBUG: Reshaping cam to last two dims:", cam.shape[-2], cam.shape[-1]
+            )
             cam = cam.reshape(cam.shape[-2], cam.shape[-1])
 
     cam_min = cam.min()
