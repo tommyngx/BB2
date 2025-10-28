@@ -11,7 +11,7 @@ modules_to_reload = [
 for module_name in modules_to_reload:
     if module_name in sys.modules:
         del sys.modules[module_name]
-        print(f"🔄 Removed cached module: {module_name}")
+        # print(f"🔄 Removed cached module: {module_name}")
 
 # Now import fresh modules
 import torch
