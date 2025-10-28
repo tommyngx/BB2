@@ -14,12 +14,14 @@ import math
 
 
 def split_image_into_patches(
-    img: Image.Image, num_patches: int, patch_size: tuple[int, int] = None
+    img: Image.Image,
+    num_patches: int,
+    patch_size: tuple[int, int] = None,
+    add_global: bool = False,
 ) -> list[Image.Image]:
     """
     Split an image into vertical patches with optional overlap.
-    Output same type and shape as input (PIL.Image, np.ndarray, torch.Tensor).
-    Last patch always taken from bottom up, no padding added.
+    Optionally add a global (full resized) image as the last patch.
 
     Parameters
     ----------
@@ -28,25 +30,30 @@ def split_image_into_patches(
     num_patches : int
         Number of vertical patches to create (e.g., 2, 4).
     patch_size : tuple of int, optional
-        Not used in this implementation. Kept for compatibility.
+        Size to resize each patch and global image to (H, W).
+    add_global : bool, optional
+        If True, add a resized global image as the last patch. Default is False.
 
     Returns
     -------
     patches : list of PIL.Image.Image or list of np.ndarray or list of torch.Tensor
         List of patch images with same type as input.
+        If add_global=True, the last element is the global image.
 
     Notes
     -----
     - Image is divided into vertical patches with 20% overlap
-    - Last patch is always taken from bottom to top
-    - All patches have the same height
-    - Does NOT include global image (that's handled in pre_mil_gradcam)
+    - Last vertical patch is always taken from bottom to top
+    - If add_global=True, total patches = num_patches + 1 (vertical patches + global)
     """
     overlap_ratio = 0.2
 
     # Remember input type and original shape
     input_type = type(img)
     orig_shape = None
+
+    # Keep original image for global patch
+    original_img = img
 
     # Convert to numpy for processing
     if isinstance(img, torch.Tensor):
@@ -86,6 +93,21 @@ def split_image_into_patches(
             end_h = height
         patch = image[start_h:end_h, :, :]
         patches.append(patch)
+
+    # Add global image as last patch if requested
+    if add_global:
+        if isinstance(original_img, Image.Image):
+            # Resize to patch_size if provided
+            if patch_size is not None:
+                global_patch = original_img.resize(
+                    (patch_size[1], patch_size[0]), Image.Resampling.BILINEAR
+                )
+            else:
+                global_patch = original_img
+            patches.append(np.array(global_patch))
+        else:
+            # For numpy/tensor, use the original converted image
+            patches.append(image)
 
     # Convert back to original input type
     if input_type is torch.Tensor:
@@ -220,11 +242,16 @@ def pre_mil_gradcam(
     is_mil_model = num_patches is not None and arch_type is not None
 
     if is_mil_model:
-        # For MIL models: split image into patches
-        patches = split_image_into_patches(img, num_patches, resize_size)
+        # Check if arch_type requires global image (like mil_v4)
+        has_global = "v4" in arch_type.lower() or "global" in arch_type.lower()
+
+        # For MIL models: split image into patches (with global if needed)
+        patches = split_image_into_patches(
+            img, num_patches, resize_size, add_global=has_global
+        )
 
         print(
-            f"DEBUG: Split into {len(patches)} vertical patches (num_patches={num_patches})"
+            f"DEBUG: Split into {len(patches)} patches (num_patches={num_patches}, add_global={has_global})"
         )
 
         # Preprocess each patch - ensure each patch is resized to input_size
@@ -240,24 +267,9 @@ def pre_mil_gradcam(
 
         patch_tensors = [preprocess(patch) for patch in patches]
 
-        # Stack patches: shape [N, 3, H, W]
+        # Stack patches: shape [N, 3, H, W] or [N+1, 3, H, W] if has_global
         patches_tensor = torch.stack(patch_tensors, dim=0)
         print(f"DEBUG: Stacked patches tensor shape: {patches_tensor.shape}")
-
-        # Check if arch_type requires global image (like mil_v4)
-        if "v4" in arch_type.lower() or "global" in arch_type.lower():
-            # Add global image as the last patch
-            # resize_size is (H, W), PIL.resize expects (W, H)
-            resize_size_pil = (resize_size[1], resize_size[0])
-            global_img = img.resize(resize_size_pil, Image.Resampling.BILINEAR)
-            global_tensor = preprocess(global_img)
-            # Concatenate: [N+1, 3, H, W]
-            patches_tensor = torch.cat(
-                [patches_tensor, global_tensor.unsqueeze(0)], dim=0
-            )
-            print(
-                f"DEBUG: Added global image, final patches tensor shape: {patches_tensor.shape}"
-            )
 
         # Add batch dimension: [1, N, 3, H, W] or [1, N+1, 3, H, W]
         input_tensor = patches_tensor.unsqueeze(0)
