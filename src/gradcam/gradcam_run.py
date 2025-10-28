@@ -94,10 +94,14 @@ def print_gradcam_info(
     prob_class,
     bbx_list,
     gt,
+    image_path=None,
 ):
     print("Model name:", type(model_out).__name__)
     print("Input tensor shape:", input_tensor.shape)
     print("Image:", img)
+    if image_path is not None:
+        print("Image file:", os.path.basename(image_path))
+    print("Original image size:", img.size if hasattr(img, "size") else "N/A")
     print("Target layer:", target_layer)
     print("Class idx (input):", class_idx)
     print("Predicted class:", pred_class)
@@ -157,6 +161,7 @@ def main():
             prob_class,
             bbx_list,
             gt,
+            image_path=image_path,
         )
         from src.gradcam.gradcam_utils_based import (
             gradcam,
@@ -202,6 +207,7 @@ def main():
             prob_class,
             bbx_list,
             gt,
+            image_path=image_path,
         )
 
         from src.gradcam.gradcam_utils_patch import (
