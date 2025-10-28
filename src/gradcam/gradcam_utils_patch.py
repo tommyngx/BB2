@@ -229,6 +229,10 @@ def post_mil_gradcam(
     prob: float | None = None,
     gt_label: str | None = None,
 ) -> None:
+    print("inside post_mil_gradcam function")
+    print("cam shape:", cam.shape)
+    print("img size:", img.size)
+
     cam_img = Image.fromarray(cam).resize(img.size, resample=Image.Resampling.BILINEAR)
     cam_img_np = np.array(cam_img)
 
