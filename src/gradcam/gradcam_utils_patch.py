@@ -319,9 +319,9 @@ def post_mil_gradcam(
     if gt_label is not None:
         main_title += f" |GT: {gt_label}|"
     if pred is not None:
-        main_title += f"Pred: {pred}|"
+        main_title += f" Pred: {pred}|"
     if prob is not None:
-        main_title += f",Prob: {prob * 100:.1f}%"
+        main_title += f" Prob: {prob * 100:.1f}%"
 
     if option == 1:
         fig, ax = plt.subplots()
