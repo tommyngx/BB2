@@ -275,7 +275,15 @@ def main():
                 else:
                     pred_str = f"Patch {patch_idx + 1}: {pred_class}"
 
-                # Visualize with ORIGINAL image size for aspect ratio
+                # ← SỬA: Chọn aspect ratio dựa trên loại patch
+                if is_global:
+                    # Global patch: Dùng aspect ratio của ảnh gốc
+                    aspect_ratio_to_use = original_img_size
+                else:
+                    # Local patch: Dùng aspect ratio của patch (thường là vuông)
+                    aspect_ratio_to_use = patch_img.size
+
+                # Visualize with appropriate aspect ratio
                 post_mil_gradcam(
                     patch_cam,
                     patch_img,
@@ -285,7 +293,7 @@ def main():
                     pred=pred_str,
                     prob=prob_class,
                     gt_label=None,
-                    original_img_size=original_img_size,  # ← TRUYỀN PARAMETER
+                    original_img_size=aspect_ratio_to_use,  # ← Truyền aspect ratio phù hợp
                 )
         else:
             # Standard model - single heatmap
@@ -298,7 +306,7 @@ def main():
                 pred=pred_class,
                 prob=prob_class,
                 gt_label=gt,
-                original_img_size=original_img_size,  # ← TRUYỀN PARAMETER
+                original_img_size=original_img_size,
             )
 
 
