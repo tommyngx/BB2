@@ -362,13 +362,32 @@ def mil_gradcam(
             cam = cam.reshape(1, -1)
     elif cam.ndim > 2:
         print("DEBUG: cam.ndim > 2, shape:", cam.shape)
-        cam = cam.squeeze()
-        print("DEBUG: After squeeze, shape:", cam.shape)
+        # Keep squeezing until 2D or can't squeeze anymore
+        while cam.ndim > 2 and 1 in cam.shape:
+            cam = np.squeeze(cam)
+            print("DEBUG: After squeeze iteration, shape:", cam.shape)
+        # If still >2D, take the largest 2D slice
         if cam.ndim > 2:
-            print(
-                "DEBUG: Reshaping cam to last two dims:", cam.shape[-2], cam.shape[-1]
-            )
-            cam = cam.reshape(cam.shape[-2], cam.shape[-1])
+            print("DEBUG: Still >2D after squeezing, taking last two dims")
+            # Find first two non-singleton dimensions
+            non_singleton_dims = [i for i, s in enumerate(cam.shape) if s > 1]
+            if len(non_singleton_dims) >= 2:
+                # Take last two non-singleton dims
+                cam = cam.reshape(
+                    -1,
+                    cam.shape[non_singleton_dims[-2]],
+                    cam.shape[non_singleton_dims[-1]],
+                )
+                cam = cam[0]  # Take first element
+            else:
+                # Fallback: flatten and try to make square
+                cam = cam.flatten()
+                size = int(np.sqrt(cam.size))
+                if size * size == cam.size:
+                    cam = cam.reshape(size, size)
+                else:
+                    cam = cam.reshape(1, -1)
+        print("DEBUG: Final 2D cam shape:", cam.shape)
 
     cam_min = cam.min()
     cam_max = cam.max()
