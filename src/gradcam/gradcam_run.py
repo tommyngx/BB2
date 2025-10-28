@@ -188,6 +188,10 @@ def main():
             pred_class,
             prob_class,
         ) = result
+
+        # Store ORIGINAL image size before any processing
+        original_img_size = img.size  # (width, height) in PIL format
+
         print_gradcam_info(
             model_out,
             input_tensor,
@@ -223,15 +227,17 @@ def main():
             )
 
             # Create patch images for visualization
-            # Need to recreate the EXACT same patches as in pre_mil_gradcam
             patch_images = split_image_into_patches(
-                img, num_patches_meta, input_size_meta, add_global=True
+                img, num_patches_meta, input_size_meta, add_global=has_global
             )
 
             print(
                 f"\nVisualizing {num_patches_result} patches{' (including 1 global image)' if has_global else ''}:"
             )
             print(f"  Created {len(patch_images)} patch images for visualization")
+            print(
+                f"  Original image size: {original_img_size[0]}x{original_img_size[1]} (W×H)"
+            )
 
             # Verify consistency
             if num_patches_result != len(patch_images):
@@ -269,16 +275,17 @@ def main():
                 else:
                     pred_str = f"Patch {patch_idx + 1}: {pred_class}"
 
-                # Visualize
+                # Visualize with ORIGINAL image size for aspect ratio
                 post_mil_gradcam(
                     patch_cam,
                     patch_img,
                     bbx_list=None,
-                    option=5,
+                    option=3,
                     blend_alpha=0.5,
                     pred=pred_str,
                     prob=prob_class,
                     gt_label=None,
+                    original_img_size=original_img_size,  # ← THÊM parameter này
                 )
         else:
             # Standard model - single heatmap
@@ -291,6 +298,7 @@ def main():
                 pred=pred_class,
                 prob=prob_class,
                 gt_label=gt,
+                original_img_size=original_img_size,  # ← THÊM parameter này
             )
 
 

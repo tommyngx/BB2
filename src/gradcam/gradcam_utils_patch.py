@@ -381,6 +381,7 @@ def post_mil_gradcam(
     pred: str | None = None,
     prob: float | None = None,
     gt_label: str | None = None,
+    original_img_size: tuple[int, int] = None,  # ← THÊM parameter (W, H)
 ) -> None:
     """Visualize GradCAM heatmap with multiple display options."""
     cam_img = Image.fromarray(cam).resize(img.size, resample=Image.Resampling.BILINEAR)
@@ -394,8 +395,12 @@ def post_mil_gradcam(
             )
             ax.add_patch(rect)
 
-    # Calculate aspect ratio from original image
-    img_width, img_height = img.size
+    # Calculate aspect ratio from ORIGINAL image (not resized patch)
+    if original_img_size is not None:
+        img_width, img_height = original_img_size  # Use original size
+    else:
+        img_width, img_height = img.size  # Fallback to current img size
+
     aspect_ratio = img_width / img_height
 
     # Base height for figure (adjust this to control overall size)
