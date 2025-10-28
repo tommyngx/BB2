@@ -14,39 +14,61 @@ import math
 
 
 def split_image_into_patches(
-    img: Image.Image, num_patches: int, patch_size: tuple[int, int] = None
+    img: Image.Image, num_patches: int, patch_size: tuple[int, int]
 ) -> list[Image.Image]:
-    overlap_ratio = 0.2
+    """
+    Split an image into a grid of patches.
 
-    # Convert PIL to numpy for processing
-    image = np.array(img)
+    Parameters
+    ----------
+    img : PIL.Image.Image
+        Input image to split.
+    num_patches : int
+        Total number of patches (must be a perfect square, e.g., 4, 9, 16).
+    patch_size : tuple of int
+        Size of each patch as (height, width).
 
-    # Ensure (H, W, C) format
-    if image.ndim == 3 and image.shape[0] == 3 and image.shape[2] != 3:
-        image = np.transpose(image, (1, 2, 0))
-    elif image.ndim == 3 and image.shape[-1] != 3:
-        if image.shape[1] == 3:
-            image = np.transpose(image, (0, 2, 1))
+    Returns
+    -------
+    patches : list of PIL.Image.Image
+        List of patch images.
 
-    height, width = image.shape[:2]
-    patch_height = height // num_patches
-    step = int(patch_height * (1 - overlap_ratio))
+    Notes
+    -----
+    - The image is divided into a grid where grid_size = sqrt(num_patches).
+    - Each patch is resized to patch_size.
+    - The input image is first resized to ensure consistent patch sizes.
+    """
+    import math
 
-    if num_patches == 1 or step <= 0:
-        starts = [0]
-    else:
-        starts = [i * step for i in range(num_patches - 1)]
-        starts.append(height - patch_height)
+    grid_size = int(math.sqrt(num_patches))
+
+    # First, resize the image to a size that divides evenly
+    # Use patch_size * grid_size to ensure even division
+    target_size = (
+        patch_size[1] * grid_size,
+        patch_size[0] * grid_size,
+    )  # (width, height)
+    img_resized = img.resize(target_size, Image.Resampling.BILINEAR)
+
+    width, height = img_resized.size
+    patch_width = width // grid_size
+    patch_height = height // grid_size
 
     patches = []
-    for i, start_h in enumerate(starts):
-        end_h = start_h + patch_height
-        # Last patch always taken from bottom up
-        if i == num_patches - 1:
-            start_h = height - patch_height
-            end_h = height
-        patch = image[start_h:end_h, :, :]
-        patches.append(Image.fromarray(patch))
+    for i in range(grid_size):
+        for j in range(grid_size):
+            left = j * patch_width
+            top = i * patch_height
+            right = left + patch_width
+            bottom = top + patch_height
+            patch = img_resized.crop((left, top, right, bottom))
+            # Ensure patch is exactly the right size (should already be, but double-check)
+            if patch.size != (patch_size[1], patch_size[0]):
+                patch = patch.resize(
+                    (patch_size[1], patch_size[0]), Image.Resampling.BILINEAR
+                )
+            patches.append(patch)
 
     return patches
 
@@ -63,6 +85,93 @@ def pre_mil_gradcam(
     target_layer: str | None = None,
     class_idx: int | None = None,
 ) -> tuple[nn.Module, torch.Tensor, Image.Image, str, int | None, int, float]:
+    """
+    Prepare data and perform inference before GradCAM visualization.
+
+    This function loads and preprocesses an image, runs inference to get
+    predictions, and prepares all necessary components for GradCAM generation.
+    Supports both standard models and MIL/patch-based models.
+
+    Parameters
+    ----------
+    model_tuple : tuple
+        A tuple containing model and metadata in the following order:
+        - model : torch.nn.Module
+            The neural network model.
+        - input_size : tuple of int
+            Expected input size as (height, width).
+        - model_name : str or None
+            Name of the model architecture.
+        - gradcam_layer : str or None
+            Default target layer for GradCAM.
+        - normalize : dict or None
+            Normalization parameters with 'mean' and 'std' keys.
+        - num_patches : int or None
+            Number of patches for MIL models. None for standard models.
+        - arch_type : str or None
+            Architecture type (e.g., 'mil', 'mil_v4'). None for standard models.
+    image_path : str
+        Path to the input image file.
+    target_layer : str, optional
+        Name of the layer to generate GradCAM from. If None, uses the
+        gradcam_layer from model_tuple or defaults to 'layer4'.
+        Default is None.
+    class_idx : int, optional
+        Index of the class to visualize. If None, uses the predicted
+        class with highest probability. Default is None.
+
+    Returns
+    -------
+    model : torch.nn.Module
+        The neural network model in evaluation mode.
+    input_tensor : torch.Tensor
+        Preprocessed input tensor. Shape [1, 3, H, W] for standard models,
+        or [1, N, 3, H, W] or [1, N+1, 3, H, W] for MIL models.
+    img : PIL.Image.Image
+        Original input image in RGB format.
+    target_layer : str
+        Name of the target layer to be used for GradCAM.
+    class_idx : int or None
+        Input class index (passes through the input parameter).
+    pred_class : int
+        Predicted class index (0-based integer).
+    pred_prob : float
+        Prediction probability for the target class, ranging from 0.0 to 1.0.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the image file does not exist at the specified path.
+
+    Notes
+    -----
+    - The image is automatically converted to RGB format.
+    - For standard models: preprocessing includes resizing, converting to tensor,
+      and normalization.
+    - For MIL models: the image is split into patches, and an optional global
+      image is added (for v4 architecture).
+    - The model is set to evaluation mode and inference is done without
+      gradient computation.
+    - If class_idx is None, the function automatically selects the class
+      with the highest prediction probability.
+
+    Examples
+    --------
+    >>> from model_loader import load_full_model
+    >>> # Standard model
+    >>> model_tuple = load_full_model('checkpoint.pth')
+    >>> results = pre_gradcam(model_tuple, 'image.jpg')
+    >>> model, input_tensor, img, layer, _, pred_class, prob = results
+    >>> print(f"Predicted class: {pred_class}, Probability: {prob:.2%}")
+    Predicted class: 2, Probability: 87.35%
+
+    >>> # MIL model
+    >>> mil_tuple = load_full_model('mil_model.pth')
+    >>> results = pre_gradcam(mil_tuple, 'image.jpg')
+    >>> model, input_tensor, img, layer, _, pred_class, prob = results
+    >>> print(f"Input shape for MIL: {input_tensor.shape}")
+    Input shape for MIL: torch.Size([1, 4, 3, 448, 448])
+    """
     # Unpack model and info
     model, input_size, model_name, gradcam_layer, normalize, num_patches, arch_type = (
         model_tuple
@@ -148,15 +257,6 @@ def mil_gradcam(
     target_layer: str,
     class_idx: int | None = None,
 ) -> ndarray:
-    """
-    Generate GradCAM for MIL/patch-based models.
-
-    Returns
-    -------
-    cam : ndarray
-        - For MIL models: shape [num_patches, H, W] - one heatmap per patch
-        - For standard models: shape [H, W] - single heatmap
-    """
     activations = []
     gradients = []
 
@@ -181,51 +281,43 @@ def mil_gradcam(
     grads = gradients[0]
     acts = activations[0]
 
-    # For MIL models: keep instance dimension [B, N, C, H, W]
-    # Process each instance separately to get per-patch heatmaps
-    if grads.dim() == 5:  # [B, N, C, H, W]
-        B, N, C, H, W = grads.shape
-        cams = []
-        for i in range(N):
-            g = grads[0, i]  # [C, H, W]
-            a = acts[0, i]  # [C, H, W]
-            weights = g.mean(dim=(1, 2), keepdim=True)  # [C, 1, 1]
-            cam = (weights * a).sum(dim=0)  # [H, W]
-            cam = torch.relu(cam)
-            cams.append(cam)
-        cam = torch.stack(cams, dim=0)  # [N, H, W]
-    else:
-        # Standard model: [B, C, H, W]
-        while grads.dim() > 4:
-            grads = grads.mean(dim=1)
-            acts = acts.mean(dim=1)
-        weights = grads.mean(dim=(2, 3), keepdim=True)
-        cam = (weights * acts).sum(dim=1, keepdim=True)
-        cam = torch.relu(cam)
-        cam = cam.squeeze()  # Remove batch and channel dims
+    # Handle MIL models: aggregate across instance/batch dimensions if needed
+    # Reduce to [B, C, H, W] or [C, H, W]
+    while grads.dim() > 4:
+        grads = grads.mean(dim=1)
+        acts = acts.mean(dim=1)
 
-    # Convert to numpy
+    # Compute weights and CAM
+    weights = grads.mean(dim=(2, 3), keepdim=True)
+    cam = (weights * acts).sum(dim=1, keepdim=True)
+    cam = torch.relu(cam)
+
+    # Convert to numpy: [B, 1, H, W] -> numpy array
     cam = cam.cpu().numpy()
 
-    # Normalize each patch heatmap independently
-    if cam.ndim == 3:  # [N, H, W]
-        normalized_cams = []
-        for i in range(cam.shape[0]):
-            c = cam[i]
-            c_min, c_max = c.min(), c.max()
-            if c_max > c_min:
-                c = (c - c_min) / (c_max - c_min)
-            else:
-                c = np.zeros_like(c)
-            normalized_cams.append(np.uint8(c * 255))
-        cam = np.stack(normalized_cams, axis=0)
-    else:  # [H, W]
-        cam_min, cam_max = cam.min(), cam.max()
-        if cam_max > cam_min:
-            cam = (cam - cam_min) / (cam_max - cam_min)
+    # Explicitly squeeze ALL singleton dimensions
+    cam = np.squeeze(cam)
+
+    # Safety check: ensure 2D
+    if cam.ndim == 0:
+        cam = np.array([[cam]])
+    elif cam.ndim == 1:
+        # Try to reshape to square
+        size = int(np.sqrt(cam.size))
+        if size * size == cam.size:
+            cam = cam.reshape(size, size)
         else:
-            cam = np.zeros_like(cam)
-        cam = np.uint8(cam * 255)
+            cam = cam.reshape(1, -1)
+
+    # Normalize to [0, 255]
+    cam_min = cam.min()
+    cam_max = cam.max()
+    if cam_max > cam_min:
+        cam = (cam - cam_min) / (cam_max - cam_min)
+    else:
+        cam = np.zeros_like(cam)
+
+    cam = np.uint8(cam * 255)
 
     handle_f.remove()
     handle_b.remove()
@@ -243,10 +335,93 @@ def post_mil_gradcam(
     prob: float | None = None,
     gt_label: str | None = None,
 ) -> None:
-    print("inside post_mil_gradcam function")
-    print("cam shape:", cam.shape)
-    print("img size:", img.size)
+    """
+    Visualize GradCAM heatmap with multiple display options.
 
+    This function provides flexible visualization of GradCAM heatmaps overlaid
+    on original images, with support for bounding boxes, predictions, and
+    various display layouts.
+
+    Parameters
+    ----------
+    cam : numpy.ndarray
+        GradCAM heatmap array with shape [H, W] and dtype uint8.
+        Values should be in range [0, 255].
+    img : PIL.Image.Image
+        Original input image in RGB format.
+    option : int, optional
+        Visualization mode (1-5). Default is 1.
+
+        - 1 : Original image with heatmap overlay
+        - 2 : Side-by-side display (original | heatmap)
+        - 3 : Three-panel display (original | heatmap | blended)
+        - 4 : Three-panel with Otsu filtering (original | heatmap | blended with mask)
+        - 5 : Four-panel display (original | heatmap | blended | blended with Otsu mask)
+    blend_alpha : float, optional
+        Blending factor for heatmap overlay, ranging from 0.0 to 1.0.
+        Higher values make the heatmap more opaque. Used in options 3, 4, and 5.
+        Default is 0.5.
+    bbx_list : list of list of int, optional
+        List of bounding boxes to draw on the original image.
+        Each bounding box is formatted as [x, y, width, height] where:
+
+        - x, y : top-left corner coordinates
+        - width, height : box dimensions
+
+        Boxes are drawn with lime green borders. Default is None.
+    pred : str, optional
+        Predicted class name to display in the title. Default is None.
+    prob : float, optional
+        Prediction probability (0.0 to 1.0) to display in the title as percentage.
+        Default is None.
+    gt_label : str, optional
+        Ground truth label to display in the title. Default is None.
+
+    Returns
+    -------
+    None
+        The function displays a matplotlib figure and does not return a value.
+
+    Raises
+    ------
+    ValueError
+        If option is not in the range [1, 5].
+
+    Notes
+    -----
+    - The heatmap is resized to match the original image dimensions using
+      bilinear interpolation.
+    - The 'jet' colormap is used for heatmap visualization (blue=low, red=high).
+    - Otsu thresholding (options 4 and 5) automatically determines an optimal
+      threshold to highlight only the most important regions.
+    - Title format: "Original Image,|GT: {gt_label}|Pred: {pred}|,Prob: {prob}%"
+    - All axes are hidden for cleaner visualization.
+
+    Examples
+    --------
+    >>> from model_loader import load_full_model
+    >>> from gradcam_utils import pre_gradcam, gradcam_plus_plus, post_gradcam
+    >>>
+    >>> # Basic usage with option 1
+    >>> model_tuple = load_full_model('checkpoint.pth')
+    >>> model, input_tensor, img, layer, _, pred_class, prob = pre_gradcam(model_tuple, 'cat.jpg')
+    >>> cam = gradcam_plus_plus(model, input_tensor, layer)
+    >>> post_gradcam(cam, img, option=1)
+
+    >>> # With prediction and probability
+    >>> post_gradcam(cam, img, option=2, pred="Cat", prob=0.873)
+
+    >>> # With bounding boxes
+    >>> bboxes = [[50, 50, 200, 150], [300, 100, 150, 200]]
+    >>> post_gradcam(cam, img, option=3, bbx_list=bboxes, pred="Dog", prob=0.921)
+
+    >>> # Full annotation with ground truth
+    >>> post_gradcam(cam, img, option=5, blend_alpha=0.6,
+    ...              bbx_list=bboxes, pred="Cat", prob=0.85, gt_label="Cat")
+
+    >>> # Otsu filtered visualization for cleaner focus
+    >>> post_gradcam(cam, img, option=4, blend_alpha=0.7, pred="Bird", prob=0.78)
+    """
     cam_img = Image.fromarray(cam).resize(img.size, resample=Image.Resampling.BILINEAR)
     cam_img_np = np.array(cam_img)
 
@@ -361,6 +536,64 @@ def mil_gradcam_plus_plus(
     target_layer: str,
     class_idx: int | None = None,
 ) -> ndarray:
+    """
+    Generate GradCAM++ (improved GradCAM) heatmap.
+
+    GradCAM++ is an improved version of GradCAM that provides better
+    visual explanations, especially for images with multiple occurrences
+    of the same class. It uses a more sophisticated weighting scheme
+    based on higher-order gradients.
+
+    Parameters
+    ----------
+    model : torch.nn.Module
+        The neural network model to visualize.
+    input_tensor : torch.Tensor
+        Input tensor with shape [1, 3, H, W] where H and W are height
+        and width of the input image.
+    target_layer : str
+        Name of the convolutional layer to generate the CAM from
+        (e.g., 'layer4', 'features.7').
+    class_idx : int, optional
+        Index of the target class to visualize. If None, uses the
+        predicted class with highest score. Default is None.
+
+    Returns
+    -------
+    cam : numpy.ndarray
+        GradCAM++ heatmap with shape [H', W'] where H' and W' are the
+        spatial dimensions of the target layer's feature map.
+        Values are normalized to range [0, 255] as uint8.
+
+    Notes
+    -----
+    - GradCAM++ computes pixel-wise weights using the formula:
+      α^kc_ij = (∂²Y^c/∂A^k_ij²) / (2(∂²Y^c/∂A^k_ij²) + Σ_ab(A^k_ab)(∂³Y^c/∂A^k_ij³))
+    - These weights better capture the importance of different spatial
+      locations compared to standard GradCAM.
+    - More accurate for localizing multiple instances of the same object.
+    - Numerical stability is ensured by adding epsilon (1e-8) to denominators.
+    - Hooks are automatically removed after computation.
+
+    References
+    ----------
+    .. [1] Chattopadhay et al. "Grad-CAM++: Generalized Gradient-Based Visual
+       Explanations for Deep Convolutional Networks." WACV 2018.
+
+    Examples
+    --------
+    >>> from model_loader import load_full_model
+    >>> model_tuple = load_full_model('checkpoint.pth')
+    >>> model, input_tensor, img, layer, _, _, _ = pre_gradcam(model_tuple, 'dogs.jpg')
+    >>> heatmap = gradcam_plus_plus(model, input_tensor, layer)
+    >>> print(f"Heatmap shape: {heatmap.shape}, max value: {heatmap.max()}")
+    Heatmap shape: (14, 14), max value: 255
+
+    >>> # Compare with standard GradCAM
+    >>> heatmap_std = gradcam(model, input_tensor, layer)
+    >>> heatmap_pp = gradcam_plus_plus(model, input_tensor, layer)
+    >>> # GradCAM++ typically provides sharper, more accurate localization
+    """
     activations = []
     gradients = []
 

@@ -160,6 +160,7 @@ def main():
             gt_label=gt,
         )
     else:
+        # Patch/MIL model
         result = pre_mil_gradcam(model_tuple, image_path)
         (
             model_out,
@@ -181,26 +182,71 @@ def main():
             bbx_list,
             gt,
         )
+
+        # Debug: Print all available layers
+        print("\nAvailable layers in model:")
+        for name, module in model_out.named_modules():
+            print(f"  {name}")
+        print(f"\nTarget layer: {target_layer}")
+
         from src.gradcam.gradcam_utils_patch import (
             mil_gradcam,
             mil_gradcam_plus_plus,
             post_mil_gradcam,
         )
 
-        print("hello check it out! 1")
         gradcam_map = mil_gradcam(model_out, input_tensor, target_layer, class_idx)
-        print("hello check it out! 2")
         # gradcam_map = mil_gradcam_plus_plus(model_out, input_tensor, target_layer, class_idx)
-        post_mil_gradcam(
-            gradcam_map,
-            img,
-            bbx_list=bbx_list,
-            option=5,
-            blend_alpha=0.5,
-            pred=pred_class,
-            prob=prob_class,
-            gt_label=gt,
-        )
+
+        print(f"\nGradCAM shape: {gradcam_map.shape}, dtype: {gradcam_map.dtype}")
+
+        # Visualize each patch with its own GradCAM
+        if gradcam_map.ndim == 3:
+            num_patches_result = gradcam_map.shape[0]
+
+            # Get model metadata to split image into patches
+            _, input_size_meta, _, _, _, num_patches_meta, arch_type_meta = model_tuple
+
+            # Split original image into patches (same as in pre_mil_gradcam)
+            patch_images = split_image_into_patches(
+                img, num_patches_meta, input_size_meta
+            )
+
+            print(f"\nVisualizing {num_patches_result} patches separately:")
+
+            # Visualize each patch image with its GradCAM
+            for patch_idx in range(num_patches_result):
+                patch_cam = gradcam_map[patch_idx]  # Shape: (H, W)
+                patch_img = patch_images[patch_idx]  # PIL Image of the patch
+
+                print(f"\n=== Patch {patch_idx + 1}/{num_patches_result} ===")
+
+                # Create custom pred string with patch info
+                pred_str = f"Patch {patch_idx + 1}: {pred_class}"
+
+                # Call post_mil_gradcam for this patch IMAGE with its heatmap
+                post_mil_gradcam(
+                    patch_cam,
+                    patch_img,  # Use patch image, not original image
+                    bbx_list=None,  # No bounding boxes for individual patches
+                    option=3,  # Option 3: Original patch | Heatmap | Blended
+                    blend_alpha=0.5,
+                    pred=pred_str,
+                    prob=prob_class,
+                    gt_label=None,  # Don't show GT for individual patches
+                )
+        else:
+            # Standard model - single heatmap
+            post_mil_gradcam(
+                gradcam_map,
+                img,
+                bbx_list=bbx_list,
+                option=5,
+                blend_alpha=0.5,
+                pred=pred_class,
+                prob=prob_class,
+                gt_label=gt,
+            )
 
 
 if __name__ == "__main__":
