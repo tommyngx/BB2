@@ -3,6 +3,7 @@ import torch
 from torch import nn
 import pandas as pd
 import argparse
+from PIL import Image
 
 from src.gradcam.gradcam_utils_based import pre_gradcam
 from src.gradcam.gradcam_utils_patch import pre_mil_gradcam
@@ -196,7 +197,6 @@ def main():
         )
 
         gradcam_map = mil_gradcam(model_out, input_tensor, target_layer, class_idx)
-        # gradcam_map = mil_gradcam_plus_plus(model_out, input_tensor, target_layer, class_idx)
 
         print(f"\nGradCAM shape: {gradcam_map.shape}, dtype: {gradcam_map.dtype}")
 
@@ -212,17 +212,37 @@ def main():
                 img, num_patches_meta, input_size_meta
             )
 
-            print(f"\nVisualizing {num_patches_result} patches separately:")
+            # Check if arch_type has global image (like mil_v4)
+            has_global = (
+                "v4" in arch_type_meta.lower() or "global" in arch_type_meta.lower()
+            )
+            if has_global:
+                # Add global image as the last patch
+                global_img = img.resize(input_size_meta, Image.Resampling.BILINEAR)
+                patch_images.append(global_img)
+                print(
+                    f"\nVisualizing {num_patches_result} patches (including 1 global image):"
+                )
+            else:
+                print(f"\nVisualizing {num_patches_result} patches separately:")
 
             # Visualize each patch image with its GradCAM
             for patch_idx in range(num_patches_result):
                 patch_cam = gradcam_map[patch_idx]  # Shape: (H, W)
                 patch_img = patch_images[patch_idx]  # PIL Image of the patch
 
-                print(f"\n=== Patch {patch_idx + 1}/{num_patches_result} ===")
+                # Determine if this is the global patch
+                is_global = has_global and (patch_idx == num_patches_result - 1)
+
+                print(
+                    f"\n=== {'Global Image' if is_global else f'Patch {patch_idx + 1}'} ==="
+                )
 
                 # Create custom pred string with patch info
-                pred_str = f"Patch {patch_idx + 1}: {pred_class}"
+                if is_global:
+                    pred_str = f"Global Image: {pred_class}"
+                else:
+                    pred_str = f"Patch {patch_idx + 1}: {pred_class}"
 
                 # Call post_mil_gradcam for this patch IMAGE with its heatmap
                 post_mil_gradcam(
