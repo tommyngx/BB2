@@ -71,6 +71,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset_folder", type=str, required=True)
     parser.add_argument("--pretrained_model_path", type=str, required=True)
+    parser.add_argument(
+        "--random", type=int, default=42, help="Sample index to use (default: 42)"
+    )
     args = parser.parse_args()
 
     # Load model and metadata
@@ -81,31 +84,26 @@ def main():
 
     # Get test_df from load_data_bbx3
     _, test_df = load_data_bbx3(args.dataset_folder)
-    # Get first image info from test set
-    first_row = test_df.iloc[0]
-    image_id = first_row["image_id"]
-    bbx_list = first_row["bbx_list"] if "bbx_list" in first_row else None
-    # Find image file (prefer jpg/png)
-    img_path = None
-    for ext in [".jpg", ".png", ".jpeg"]:
-        candidate = os.path.join(args.dataset_folder, "images", f"{image_id}{ext}")
-        if os.path.exists(candidate):
-            img_path = candidate
-            break
-    if img_path is None:
-        candidate = os.path.join(args.dataset_folder, "images", str(image_id))
-        if os.path.exists(candidate):
-            img_path = candidate
-        else:
-            raise FileNotFoundError(f"Image file not found for image_id {image_id}")
+
+    # Select sample index from --random argument
+    sample_idx = args.random
+    if sample_idx >= len(test_df):
+        sample_idx = 0  # fallback to first if out of range
+
+    # Get image path, bounding box, ground truth from test_df
+    image_path = os.path.join(args.dataset_folder, test_df.iloc[sample_idx]["link"])
+    bbx_list = (
+        test_df.iloc[sample_idx]["bbx_list"] if "bbx_list" in test_df.columns else None
+    )
+    gt = test_df.iloc[sample_idx]["cancer"] if "cancer" in test_df.columns else None
 
     # Prepare input for GradCAM
     if num_patches is not None and arch_type is not None:
         # Patch/MIL model
-        result = pre_mil_gradcam(model_tuple, img_path)
+        result = pre_mil_gradcam(model_tuple, image_path)
     else:
         # Standard model
-        result = pre_gradcam(model_tuple[:5], img_path)
+        result = pre_gradcam(model_tuple[:5], image_path)
 
     # Unpack result
     model_out, input_tensor, img, target_layer, class_idx, pred_class, prob_class = (
@@ -120,6 +118,7 @@ def main():
     print("Predicted class:", pred_class)
     print("Predicted prob:", prob_class)
     print("Bounding box list:", bbx_list)
+    print("Ground truth:", gt)
 
 
 if __name__ == "__main__":
