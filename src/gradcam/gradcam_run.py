@@ -284,22 +284,57 @@ def main():
                     gt_label=None,
                 )
 
-            # Merge all local patch heatmaps vertically (top-down) and visualize
+            # Merge all local patch heatmaps vertically (top-down) with overlap using maximum
             merged_patch_heatmaps = []
+            patch_positions = []
+            current_y = 0
             for idx, cam in enumerate(patch_heatmaps):
                 target_w = original_img_size[0]
                 patch_h = patch_imgs[idx].size[1]
                 cam_img = Image.fromarray(cam).resize(
                     (target_w, patch_h), Image.Resampling.BILINEAR
                 )
-                merged_patch_heatmaps.append(np.array(cam_img))
-            combined_heatmap = np.vstack(merged_patch_heatmaps)
+                cam_arr = np.array(cam_img)
+                merged_patch_heatmaps.append(cam_arr)
+                patch_positions.append((current_y, current_y + patch_h))
+                current_y += patch_h
+
+            # Calculate total height for combined heatmap
+            total_height = sum([arr.shape[0] for arr in merged_patch_heatmaps])
+            combined_heatmap = np.zeros(
+                (total_height, original_img_size[0]), dtype=np.uint8
+            )
+
+            # Merge with maximum in overlap regions
+            y = 0
+            for idx, arr in enumerate(merged_patch_heatmaps):
+                h = arr.shape[0]
+                # If not the first patch, check for overlap with previous
+                if idx > 0:
+                    prev_end = patch_positions[idx - 1][1]
+                    curr_start = patch_positions[idx][0]
+                    overlap = prev_end - curr_start
+                    if overlap > 0:
+                        # Take maximum in overlap region
+                        combined_heatmap[y - overlap : y, :] = np.maximum(
+                            combined_heatmap[y - overlap : y, :], arr[:overlap, :]
+                        )
+                        combined_heatmap[y : y + h, :] = arr
+                        y += h
+                    else:
+                        combined_heatmap[y : y + h, :] = arr
+                        y += h
+                else:
+                    combined_heatmap[y : y + h, :] = arr
+                    y += h
+
+            # Resize to original image size
             combined_heatmap_img = Image.fromarray(combined_heatmap).resize(
                 original_img_size, Image.Resampling.BILINEAR
             )
             combined_heatmap_np = np.array(combined_heatmap_img)
 
-            print("\n=== Combined Patch Heatmap (Top-down) ===")
+            print("\n=== Combined Patch Heatmap (Top-down, max overlap) ===")
             post_gradcam(
                 combined_heatmap_np,
                 img,
