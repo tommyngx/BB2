@@ -382,93 +382,7 @@ def post_mil_gradcam(
     prob: float | None = None,
     gt_label: str | None = None,
 ) -> None:
-    """
-    Visualize GradCAM heatmap with multiple display options.
-
-    This function provides flexible visualization of GradCAM heatmaps overlaid
-    on original images, with support for bounding boxes, predictions, and
-    various display layouts.
-
-    Parameters
-    ----------
-    cam : numpy.ndarray
-        GradCAM heatmap array with shape [H, W] and dtype uint8.
-        Values should be in range [0, 255].
-    img : PIL.Image.Image
-        Original input image in RGB format.
-    option : int, optional
-        Visualization mode (1-5). Default is 1.
-
-        - 1 : Original image with heatmap overlay
-        - 2 : Side-by-side display (original | heatmap)
-        - 3 : Three-panel display (original | heatmap | blended)
-        - 4 : Three-panel with Otsu filtering (original | heatmap | blended with mask)
-        - 5 : Four-panel display (original | heatmap | blended | blended with Otsu mask)
-    blend_alpha : float, optional
-        Blending factor for heatmap overlay, ranging from 0.0 to 1.0.
-        Higher values make the heatmap more opaque. Used in options 3, 4, and 5.
-        Default is 0.5.
-    bbx_list : list of list of int, optional
-        List of bounding boxes to draw on the original image.
-        Each bounding box is formatted as [x, y, width, height] where:
-
-        - x, y : top-left corner coordinates
-        - width, height : box dimensions
-
-        Boxes are drawn with lime green borders. Default is None.
-    pred : str, optional
-        Predicted class name to display in the title. Default is None.
-    prob : float, optional
-        Prediction probability (0.0 to 1.0) to display in the title as percentage.
-        Default is None.
-    gt_label : str, optional
-        Ground truth label to display in the title. Default is None.
-
-    Returns
-    -------
-    None
-        The function displays a matplotlib figure and does not return a value.
-
-    Raises
-    ------
-    ValueError
-        If option is not in the range [1, 5].
-
-    Notes
-    -----
-    - The heatmap is resized to match the original image dimensions using
-      bilinear interpolation.
-    - The 'jet' colormap is used for heatmap visualization (blue=low, red=high).
-    - Otsu thresholding (options 4 and 5) automatically determines an optimal
-      threshold to highlight only the most important regions.
-    - Title format: "Original Image,|GT: {gt_label}|Pred: {pred}|,Prob: {prob}%"
-    - All axes are hidden for cleaner visualization.
-
-    Examples
-    --------
-    >>> from model_loader import load_full_model
-    >>> from gradcam_utils import pre_gradcam, gradcam_plus_plus, post_gradcam
-    >>>
-    >>> # Basic usage with option 1
-    >>> model_tuple = load_full_model('checkpoint.pth')
-    >>> model, input_tensor, img, layer, _, pred_class, prob = pre_gradcam(model_tuple, 'cat.jpg')
-    >>> cam = gradcam_plus_plus(model, input_tensor, layer)
-    >>> post_gradcam(cam, img, option=1)
-
-    >>> # With prediction and probability
-    >>> post_gradcam(cam, img, option=2, pred="Cat", prob=0.873)
-
-    >>> # With bounding boxes
-    >>> bboxes = [[50, 50, 200, 150], [300, 100, 150, 200]]
-    >>> post_gradcam(cam, img, option=3, bbx_list=bboxes, pred="Dog", prob=0.921)
-
-    >>> # Full annotation with ground truth
-    >>> post_gradcam(cam, img, option=5, blend_alpha=0.6,
-    ...              bbx_list=bboxes, pred="Cat", prob=0.85, gt_label="Cat")
-
-    >>> # Otsu filtered visualization for cleaner focus
-    >>> post_gradcam(cam, img, option=4, blend_alpha=0.7, pred="Bird", prob=0.78)
-    """
+    """Visualize GradCAM heatmap with multiple display options."""
     cam_img = Image.fromarray(cam).resize(img.size, resample=Image.Resampling.BILINEAR)
     cam_img_np = np.array(cam_img)
 
@@ -480,6 +394,19 @@ def post_mil_gradcam(
             )
             ax.add_patch(rect)
 
+    # Calculate aspect ratio from original image
+    img_width, img_height = img.size
+    aspect_ratio = img_width / img_height
+
+    # Base height for figure (adjust this to control overall size)
+    base_height = 5
+
+    # Calculate figure width based on aspect ratio and number of panels
+    def get_figsize(num_panels):
+        panel_width = base_height * aspect_ratio
+        total_width = panel_width * num_panels
+        return (total_width, base_height)
+
     main_title = f"Original Image"
     if gt_label is not None:
         main_title += f",|GT: {gt_label}|"
@@ -489,16 +416,17 @@ def post_mil_gradcam(
         main_title += f",Prob: {prob * 100:.1f}%"
 
     if option == 1:
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=get_figsize(1))
         ax.imshow(img)
         ax.imshow(cam_img_np, cmap="jet", alpha=0.5)
         if bbx_list is not None:
             draw_bbx(ax, bbx_list)
         ax.set_title(main_title)
         ax.axis("off")
+        plt.tight_layout()
         plt.show()
     elif option == 2:
-        fig, axs = plt.subplots(1, 2, figsize=(10, 5))
+        fig, axs = plt.subplots(1, 2, figsize=get_figsize(2))
         axs[0].imshow(img)
         if bbx_list is not None:
             draw_bbx(axs[0], bbx_list)
@@ -507,12 +435,13 @@ def post_mil_gradcam(
         axs[1].imshow(cam_img_np, cmap="jet")
         axs[1].set_title("GradCAM Heatmap")
         axs[1].axis("off")
+        plt.tight_layout()
         plt.show()
     elif option == 3:
         blend = np.array(img).astype(np.float32) / 255.0
         cam_color = plt.cm.jet(cam_img_np / 255.0)[..., :3]
         blend_img = (1 - blend_alpha) * blend + blend_alpha * cam_color
-        fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+        fig, axs = plt.subplots(1, 3, figsize=get_figsize(3))
         axs[0].imshow(img)
         if bbx_list is not None:
             draw_bbx(axs[0], bbx_list)
@@ -524,6 +453,7 @@ def post_mil_gradcam(
         axs[2].imshow(blend_img)
         axs[2].set_title("Blended Image")
         axs[2].axis("off")
+        plt.tight_layout()
         plt.show()
     elif option == 4:
         otsu_thresh = threshold_otsu(cam_img_np)
@@ -534,7 +464,7 @@ def post_mil_gradcam(
         blend_img[mask] = (1 - blend_alpha) * blend_img[mask] + blend_alpha * cam_color[
             mask
         ]
-        fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+        fig, axs = plt.subplots(1, 3, figsize=get_figsize(3))
         axs[0].imshow(img)
         if bbx_list is not None:
             draw_bbx(axs[0], bbx_list)
@@ -546,6 +476,7 @@ def post_mil_gradcam(
         axs[2].imshow(blend_img)
         axs[2].set_title("Blended Image (Otsu filtered)")
         axs[2].axis("off")
+        plt.tight_layout()
         plt.show()
     elif option == 5:
         blend = np.array(img).astype(np.float32) / 255.0
@@ -557,7 +488,7 @@ def post_mil_gradcam(
         blend_img_otsu[mask] = (1 - blend_alpha) * blend_img_otsu[
             mask
         ] + blend_alpha * cam_color[mask]
-        fig, axs = plt.subplots(1, 4, figsize=(20, 5))
+        fig, axs = plt.subplots(1, 4, figsize=get_figsize(4))
         axs[0].imshow(img)
         if bbx_list is not None:
             draw_bbx(axs[0], bbx_list)
@@ -572,6 +503,7 @@ def post_mil_gradcam(
         axs[3].imshow(blend_img_otsu)
         axs[3].set_title("Blended Image (Otsu filtered)")
         axs[3].axis("off")
+        plt.tight_layout()
         plt.show()
     else:
         raise ValueError("option must be 1, 2, 3, 4, or 5")
