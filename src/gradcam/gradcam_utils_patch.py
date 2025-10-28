@@ -333,28 +333,42 @@ def mil_gradcam(
     cam = cam.cpu().numpy()
     cam = np.squeeze(cam)
 
+    # Debug: print cam shape and dtype before post-processing
+    print("DEBUG: GradCAM raw output shape:", cam.shape)
+    print("DEBUG: GradCAM raw output dtype:", cam.dtype)
+
     # Safety check: ensure 2D
     if cam.ndim == 0:
+        print("DEBUG: cam.ndim == 0, reshaping to (1, 1)")
         cam = np.array([[cam]])
     elif cam.ndim == 1:
+        print("DEBUG: cam.ndim == 1, shape:", cam.shape)
         size = int(np.sqrt(cam.size))
         if size * size == cam.size:
+            print(f"DEBUG: Reshaping cam to ({size}, {size})")
             cam = cam.reshape(size, size)
         else:
+            print("DEBUG: Reshaping cam to (1, -1)")
             cam = cam.reshape(1, -1)
     elif cam.ndim > 2:
+        print("DEBUG: cam.ndim > 2, shape:", cam.shape)
         cam = cam.squeeze()
+        print("DEBUG: After squeeze, shape:", cam.shape)
         if cam.ndim > 2:
+            print("DEBUG: Reshaping cam to last two dims:", cam.shape[-2], cam.shape[-1])
             cam = cam.reshape(cam.shape[-2], cam.shape[-1])
 
     cam_min = cam.min()
     cam_max = cam.max()
+    print("DEBUG: cam min:", cam_min, "cam max:", cam_max)
     if cam_max > cam_min:
         cam = (cam - cam_min) / (cam_max - cam_min)
     else:
         cam = np.zeros_like(cam)
 
     cam = np.uint8(cam * 255)
+    print("DEBUG: Final cam shape for Image.fromarray:", cam.shape)
+    print("DEBUG: Final cam dtype for Image.fromarray:", cam.dtype)
 
     handle_f.remove()
     handle_b.remove()
