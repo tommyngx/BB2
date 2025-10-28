@@ -220,6 +220,7 @@ def main():
 
         # Visualize each patch with its own GradCAM
         if gradcam_map.ndim == 3:
+            # Patch/MIL model - multiple heatmaps (one per patch)
             num_patches_result = gradcam_map.shape[0]
 
             # Get model metadata
@@ -284,39 +285,41 @@ def main():
                     gt_label=None,
                 )
 
-            # Merge all local patch heatmaps vertically (top-down, max overlap)
-            merged_patch_heatmaps = []
+            # --- Calculate patch positions based on split_image_into_patches logic ---
+            # Get patch vertical positions (start_h, end_h) for each patch
+            # This logic is copied from split_image_into_patches
+            img_np = np.array(img)
+            height, width = img_np.shape[:2]
+            num_patches_actual = len(patch_heatmaps)
+            overlap_ratio = 0.2
+            patch_height = height // num_patches_meta
+            step = int(patch_height * (1 - overlap_ratio))
+            if num_patches_meta == 1 or step <= 0:
+                starts = [0]
+            else:
+                starts = [i * step for i in range(num_patches_meta - 1)]
+                starts.append(height - patch_height)
             patch_positions = []
-            current_y = 0
+            for i, start_h in enumerate(starts[:num_patches_actual]):
+                end_h = start_h + patch_height
+                if i == num_patches_meta - 1:
+                    start_h = height - patch_height
+                    end_h = height
+                patch_positions.append((start_h, end_h))
+
+            # --- Merge all local patch heatmaps vertically (top-down, max overlap) ---
+            combined_heatmap_max = np.zeros((height, width), dtype=np.uint8)
             for idx, cam in enumerate(patch_heatmaps):
-                target_w = original_img_size[0]
-                patch_h = patch_imgs[idx].size[1]
+                # Resize patch heatmap to match patch region in original image
+                start_h, end_h = patch_positions[idx]
+                patch_h = end_h - start_h
                 cam_img = Image.fromarray(cam).resize(
-                    (target_w, patch_h), Image.Resampling.BILINEAR
+                    (width, patch_h), Image.Resampling.BILINEAR
                 )
                 cam_np = np.array(cam_img)
-                merged_patch_heatmaps.append(cam_np)
-                patch_positions.append((current_y, current_y + patch_h))
-                current_y += patch_h
-
-            # Create a blank canvas for the combined heatmap
-            combined_heatmap_max = np.zeros(
-                (original_img_size[1], original_img_size[0]), dtype=np.uint8
-            )
-
-            # Overlay each patch heatmap using maximum value for overlaps
-            for idx, cam_np in enumerate(merged_patch_heatmaps):
-                y_start, y_end = patch_positions[idx]
-                # If the patch exceeds the image height, crop it
-                y_end = min(y_end, combined_heatmap_max.shape[0])
-                patch_h = y_end - y_start
-                if patch_h <= 0:
-                    continue
-                # If patch is taller than available space, crop patch
-                cam_crop = cam_np[:patch_h, :]
                 # Use maximum for overlap
-                combined_heatmap_max[y_start:y_end, :] = np.maximum(
-                    combined_heatmap_max[y_start:y_end, :], cam_crop
+                combined_heatmap_max[start_h:end_h, :] = np.maximum(
+                    combined_heatmap_max[start_h:end_h, :], cam_np
                 )
 
             combined_heatmap_img = Image.fromarray(combined_heatmap_max).resize(
