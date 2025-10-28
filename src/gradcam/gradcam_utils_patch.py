@@ -294,9 +294,8 @@ def post_mil_gradcam(
     pred: str | None = None,
     prob: float | None = None,
     gt_label: str | None = None,
-    original_img_size: tuple[
-        int, int
-    ] = None,  # ← GIỮ parameter này nhưng không dùng nữa
+    original_img_size: tuple[int, int] = None,
+    figsize: tuple[float, float] = None,  # ← THÊM parameter này
 ) -> None:
     """Visualize GradCAM heatmap with multiple display options."""
     cam_img = Image.fromarray(cam).resize(img.size, resample=Image.Resampling.BILINEAR)
@@ -394,7 +393,8 @@ def post_mil_gradcam(
         ] + blend_alpha * cam_color[mask]
 
         # ← SỬA: Dùng figsize cố định như based (20, 5) thay vì dynamic
-        fig, axs = plt.subplots(1, 4, figsize=(20, 5))
+        fig_size = figsize if figsize is not None else (20, 5)
+        fig, axs = plt.subplots(1, 4, figsize=fig_size)
 
         axs[0].imshow(img)
         if bbx_list is not None:

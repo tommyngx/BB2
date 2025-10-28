@@ -275,8 +275,20 @@ def main():
                 else:
                     pred_str = f"Patch {patch_idx + 1}: {pred_class}"
 
-                # ← SỬA: KHÔNG truyền original_img_size nữa, để post_mil_gradcam tự xử lý
-                # Visualize with appropriate aspect ratio
+                # Calculate actual aspect ratio for this patch
+                if is_global:
+                    # For global: Use original image aspect ratio
+                    aspect_ratio = original_img_size[0] / original_img_size[1]
+                    base_height = 5  # Base height for figure
+                    width = base_height * aspect_ratio
+                    figsize = (width * 4, base_height)  # *4 vì có 4 panels
+                    print(f"  Using global figsize: {figsize}")
+                else:
+                    # For local patches: Use square figsize
+                    figsize = (20, 5)  # Cố định như based version
+                    print(f"  Using patch figsize: {figsize}")
+
+                # Visualize with appropriate figsize
                 post_mil_gradcam(
                     patch_cam,
                     patch_img,
@@ -286,6 +298,7 @@ def main():
                     pred=pred_str,
                     prob=prob_class,
                     gt_label=None,
+                    figsize=figsize,  # ← Thêm figsize parameter
                 )
         else:
             # Standard model - single heatmap
