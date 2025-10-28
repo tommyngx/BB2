@@ -256,7 +256,48 @@ def mil_gradcam(
     input_tensor: torch.Tensor,
     target_layer: str,
     class_idx: int | None = None,
+    show_patches: bool = True,
 ) -> ndarray:
+    """
+    Run GradCAM for MIL/patch-based models.
+    Prints input tensor info and optionally plots all patches in a grid before running GradCAM.
+    Returns GradCAM heatmap as ndarray.
+    """
+    # Print input tensor info
+    print("Input tensor shape:", input_tensor.shape)
+    if input_tensor.dim() == 5:
+        batch, num_patches, c, h, w = input_tensor.shape
+        print(
+            f"Batch size: {batch}, Num patches: {num_patches}, Channels: {c}, Height: {h}, Width: {w}"
+        )
+    else:
+        print("Tensor shape not compatible with patch visualization.")
+
+    # Plot all patches side by side in a grid (only for MIL/patch input)
+    if show_patches and input_tensor.dim() == 5:
+        import matplotlib.pyplot as plt
+
+        patches = input_tensor[0]  # shape: [num_patches, 3, H, W]
+        num_patches = patches.shape[0]
+        grid_size = int(np.ceil(np.sqrt(num_patches)))
+        fig, axs = plt.subplots(
+            grid_size, grid_size, figsize=(2 * grid_size, 2 * grid_size)
+        )
+        for i in range(grid_size * grid_size):
+            ax = axs[i // grid_size, i % grid_size]
+            if i < num_patches:
+                patch_np = patches[i].cpu().numpy()
+                patch_np = np.transpose(patch_np, (1, 2, 0))
+                patch_np = (patch_np - patch_np.min()) / (
+                    patch_np.max() - patch_np.min() + 1e-8
+                )
+                ax.imshow(patch_np)
+                ax.set_title(f"Patch {i + 1}")
+            ax.axis("off")
+        plt.suptitle("All patches (input to MIL model)")
+        plt.tight_layout()
+        plt.show()
+
     activations = []
     gradients = []
 
@@ -282,34 +323,30 @@ def mil_gradcam(
     acts = activations[0]
 
     # Handle MIL models: aggregate across instance/batch dimensions if needed
-    # Reduce to [B, C, H, W] or [C, H, W]
     while grads.dim() > 4:
         grads = grads.mean(dim=1)
         acts = acts.mean(dim=1)
 
-    # Compute weights and CAM
     weights = grads.mean(dim=(2, 3), keepdim=True)
     cam = (weights * acts).sum(dim=1, keepdim=True)
     cam = torch.relu(cam)
-
-    # Convert to numpy: [B, 1, H, W] -> numpy array
     cam = cam.cpu().numpy()
-
-    # Explicitly squeeze ALL singleton dimensions
     cam = np.squeeze(cam)
 
     # Safety check: ensure 2D
     if cam.ndim == 0:
         cam = np.array([[cam]])
     elif cam.ndim == 1:
-        # Try to reshape to square
         size = int(np.sqrt(cam.size))
         if size * size == cam.size:
             cam = cam.reshape(size, size)
         else:
             cam = cam.reshape(1, -1)
+    elif cam.ndim > 2:
+        cam = cam.squeeze()
+        if cam.ndim > 2:
+            cam = cam.reshape(cam.shape[-2], cam.shape[-1])
 
-    # Normalize to [0, 255]
     cam_min = cam.min()
     cam_max = cam.max()
     if cam_max > cam_min:
