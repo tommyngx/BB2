@@ -21,9 +21,8 @@ import argparse
 from PIL import Image
 import numpy as np
 
-from src.gradcam.gradcam_utils_based import pre_gradcam
-from src.gradcam.gradcam_utils_patch import pre_mil_gradcam
-from src.gradcam.gradcam_utils_patch import split_image_into_patches
+from src.gradcam.gradcam_utils_based import pre_gradcam, post_gradcam
+from src.gradcam.gradcam_utils_patch import pre_mil_gradcam, split_image_into_patches
 
 
 def load_data_bbx3(data_folder):
@@ -213,8 +212,10 @@ def main():
         from src.gradcam.gradcam_utils_patch import (
             mil_gradcam,
             mil_gradcam_plus_plus,
-            post_mil_gradcam,
         )
+
+        # Import post_gradcam từ based
+        from src.gradcam.gradcam_utils_based import post_gradcam
 
         gradcam_map = mil_gradcam(model_out, input_tensor, target_layer, class_idx)
 
@@ -281,9 +282,8 @@ def main():
                 else:
                     pred_str = f"Patch {patch_idx + 1}: {pred_class}"
 
-                # ← SỬA: KHÔNG truyền original_img_size nữa, để post_mil_gradcam tự xử lý
-                # Visualize with appropriate aspect ratio
-                post_mil_gradcam(
+                # Dùng post_gradcam thay cho post_mil_gradcam
+                post_gradcam(
                     patch_cam,
                     patch_img,
                     bbx_list=None,
@@ -295,7 +295,7 @@ def main():
                 )
         else:
             # Standard model - single heatmap
-            post_mil_gradcam(
+            post_gradcam(
                 gradcam_map,
                 img,
                 bbx_list=bbx_list,
@@ -304,7 +304,6 @@ def main():
                 pred=pred_class,
                 prob=prob_class,
                 gt_label=gt,
-                original_img_size=original_img_size,
             )
 
 
