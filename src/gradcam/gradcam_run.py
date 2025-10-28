@@ -98,12 +98,12 @@ def main():
     gt = test_df.iloc[sample_idx]["cancer"] if "cancer" in test_df.columns else None
 
     # Prepare input for GradCAM
-    if num_patches is not None and arch_type is not None:
-        # Patch/MIL model
-        result = pre_mil_gradcam(model_tuple, image_path)
-    else:
+    if arch_type == "based":
         # Standard model
         result = pre_gradcam(model_tuple[:5], image_path)
+    else:
+        # Patch/MIL model
+        result = pre_mil_gradcam(model_tuple, image_path)
 
     # Unpack result
     model_out, input_tensor, img, target_layer, class_idx, pred_class, prob_class = (
