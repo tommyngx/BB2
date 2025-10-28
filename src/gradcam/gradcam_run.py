@@ -121,7 +121,6 @@ def main():
 
     # Prepare input for GradCAM
     if arch_type == "based":
-        # Standard model
         (
             model_out,
             input_tensor,
@@ -142,7 +141,6 @@ def main():
             bbx_list,
             gt,
         )
-        # Run GradCAM
         from src.gradcam.gradcam_utils_based import (
             gradcam,
             gradcam_plus_plus,
@@ -150,7 +148,6 @@ def main():
         )
 
         gradcam_map = gradcam(model_out, input_tensor, target_layer, class_idx)
-        # If you want to use GradCAM++, uncomment below
         # gradcam_map = gradcam_plus_plus(model_out, input_tensor, target_layer, class_idx)
         post_gradcam(
             gradcam_map,
@@ -183,6 +180,24 @@ def main():
             prob_class,
             bbx_list,
             gt,
+        )
+        from src.gradcam.gradcam_utils_patch import (
+            mil_gradcam,
+            mil_gradcam_plus_plus,
+            post_mil_gradcam,
+        )
+
+        gradcam_map = mil_gradcam(model_out, input_tensor, target_layer, class_idx)
+        # gradcam_map = mil_gradcam_plus_plus(model_out, input_tensor, target_layer, class_idx)
+        post_mil_gradcam(
+            gradcam_map,
+            img,
+            bbx_list=bbx_list,
+            option=5,
+            blend_alpha=0.5,
+            pred=pred_class,
+            prob=prob_class,
+            gt_label=gt,
         )
 
 
