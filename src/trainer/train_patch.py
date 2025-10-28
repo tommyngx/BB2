@@ -175,10 +175,25 @@ def run_gradcam(
         "mean": [0.5, 0.5, 0.5],
         "std": [0.5, 0.5, 0.5],
     }
+
+    # Calculate real inference time using a dummy input
+    # if isinstance(img_size, int):
+    #    img_size = (img_size, img_size)
+    # dummy_input = torch.randn(1, 3, img_size[0], img_size[1]).to(device)
     # Calculate real inference time using a dummy input
     if isinstance(img_size, int):
         img_size = (img_size, img_size)
-    dummy_input = torch.randn(1, 3, img_size[0], img_size[1]).to(device)
+
+    # For patch-based models, create dummy input with patch dimensions
+    if num_patches is not None:
+        # Input shape: [batch_size, num_patches, channels, height, width]
+        dummy_input = torch.randn(1, num_patches, 3, img_size[0], img_size[1]).to(
+            device
+        )
+    else:
+        # Standard input for non-patch models
+        dummy_input = torch.randn(1, 3, img_size[0], img_size[1]).to(device)
+
     model.eval()
     with torch.no_grad():
         start = time.time()
