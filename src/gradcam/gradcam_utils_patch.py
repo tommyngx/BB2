@@ -150,6 +150,9 @@ def mil_gradcam(
 ) -> ndarray:
     activations = []
     gradients = []
+    print("inside mil_gradcam function")
+    print("input_tensor shape:", input_tensor.shape)
+    print("target_layer:", target_layer)
 
     def forward_hook(module, input, output):
         activations.append(output.detach())
