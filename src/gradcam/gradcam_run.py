@@ -277,11 +277,17 @@ def main():
 
                 # ← SỬA: Chọn aspect ratio dựa trên loại patch
                 if is_global:
-                    # Global patch: Dùng aspect ratio của ảnh gốc
+                    # Global patch: Dùng aspect ratio của ảnh GỐC (trước khi resize)
                     aspect_ratio_to_use = original_img_size
+                    print(f"  Using original aspect ratio: {original_img_size}")
                 else:
-                    # Local patch: Dùng aspect ratio của patch (thường là vuông)
-                    aspect_ratio_to_use = patch_img.size
+                    # Local patch: Dùng aspect ratio của PATCH (sau crop, thường vuông)
+                    # Không dùng patch_img.size vì đã resize về input_size_meta
+                    # Thay vào đó, tính aspect ratio từ ảnh gốc chia theo num_patches
+                    patch_height = original_img_size[1] // num_patches_meta
+                    patch_width = original_img_size[0]
+                    aspect_ratio_to_use = (patch_width, patch_height)
+                    print(f"  Using patch aspect ratio: {aspect_ratio_to_use}")
 
                 # Visualize with appropriate aspect ratio
                 post_mil_gradcam(
@@ -293,7 +299,7 @@ def main():
                     pred=pred_str,
                     prob=prob_class,
                     gt_label=None,
-                    original_img_size=aspect_ratio_to_use,  # ← Truyền aspect ratio phù hợp
+                    original_img_size=aspect_ratio_to_use,
                 )
         else:
             # Standard model - single heatmap
