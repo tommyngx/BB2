@@ -4,6 +4,7 @@ from torch import nn
 import pandas as pd
 import argparse
 from PIL import Image
+import numpy as np
 
 from src.gradcam.gradcam_utils_based import pre_gradcam
 from src.gradcam.gradcam_utils_patch import pre_mil_gradcam
