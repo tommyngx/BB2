@@ -14,61 +14,39 @@ import math
 
 
 def split_image_into_patches(
-    img: Image.Image, num_patches: int, patch_size: tuple[int, int]
+    img: Image.Image, num_patches: int, patch_size: tuple[int, int] = None
 ) -> list[Image.Image]:
-    """
-    Split an image into a grid of patches.
+    overlap_ratio = 0.2
 
-    Parameters
-    ----------
-    img : PIL.Image.Image
-        Input image to split.
-    num_patches : int
-        Total number of patches (must be a perfect square, e.g., 4, 9, 16).
-    patch_size : tuple of int
-        Size of each patch as (height, width).
+    # Convert PIL to numpy for processing
+    image = np.array(img)
 
-    Returns
-    -------
-    patches : list of PIL.Image.Image
-        List of patch images.
+    # Ensure (H, W, C) format
+    if image.ndim == 3 and image.shape[0] == 3 and image.shape[2] != 3:
+        image = np.transpose(image, (1, 2, 0))
+    elif image.ndim == 3 and image.shape[-1] != 3:
+        if image.shape[1] == 3:
+            image = np.transpose(image, (0, 2, 1))
 
-    Notes
-    -----
-    - The image is divided into a grid where grid_size = sqrt(num_patches).
-    - Each patch is resized to patch_size.
-    - The input image is first resized to ensure consistent patch sizes.
-    """
-    import math
+    height, width = image.shape[:2]
+    patch_height = height // num_patches
+    step = int(patch_height * (1 - overlap_ratio))
 
-    grid_size = int(math.sqrt(num_patches))
-
-    # First, resize the image to a size that divides evenly
-    # Use patch_size * grid_size to ensure even division
-    target_size = (
-        patch_size[1] * grid_size,
-        patch_size[0] * grid_size,
-    )  # (width, height)
-    img_resized = img.resize(target_size, Image.Resampling.BILINEAR)
-
-    width, height = img_resized.size
-    patch_width = width // grid_size
-    patch_height = height // grid_size
+    if num_patches == 1 or step <= 0:
+        starts = [0]
+    else:
+        starts = [i * step for i in range(num_patches - 1)]
+        starts.append(height - patch_height)
 
     patches = []
-    for i in range(grid_size):
-        for j in range(grid_size):
-            left = j * patch_width
-            top = i * patch_height
-            right = left + patch_width
-            bottom = top + patch_height
-            patch = img_resized.crop((left, top, right, bottom))
-            # Ensure patch is exactly the right size (should already be, but double-check)
-            if patch.size != (patch_size[1], patch_size[0]):
-                patch = patch.resize(
-                    (patch_size[1], patch_size[0]), Image.Resampling.BILINEAR
-                )
-            patches.append(patch)
+    for i, start_h in enumerate(starts):
+        end_h = start_h + patch_height
+        # Last patch always taken from bottom up
+        if i == num_patches - 1:
+            start_h = height - patch_height
+            end_h = height
+        patch = image[start_h:end_h, :, :]
+        patches.append(Image.fromarray(patch))
 
     return patches
 
@@ -85,93 +63,6 @@ def pre_mil_gradcam(
     target_layer: str | None = None,
     class_idx: int | None = None,
 ) -> tuple[nn.Module, torch.Tensor, Image.Image, str, int | None, int, float]:
-    """
-    Prepare data and perform inference before GradCAM visualization.
-
-    This function loads and preprocesses an image, runs inference to get
-    predictions, and prepares all necessary components for GradCAM generation.
-    Supports both standard models and MIL/patch-based models.
-
-    Parameters
-    ----------
-    model_tuple : tuple
-        A tuple containing model and metadata in the following order:
-        - model : torch.nn.Module
-            The neural network model.
-        - input_size : tuple of int
-            Expected input size as (height, width).
-        - model_name : str or None
-            Name of the model architecture.
-        - gradcam_layer : str or None
-            Default target layer for GradCAM.
-        - normalize : dict or None
-            Normalization parameters with 'mean' and 'std' keys.
-        - num_patches : int or None
-            Number of patches for MIL models. None for standard models.
-        - arch_type : str or None
-            Architecture type (e.g., 'mil', 'mil_v4'). None for standard models.
-    image_path : str
-        Path to the input image file.
-    target_layer : str, optional
-        Name of the layer to generate GradCAM from. If None, uses the
-        gradcam_layer from model_tuple or defaults to 'layer4'.
-        Default is None.
-    class_idx : int, optional
-        Index of the class to visualize. If None, uses the predicted
-        class with highest probability. Default is None.
-
-    Returns
-    -------
-    model : torch.nn.Module
-        The neural network model in evaluation mode.
-    input_tensor : torch.Tensor
-        Preprocessed input tensor. Shape [1, 3, H, W] for standard models,
-        or [1, N, 3, H, W] or [1, N+1, 3, H, W] for MIL models.
-    img : PIL.Image.Image
-        Original input image in RGB format.
-    target_layer : str
-        Name of the target layer to be used for GradCAM.
-    class_idx : int or None
-        Input class index (passes through the input parameter).
-    pred_class : int
-        Predicted class index (0-based integer).
-    pred_prob : float
-        Prediction probability for the target class, ranging from 0.0 to 1.0.
-
-    Raises
-    ------
-    FileNotFoundError
-        If the image file does not exist at the specified path.
-
-    Notes
-    -----
-    - The image is automatically converted to RGB format.
-    - For standard models: preprocessing includes resizing, converting to tensor,
-      and normalization.
-    - For MIL models: the image is split into patches, and an optional global
-      image is added (for v4 architecture).
-    - The model is set to evaluation mode and inference is done without
-      gradient computation.
-    - If class_idx is None, the function automatically selects the class
-      with the highest prediction probability.
-
-    Examples
-    --------
-    >>> from model_loader import load_full_model
-    >>> # Standard model
-    >>> model_tuple = load_full_model('checkpoint.pth')
-    >>> results = pre_gradcam(model_tuple, 'image.jpg')
-    >>> model, input_tensor, img, layer, _, pred_class, prob = results
-    >>> print(f"Predicted class: {pred_class}, Probability: {prob:.2%}")
-    Predicted class: 2, Probability: 87.35%
-
-    >>> # MIL model
-    >>> mil_tuple = load_full_model('mil_model.pth')
-    >>> results = pre_gradcam(mil_tuple, 'image.jpg')
-    >>> model, input_tensor, img, layer, _, pred_class, prob = results
-    >>> print(f"Input shape for MIL: {input_tensor.shape}")
-    Input shape for MIL: torch.Size([1, 4, 3, 448, 448])
-    """
     # Unpack model and info
     model, input_size, model_name, gradcam_layer, normalize, num_patches, arch_type = (
         model_tuple
