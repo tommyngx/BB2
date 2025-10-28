@@ -398,24 +398,18 @@ def post_mil_gradcam(
     # Calculate aspect ratio from ORIGINAL image (not resized patch)
     if original_img_size is not None:
         img_width, img_height = original_img_size
-        print(f"  [DEBUG] Using original_img_size: {img_width}x{img_height} (W×H)")
     else:
         img_width, img_height = img.size
-        print(f"  [DEBUG] Using img.size: {img_width}x{img_height} (W×H)")
 
     aspect_ratio = img_width / img_height
-    print(f"  [DEBUG] Calculated aspect_ratio: {aspect_ratio:.4f}")
 
-    # Base height for figure
-    base_height = 5
+    # ← SỬA: Tăng base_height từ 5 lên 6 để figure to hơn
+    base_height = 6
 
     # Calculate figure width based on aspect ratio and number of panels
     def get_figsize(num_panels):
         panel_width = base_height * aspect_ratio
         total_width = panel_width * num_panels
-        print(
-            f"  [DEBUG] get_figsize({num_panels}): ({total_width:.2f}, {base_height})"
-        )
         return (total_width, base_height)
 
     main_title = f"Original Image"
@@ -425,6 +419,9 @@ def post_mil_gradcam(
         main_title += f"Pred: {pred}|"
     if prob is not None:
         main_title += f",Prob: {prob * 100:.1f}%"
+
+    # ← THÊM: Define fontsize based on base_height
+    title_fontsize = 12  # Font size cho title
 
     if option == 1:
         fig, ax = plt.subplots(figsize=get_figsize(1))
@@ -501,26 +498,25 @@ def post_mil_gradcam(
         ] + blend_alpha * cam_color[mask]
 
         figsize = get_figsize(4)
-        print(f"  [DEBUG] Creating figure with figsize: {figsize}")
         fig, axs = plt.subplots(1, 4, figsize=figsize)
 
-        # Set aspect='auto' to allow matplotlib to use figsize properly
+        # ← SỬA: Thêm fontsize vào set_title
         axs[0].imshow(img, aspect="auto")
         if bbx_list is not None:
             draw_bbx(axs[0], bbx_list)
-        axs[0].set_title(main_title)
+        axs[0].set_title(main_title, fontsize=title_fontsize)
         axs[0].axis("off")
 
         axs[1].imshow(cam_img_np, cmap="jet", aspect="auto")
-        axs[1].set_title("GradCAM Heatmap")
+        axs[1].set_title("GradCAM Heatmap", fontsize=title_fontsize)
         axs[1].axis("off")
 
         axs[2].imshow(blend_img, aspect="auto")
-        axs[2].set_title("Blended Image")
+        axs[2].set_title("Blended Image", fontsize=title_fontsize)
         axs[2].axis("off")
 
         axs[3].imshow(blend_img_otsu, aspect="auto")
-        axs[3].set_title("Blended Image (Otsu filtered)")
+        axs[3].set_title("Blended Image (Otsu filtered)", fontsize=title_fontsize)
         axs[3].axis("off")
 
         plt.tight_layout()
