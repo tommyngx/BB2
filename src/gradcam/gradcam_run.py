@@ -255,31 +255,25 @@ def main():
             else:
                 num_to_visualize = num_patches_result
 
+            # Tách patch_heatmaps và patch_imgs (không tính global)
+            if has_global:
+                patch_heatmaps = gradcam_map[:-1]
+                patch_imgs = patch_images[:-1]
+            else:
+                patch_heatmaps = gradcam_map
+                patch_imgs = patch_images
+
             # Visualize each patch with its heatmap
-            for patch_idx in range(num_to_visualize):
-                patch_cam = gradcam_map[patch_idx]  # Shape: (H, W)
-                patch_img = patch_images[patch_idx]  # PIL Image or np.ndarray
+            for patch_idx in range(len(patch_heatmaps)):
+                patch_cam = patch_heatmaps[patch_idx]  # Shape: (H, W)
+                patch_img = patch_imgs[patch_idx]  # PIL Image or np.ndarray
 
                 # Convert to PIL if needed
                 if isinstance(patch_img, np.ndarray):
                     patch_img = Image.fromarray(patch_img)
 
-                # Determine if this is the global patch
-                is_global = has_global and (patch_idx == num_to_visualize - 1)
+                pred_str = f"Patch {patch_idx + 1}: {pred_class}"
 
-                print(
-                    f"\n=== {'Global Image' if is_global else f'Patch {patch_idx + 1}/{num_patches_meta}'} ==="
-                )
-                print(f"  Patch image size: {patch_img.size} (W×H)")
-                print(f"  Heatmap shape: {patch_cam.shape} (H×W)")
-
-                # Create custom pred string
-                if is_global:
-                    pred_str = f"Global: {pred_class}"
-                else:
-                    pred_str = f"Patch {patch_idx + 1}: {pred_class}"
-
-                # Dùng post_gradcam thay cho post_mil_gradcam
                 post_gradcam(
                     patch_cam,
                     patch_img,
@@ -292,26 +286,20 @@ def main():
                 )
 
             # Tổng hợp các patch heatmap thành một heatmap lớn (top-down)
-            # Resize từng heatmap về chiều rộng ảnh gốc, sau đó ghép dọc
             patch_heatmaps_resized = []
             for idx, cam in enumerate(patch_heatmaps):
-                # Tính chiều rộng ảnh gốc
                 target_w = original_img_size[0]
-                # Tính chiều cao mong muốn cho từng patch (tỷ lệ theo patch ảnh)
                 patch_h = patch_imgs[idx].size[1]
                 cam_img = Image.fromarray(cam).resize(
                     (target_w, patch_h), Image.Resampling.BILINEAR
                 )
                 patch_heatmaps_resized.append(np.array(cam_img))
-            # Ghép dọc các patch heatmap lại
             combined_heatmap = np.vstack(patch_heatmaps_resized)
-            # Resize lại cho khớp với ảnh gốc nếu cần (đề phòng sai số)
             combined_heatmap_img = Image.fromarray(combined_heatmap).resize(
                 original_img_size, Image.Resampling.BILINEAR
             )
             combined_heatmap_np = np.array(combined_heatmap_img)
 
-            # Plot hình tổng hợp heatmap patch (overlay lên ảnh gốc)
             print("\n=== Combined Patch Heatmap (Top-down) ===")
             post_gradcam(
                 combined_heatmap_np,
