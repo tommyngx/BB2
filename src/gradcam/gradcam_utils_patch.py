@@ -395,23 +395,7 @@ def post_mil_gradcam(
             )
             ax.add_patch(rect)
 
-    # Calculate aspect ratio from ORIGINAL image (not resized patch)
-    if original_img_size is not None:
-        img_width, img_height = original_img_size
-    else:
-        img_width, img_height = img.size
-
-    aspect_ratio = img_width / img_height
-
-    # ← SỬA: Tăng base_height từ 5 lên 6 để figure to hơn
-    base_height = 6
-
-    # Calculate figure width based on aspect ratio and number of panels
-    def get_figsize(num_panels):
-        panel_width = base_height * aspect_ratio
-        total_width = panel_width * num_panels
-        return (total_width, base_height)
-
+    # ← XÓA: Không dùng dynamic aspect ratio nữa, dùng figsize cố định như based
     main_title = f"Original Image"
     if gt_label is not None:
         main_title += f",|GT: {gt_label}|"
@@ -420,11 +404,8 @@ def post_mil_gradcam(
     if prob is not None:
         main_title += f",Prob: {prob * 100:.1f}%"
 
-    # ← THÊM: Define fontsize based on base_height
-    title_fontsize = 12  # Font size cho title
-
     if option == 1:
-        fig, ax = plt.subplots(figsize=get_figsize(1))
+        fig, ax = plt.subplots()
         ax.imshow(img)
         ax.imshow(cam_img_np, cmap="jet", alpha=0.5)
         if bbx_list is not None:
@@ -434,7 +415,7 @@ def post_mil_gradcam(
         plt.tight_layout()
         plt.show()
     elif option == 2:
-        fig, axs = plt.subplots(1, 2, figsize=get_figsize(2))
+        fig, axs = plt.subplots(1, 2, figsize=(10, 5))
         axs[0].imshow(img)
         if bbx_list is not None:
             draw_bbx(axs[0], bbx_list)
@@ -449,7 +430,7 @@ def post_mil_gradcam(
         blend = np.array(img).astype(np.float32) / 255.0
         cam_color = plt.cm.jet(cam_img_np / 255.0)[..., :3]
         blend_img = (1 - blend_alpha) * blend + blend_alpha * cam_color
-        fig, axs = plt.subplots(1, 3, figsize=get_figsize(3))
+        fig, axs = plt.subplots(1, 3, figsize=(15, 5))
         axs[0].imshow(img)
         if bbx_list is not None:
             draw_bbx(axs[0], bbx_list)
@@ -472,7 +453,7 @@ def post_mil_gradcam(
         blend_img[mask] = (1 - blend_alpha) * blend_img[mask] + blend_alpha * cam_color[
             mask
         ]
-        fig, axs = plt.subplots(1, 3, figsize=get_figsize(3))
+        fig, axs = plt.subplots(1, 3, figsize=(15, 5))
         axs[0].imshow(img)
         if bbx_list is not None:
             draw_bbx(axs[0], bbx_list)
@@ -497,26 +478,25 @@ def post_mil_gradcam(
             mask
         ] + blend_alpha * cam_color[mask]
 
-        figsize = get_figsize(4)
-        fig, axs = plt.subplots(1, 4, figsize=figsize)
+        # ← SỬA: Dùng figsize cố định như based (20, 5) thay vì dynamic
+        fig, axs = plt.subplots(1, 4, figsize=(20, 5))
 
-        # ← SỬA: Thêm fontsize vào set_title
-        axs[0].imshow(img, aspect="auto")
+        axs[0].imshow(img)
         if bbx_list is not None:
             draw_bbx(axs[0], bbx_list)
-        axs[0].set_title(main_title, fontsize=title_fontsize)
+        axs[0].set_title(main_title)
         axs[0].axis("off")
 
-        axs[1].imshow(cam_img_np, cmap="jet", aspect="auto")
-        axs[1].set_title("GradCAM Heatmap", fontsize=title_fontsize)
+        axs[1].imshow(cam_img_np, cmap="jet")
+        axs[1].set_title("GradCAM Heatmap")
         axs[1].axis("off")
 
-        axs[2].imshow(blend_img, aspect="auto")
-        axs[2].set_title("Blended Image", fontsize=title_fontsize)
+        axs[2].imshow(blend_img)
+        axs[2].set_title("Blended Image")
         axs[2].axis("off")
 
-        axs[3].imshow(blend_img_otsu, aspect="auto")
-        axs[3].set_title("Blended Image (Otsu filtered)", fontsize=title_fontsize)
+        axs[3].imshow(blend_img_otsu)
+        axs[3].set_title("Blended Image (Otsu filtered)")
         axs[3].axis("off")
 
         plt.tight_layout()
