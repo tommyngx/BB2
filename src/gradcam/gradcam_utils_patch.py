@@ -381,6 +381,9 @@ def post_mil_gradcam(
     pred: str | None = None,
     prob: float | None = None,
     gt_label: str | None = None,
+    original_img_size: tuple[
+        int, int
+    ] = None,  # ← GIỮ parameter này nhưng không dùng nữa
 ) -> None:
     """Visualize GradCAM heatmap with multiple display options."""
     cam_img = Image.fromarray(cam).resize(img.size, resample=Image.Resampling.BILINEAR)
@@ -394,7 +397,7 @@ def post_mil_gradcam(
             )
             ax.add_patch(rect)
 
-    # ← XÓA: Không dùng dynamic aspect ratio nữa, dùng figsize cố định như based
+    # ← XÓA logic aspect ratio, dùng figsize cố định như based
     main_title = f"Original Image"
     if gt_label is not None:
         main_title += f",|GT: {gt_label}|"

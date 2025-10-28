@@ -275,8 +275,8 @@ def main():
                 else:
                     pred_str = f"Patch {patch_idx + 1}: {pred_class}"
 
-                # ← SỬA: Global patch KHÔNG truyền original_img_size
-                # Visualize - không truyền original_img_size nữa
+                # ← SỬA: KHÔNG truyền original_img_size nữa, để post_mil_gradcam tự xử lý
+                # Visualize with appropriate aspect ratio
                 post_mil_gradcam(
                     patch_cam,
                     patch_img,
