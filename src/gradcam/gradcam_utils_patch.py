@@ -17,7 +17,7 @@ def split_image_into_patches(
     img: Image.Image,
     num_patches: int,
     patch_size: tuple[int, int] = None,
-    add_global: bool = False,  # ← SỬA: default là False
+    add_global: bool = False,
 ) -> list[Image.Image]:
     """
     Split an image into vertical patches with optional overlap.
@@ -69,16 +69,20 @@ def split_image_into_patches(
     # Add global image as last patch if requested
     if add_global:
         if isinstance(original_img, Image.Image):
-            # Resize to patch_size if provided
+            # For global patch, maintain aspect ratio
             if patch_size is not None:
+                # Calculate new dimensions maintaining aspect ratio
+                orig_w, orig_h = original_img.size
+                ratio = orig_h / orig_w
+                new_w = patch_size[1]  # Use patch width
+                new_h = int(new_w * ratio)  # Calculate height to maintain ratio
                 global_patch = original_img.resize(
-                    (patch_size[1], patch_size[0]), Image.Resampling.BILINEAR
+                    (new_w, new_h), Image.Resampling.BILINEAR
                 )
             else:
                 global_patch = original_img
             patches.append(np.array(global_patch))
         else:
-            # For numpy/tensor, use the original converted image
             patches.append(image)
 
     # Convert back to original input type
