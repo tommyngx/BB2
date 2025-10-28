@@ -263,8 +263,11 @@ def mil_gradcam(
     Prints input tensor info and optionally plots all patches in a grid before running GradCAM.
     Returns GradCAM heatmap as ndarray.
     """
-    # Print input tensor info
-    print("Input tensor shape:", input_tensor.shape)
+    # Debug: print input tensor info
+    print("DEBUG: mil_gradcam called")
+    print("DEBUG: input_tensor.shape:", input_tensor.shape)
+    print("DEBUG: target_layer:", target_layer)
+    print("DEBUG: class_idx:", class_idx)
     if input_tensor.dim() == 5:
         batch, num_patches, c, h, w = input_tensor.shape
         print(
@@ -313,19 +316,26 @@ def mil_gradcam(
     handle_b = layer.register_full_backward_hook(backward_hook)
 
     output = model(input_tensor)
+    print("DEBUG: model output shape:", output.shape)
     if class_idx is None:
         class_idx = output.argmax(dim=1).item()
+    print("DEBUG: used class_idx for backward:", class_idx)
 
     model.zero_grad()
     output[0, class_idx].backward()
 
     grads = gradients[0]
     acts = activations[0]
+    print("DEBUG: grads.shape:", grads.shape)
+    print("DEBUG: acts.shape:", acts.shape)
 
     # Handle MIL models: aggregate across instance/batch dimensions if needed
     while grads.dim() > 4:
+        print("DEBUG: grads/acts have >4 dims, averaging over dim=1")
         grads = grads.mean(dim=1)
         acts = acts.mean(dim=1)
+        print("DEBUG: grads.shape after mean:", grads.shape)
+        print("DEBUG: acts.shape after mean:", acts.shape)
 
     weights = grads.mean(dim=(2, 3), keepdim=True)
     cam = (weights * acts).sum(dim=1, keepdim=True)
