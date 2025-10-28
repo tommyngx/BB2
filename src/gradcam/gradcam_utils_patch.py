@@ -415,7 +415,7 @@ def post_mil_gradcam(
         axs[2].axis("off")
 
         axs[3].imshow(blend_img_otsu)
-        axs[3].set_title("Blended Image (Otsu filtered)")
+        axs[3].set_title("Blended Image (Otsu)")
         axs[3].axis("off")
 
         plt.tight_layout()

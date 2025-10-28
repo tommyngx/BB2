@@ -407,7 +407,7 @@ def post_gradcam(
         axs[1].set_title("GradCAM Heatmap")
         axs[1].axis("off")
         axs[2].imshow(blend_img)
-        axs[2].set_title("Blended Image (Otsu filtered)")
+        axs[2].set_title("Blended Image (Otsu)")
         axs[2].axis("off")
         plt.show()
     elif option == 5:
