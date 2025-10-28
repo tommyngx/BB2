@@ -504,6 +504,53 @@ def post_mil_gradcam(
     >>> # Otsu filtered visualization for cleaner focus
     >>> post_gradcam(cam, img, option=4, blend_alpha=0.7, pred="Bird", prob=0.78)
     """
+    # Debug: check cam shape BEFORE Image.fromarray
+    print("DEBUG post_mil_gradcam: Received cam.shape:", cam.shape)
+    print("DEBUG post_mil_gradcam: Received cam.dtype:", cam.dtype)
+    print("DEBUG post_mil_gradcam: Received cam.ndim:", cam.ndim)
+
+    # Ensure cam is 2D before calling fromarray
+    if cam.ndim != 2:
+        print("ERROR: cam is not 2D! Attempting to fix...")
+        # Squeeze all singleton dimensions
+        original_shape = cam.shape
+        cam = np.squeeze(cam)
+        print(f"DEBUG: After squeeze, cam.shape: {cam.shape} (was {original_shape})")
+
+        # If still not 2D, force to 2D
+        if cam.ndim != 2:
+            if cam.ndim > 2:
+                # Take last 2 non-singleton dimensions
+                non_singleton_dims = [i for i, s in enumerate(cam.shape) if s > 1]
+                print(f"DEBUG: Non-singleton dims indices: {non_singleton_dims}")
+                if len(non_singleton_dims) >= 2:
+                    # Reshape to last two non-singleton dims
+                    h_idx = non_singleton_dims[-2]
+                    w_idx = non_singleton_dims[-1]
+                    new_shape = (cam.shape[h_idx], cam.shape[w_idx])
+                    cam = cam.reshape(-1, *new_shape)[0]
+                    print(f"DEBUG: Reshaped to {new_shape}")
+                else:
+                    # Flatten and make square
+                    cam = cam.flatten()
+                    size = int(np.sqrt(cam.size))
+                    if size * size == cam.size:
+                        cam = cam.reshape(size, size)
+                    else:
+                        cam = cam.reshape(1, -1)
+                    print(f"DEBUG: Flattened and reshaped to {cam.shape}")
+            elif cam.ndim == 1:
+                size = int(np.sqrt(cam.size))
+                if size * size == cam.size:
+                    cam = cam.reshape(size, size)
+                else:
+                    cam = cam.reshape(1, -1)
+                print(f"DEBUG: 1D reshaped to {cam.shape}")
+            elif cam.ndim == 0:
+                cam = np.array([[cam]])
+                print("DEBUG: 0D reshaped to (1, 1)")
+        print("DEBUG: Final fixed cam.shape:", cam.shape)
+
     cam_img = Image.fromarray(cam).resize(img.size, resample=Image.Resampling.BILINEAR)
     cam_img_np = np.array(cam_img)
 
