@@ -290,6 +290,58 @@ def main():
                     prob=prob_class,
                     gt_label=None,
                 )
+
+            # Tổng hợp các patch heatmap thành một heatmap lớn (top-down)
+            # Resize từng heatmap về chiều rộng ảnh gốc, sau đó ghép dọc
+            patch_heatmaps_resized = []
+            for idx, cam in enumerate(patch_heatmaps):
+                # Tính chiều rộng ảnh gốc
+                target_w = original_img_size[0]
+                # Tính chiều cao mong muốn cho từng patch (tỷ lệ theo patch ảnh)
+                patch_h = patch_imgs[idx].size[1]
+                cam_img = Image.fromarray(cam).resize(
+                    (target_w, patch_h), Image.Resampling.BILINEAR
+                )
+                patch_heatmaps_resized.append(np.array(cam_img))
+            # Ghép dọc các patch heatmap lại
+            combined_heatmap = np.vstack(patch_heatmaps_resized)
+            # Resize lại cho khớp với ảnh gốc nếu cần (đề phòng sai số)
+            combined_heatmap_img = Image.fromarray(combined_heatmap).resize(
+                original_img_size, Image.Resampling.BILINEAR
+            )
+            combined_heatmap_np = np.array(combined_heatmap_img)
+
+            # Plot hình tổng hợp heatmap patch (overlay lên ảnh gốc)
+            print("\n=== Combined Patch Heatmap (Top-down) ===")
+            post_gradcam(
+                combined_heatmap_np,
+                img,
+                bbx_list=None,
+                option=5,
+                blend_alpha=0.5,
+                pred=f"Combined Patch: {pred_class}",
+                prob=prob_class,
+                gt_label=None,
+            )
+
+            # Nếu có global, plot hình global cuối cùng
+            if has_global:
+                patch_cam = gradcam_map[-1]
+                patch_img = patch_images[-1]
+                if isinstance(patch_img, np.ndarray):
+                    patch_img = Image.fromarray(patch_img)
+                pred_str = f"Global: {pred_class}"
+                print("\n=== Global Image ===")
+                post_gradcam(
+                    patch_cam,
+                    patch_img,
+                    bbx_list=None,
+                    option=5,
+                    blend_alpha=0.5,
+                    pred=pred_str,
+                    prob=prob_class,
+                    gt_label=None,
+                )
         else:
             # Standard model - single heatmap
             post_gradcam(
