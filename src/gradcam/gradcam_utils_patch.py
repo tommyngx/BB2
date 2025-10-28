@@ -381,7 +381,6 @@ def post_mil_gradcam(
     pred: str | None = None,
     prob: float | None = None,
     gt_label: str | None = None,
-    original_img_size: tuple[int, int] = None,
 ) -> None:
     """Visualize GradCAM heatmap with multiple display options."""
     cam_img = Image.fromarray(cam).resize(img.size, resample=Image.Resampling.BILINEAR)
