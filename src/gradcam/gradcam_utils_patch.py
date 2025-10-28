@@ -277,10 +277,7 @@ def mil_gradcam(
     target_layer: str,
     class_idx: int | None = None,
 ) -> ndarray:
-    """
-    Generate GradCAM for MIL/patch-based models.
-    For MILClassifierV4 with shared backbone: captures activations for ALL patches (including global).
-    """
+    """Generate GradCAM for MIL/patch-based models."""
     activations_list = []
     gradients_list = []
 
@@ -291,7 +288,6 @@ def mil_gradcam(
         gradients_list.append(grad_out[0].detach().clone())
 
     layer = dict([*model.named_modules()])[target_layer]
-
     handle_f = layer.register_forward_hook(forward_hook)
     handle_b = layer.register_full_backward_hook(backward_hook)
 
@@ -307,77 +303,58 @@ def mil_gradcam(
     print(f"\n{'=' * 60}")
     print(f"DEBUG mil_gradcam:")
     print(f"  Input patches: {num_input_patches}")
-    print(f"  Captured {len(activations_list)} activations")
+    print(f"  Captured {len(activations_list)} activation groups")
 
-    # Handle different activation structures
-    if len(activations_list) > 0:
-        acts = activations_list[0]
-        grads = gradients_list[0]
+    # Concatenate all activations and gradients from multiple forward passes
+    all_acts = []
+    all_grads = []
+    for acts, grads in zip(activations_list, gradients_list):
+        print(f"  Act shape: {acts.shape}, Grad shape: {grads.shape}")
+        # If 4D [B, C, H, W], treat as [B, C, H, W] where B=num_patches
+        if acts.dim() == 4:
+            all_acts.append(acts)
+            all_grads.append(grads)
+        elif acts.dim() == 5:  # [1, N, C, H, W]
+            all_acts.append(acts[0])
+            all_grads.append(grads[0])
 
-        print(f"  Activation shape: {acts.shape}")
-        print(f"  Gradient shape: {grads.shape}")
-
-        # Case 1: Model batched ALL patches → acts shape [B*N, C, H, W] or [B, N, C, H, W]
-        if acts.dim() == 5:  # [B, N, C, H, W]
-            B, N, C, H, W = acts.shape
-            acts = acts[0]  # [N, C, H, W]
-            grads = grads[0]  # [N, C, H, W]
-        elif acts.dim() == 4:  # [B*N, C, H, W] - need to reshape
-            total_patches = acts.shape[0]
-            if total_patches == num_input_patches:
-                # Perfect: [N, C, H, W]
-                pass
-            elif total_patches > num_input_patches:
-                # Model processed patches in batches, take first num_input_patches
-                acts = acts[:num_input_patches]
-                grads = grads[:num_input_patches]
-            else:
-                # Duplicate to match num_input_patches
-                repeats = (num_input_patches + total_patches - 1) // total_patches
-                acts = acts.repeat(repeats, 1, 1, 1)[:num_input_patches]
-                grads = grads.repeat(repeats, 1, 1, 1)[:num_input_patches]
-
-        # Now acts and grads should be [N, C, H, W]
-        if acts.dim() == 4 and acts.shape[0] == num_input_patches:
-            # Compute CAM for each patch
-            cams = []
-            for i in range(num_input_patches):
-                g = grads[i]  # [C, H, W]
-                a = acts[i]  # [C, H, W]
-                weights = g.mean(dim=(1, 2), keepdim=True)  # [C, 1, 1]
-                cam = (weights * a).sum(dim=0)  # [H, W]
-                cam = torch.relu(cam)
-                cams.append(cam)
-            cam = torch.stack(cams, dim=0)  # [N, H, W]
-        else:
-            # Fallback: aggregate method
-            print(f"  ⚠️ Unexpected activation shape, using fallback")
-            weights = (
-                grads.mean(dim=(2, 3), keepdim=True)
-                if grads.dim() == 4
-                else grads.mean(dim=(1, 2), keepdim=True)
-            )
-            cam = (weights * acts).sum(dim=1, keepdim=True)
-            cam = torch.relu(cam).squeeze()
-            if cam.dim() == 2:
-                cam = cam.unsqueeze(0).repeat(num_input_patches, 1, 1)
+    # Concatenate along batch dimension
+    if len(all_acts) > 1:
+        acts = torch.cat(all_acts, dim=0)  # [total_patches, C, H, W]
+        grads = torch.cat(all_grads, dim=0)
+        print(f"  Concatenated: acts {acts.shape}, grads {grads.shape}")
     else:
-        print(f"  ⚠️ No activations captured!")
-        cam = torch.zeros(num_input_patches, 14, 14)
+        acts = all_acts[0]
+        grads = all_grads[0]
+
+    # Ensure we have exactly num_input_patches
+    if acts.shape[0] < num_input_patches:
+        # Pad with duplicates of last
+        repeats_needed = num_input_patches - acts.shape[0]
+        acts = torch.cat([acts] + [acts[-1:]] * repeats_needed, dim=0)
+        grads = torch.cat([grads] + [grads[-1:]] * repeats_needed, dim=0)
+        print(f"  Padded to {num_input_patches} patches")
+    elif acts.shape[0] > num_input_patches:
+        acts = acts[:num_input_patches]
+        grads = grads[:num_input_patches]
+        print(f"  Truncated to {num_input_patches} patches")
+
+    # Compute CAM for each patch
+    cams = []
+    for i in range(num_input_patches):
+        g = grads[i]  # [C, H, W]
+        a = acts[i]  # [C, H, W]
+        weights = g.mean(dim=(1, 2), keepdim=True)  # [C, 1, 1]
+        cam = (weights * a).sum(dim=0)  # [H, W]
+        cam = torch.relu(cam)
+        cams.append(cam)
+    cam = torch.stack(cams, dim=0)  # [N, H, W]
 
     print(f"  Output CAM shape: {cam.shape}")
     print(f"{'=' * 60}\n")
 
-    # Convert to numpy and normalize
+    # Normalize
     cam = cam.cpu().numpy()
-
-    # Ensure cam is 3D [N, H, W]
-    if cam.ndim == 4:
-        # If still 4D, squeeze or take first element
-        cam = cam.squeeze()
-        if cam.ndim == 4:  # Still 4D after squeeze
-            cam = cam[:, 0, :, :]  # Take first channel
-
     normalized_cams = []
     for i in range(cam.shape[0]):
         c = cam[i]

@@ -1,4 +1,19 @@
 import os
+import sys
+
+# ===== FORCE RELOAD ALL GRADCAM MODULES =====
+# Remove ALL cached gradcam modules before importing
+modules_to_reload = [
+    "src.gradcam.gradcam_utils_patch",
+    "src.gradcam.gradcam_utils_based",
+    "src.gradcam",
+]
+for module_name in modules_to_reload:
+    if module_name in sys.modules:
+        del sys.modules[module_name]
+        print(f"🔄 Removed cached module: {module_name}")
+
+# Now import fresh modules
 import torch
 from torch import nn
 import pandas as pd
