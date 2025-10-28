@@ -67,6 +67,28 @@ def load_full_model(
     )
 
 
+def print_gradcam_info(
+    model_out,
+    input_tensor,
+    img,
+    target_layer,
+    class_idx,
+    pred_class,
+    prob_class,
+    bbx_list,
+    gt,
+):
+    print("Model name:", type(model_out).__name__)
+    print("Input tensor shape:", input_tensor.shape)
+    print("Image:", img)
+    print("Target layer:", target_layer)
+    print("Class idx (input):", class_idx)
+    print("Predicted class:", pred_class)
+    print("Predicted prob:", prob_class)
+    print("Bounding box list:", bbx_list)
+    print("Ground truth:", gt)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset_folder", type=str, required=True)
@@ -100,25 +122,68 @@ def main():
     # Prepare input for GradCAM
     if arch_type == "based":
         # Standard model
-        result = pre_gradcam(model_tuple[:5], image_path)
+        (
+            model_out,
+            input_tensor,
+            img,
+            target_layer,
+            class_idx,
+            pred_class,
+            prob_class,
+        ) = pre_gradcam(model_tuple[:5], image_path, target_layer=None, class_idx=None)
+        print_gradcam_info(
+            model_out,
+            input_tensor,
+            img,
+            target_layer,
+            class_idx,
+            pred_class,
+            prob_class,
+            bbx_list,
+            gt,
+        )
+        # Run GradCAM
+        from src.gradcam.gradcam_utils_based import (
+            gradcam,
+            gradcam_plus_plus,
+            post_gradcam,
+        )
+
+        gradcam_map = gradcam(model_out, input_tensor, target_layer, class_idx)
+        # If you want to use GradCAM++, uncomment below
+        # gradcam_map = gradcam_plus_plus(model_out, input_tensor, target_layer, class_idx)
+        post_gradcam(
+            gradcam_map,
+            img,
+            bbx_list=bbx_list,
+            option=5,
+            blend_alpha=0.5,
+            pred=pred_class,
+            prob=prob_class,
+            gt_label=gt,
+        )
     else:
-        # Patch/MIL model
         result = pre_mil_gradcam(model_tuple, image_path)
-
-    # Unpack result
-    model_out, input_tensor, img, target_layer, class_idx, pred_class, prob_class = (
-        result
-    )
-
-    print("Model name:", type(model_out).__name__)
-    print("Input tensor shape:", input_tensor.shape)
-    print("Image:", img)
-    print("Target layer:", target_layer)
-    print("Class idx (input):", class_idx)
-    print("Predicted class:", pred_class)
-    print("Predicted prob:", prob_class)
-    print("Bounding box list:", bbx_list)
-    print("Ground truth:", gt)
+        (
+            model_out,
+            input_tensor,
+            img,
+            target_layer,
+            class_idx,
+            pred_class,
+            prob_class,
+        ) = result
+        print_gradcam_info(
+            model_out,
+            input_tensor,
+            img,
+            target_layer,
+            class_idx,
+            pred_class,
+            prob_class,
+            bbx_list,
+            gt,
+        )
 
 
 if __name__ == "__main__":
