@@ -3,6 +3,7 @@ from .backbone import (
     get_timm_backbone,
     get_fastervit_backbone,
     get_dino_backbone,
+    get_mamba_backbone,
 )
 from .head import get_linear_head
 import torch.nn as nn
@@ -42,7 +43,8 @@ def get_based_model(model_type="resnet50", num_classes=2):
         model, feature_dim = get_timm_backbone(model_type)
         # Nếu là mamba_T thì sửa lại head
         if model_type == "mamba_t":
-            model.head = get_linear_head(feature_dim, num_classes)
+            model, feature_dim = get_mamba_backbone(model_type, num_classes=num_classes)
+            # model.head = get_linear_head(feature_dim, num_classes)
             # nn.Linear(self.feature_dim, num_classes)
             # print("Replaced Mamba_T head with linear classifier", model)
         else:

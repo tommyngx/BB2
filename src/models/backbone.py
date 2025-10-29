@@ -174,39 +174,22 @@ def get_timm_backbone(model_type):
         feature_dim = model.head.fc.in_features
         model.head.fc = nn.Identity()
     # --- MambaVision-T support ---
-    elif model_type == "mamba_t":
-        # Tạo model + tự động lấy feature_dim
-        model_wrapper = MambaVisionLogitsWrapper(
-            model_name="nvidia/MambaVision-T-1K",
-            num_classes=None,  # Không thay head ở đây
-        )
-
-        # Lấy feature_dim từ wrapper
-        feature_dim = model_wrapper.feature_dim
-
-        # Gán model (đã có .head = Identity())
-        model = model_wrapper
-        return model, feature_dim
-    # --- End MambaVision-T support ---
-
-    # --- MambaOut-Tiny support ---
-    elif model_type == "mambaout_tiny":
-        model = timm_models.create_model("mambaout_tiny.in1k", pretrained=True)
-        # Use head.fc for feature_dim and replace with Identity
-        if (
-            hasattr(model, "head")
-            and hasattr(model.head, "fc")
-            and hasattr(model.head.fc, "in_features")
-        ):
-            feature_dim = model.head.fc.in_features
-            model.head.fc = nn.Identity()
-        else:
-            raise RuntimeError("Cannot determine feature_dim for mambaout_tiny.in1k")
-        return model, feature_dim
-    # --- End MambaOut-Tiny support ---
     else:
         raise ValueError("Unsupported timm backbone type")
     return model, feature_dim
+
+
+def get_mamba_backbone(model_type, num_classes=None):
+    if model_type == "mamba_t":
+        model_wrapper = MambaVisionLogitsWrapper(
+            model_name="nvidia/MambaVision-T-1K",
+            num_classes=None,
+        )
+        feature_dim = model_wrapper.feature_dim
+        model = model_wrapper
+        return model, feature_dim
+    else:
+        raise ValueError("Unsupported mamba backbone type")
 
 
 class MambaVisionLogitsWrapper(nn.Module):
