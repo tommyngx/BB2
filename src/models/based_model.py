@@ -55,8 +55,8 @@ def get_based_model(model_type="resnet50", num_classes=2):
             model.classifier = get_linear_head(feature_dim, num_classes)
         else:
             raise ValueError("Unknown head structure for timm backbone")
-    elif model_type == "fastervit":
-        model, feature_dim = get_fastervit_backbone()
+        # elif model_type == "fastervit":
+        #    model, feature_dim = get_fastervit_backbone()
         model.head = get_linear_head(feature_dim, num_classes)
     elif model_type in [
         "dinov2_small",
