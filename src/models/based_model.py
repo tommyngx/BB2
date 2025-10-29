@@ -75,7 +75,7 @@ def get_based_model(model_type="resnet50", num_classes=2):
                 super().__init__()
                 self.transformer = transformer
                 self.feature_dim = feature_dim
-                self.classifier = get_linear_head(feature_dim, num_classes)
+                self.classifier = get_linear_head(transformer, num_classes)
 
             def forward(self, x):
                 x = self.transformer(x)
