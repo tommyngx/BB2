@@ -248,7 +248,7 @@ def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
     elif hasattr(model, "head") and hasattr(model.head, "in_features"):
         feature_dim = model.head.in_features
         model.head = nn.Identity()
-    print("Feature dim detected:", model)
+    # print("Feature dim detected:", model)
     # else:
     # feature_dim = model  # .num_features
 
