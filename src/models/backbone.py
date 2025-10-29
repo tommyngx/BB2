@@ -214,30 +214,7 @@ class MambaVisionLogitsWrapper(nn.Module):
         return self.base_model(x)["logits"]
 
 
-def get_fastervit_backbone():
-    try:
-        model = create_model(
-            "faster_vit_0_any_res", pretrained=False, resolution=[448, 448]
-        )
-        feature_dim = model.head.in_features
-        model.head = nn.Identity()
-    except Exception:
-        model = create_model("faster_vit_0_224", pretrained=True, checkpoint_path=None)
-        feature_dim = model.head.in_features
-        model.head = nn.Identity()
-    return model, feature_dim
-
-
 def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
-    """
-    Supported model_type:
-        - dinov2_small
-        - dinov2_base
-        - dinov3_convnext_tiny
-        - dinov3_convnext_small
-        - dinov3_vits16
-        - dinov3_vits16plus
-    """
     dino_models = {
         "dinov2_small": "vit_small_patch14_dinov2.lvd142m",
         "dinov2_base": "vit_base_patch14_dinov2.lvd142m",
@@ -245,6 +222,8 @@ def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
         "dinov3_convnext_small": "convnext_small.dinov3_lvd1689m",
         "dinov3_vits16": "vit_small_patch16_dinov3_qkvb.lvd1689m",
         "dinov3_vits16plus": "vit_small_plus_patch16_dinov3.lvd1689m",
+        "dinov3_convnext_base": "convnext_base.dinov3_lvd1689m",
+        "dinov3_vits16base": "vit_base_patch16_dinov3.lvd1689m",
     }
 
     if model_type not in dino_models:
