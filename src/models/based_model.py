@@ -1,7 +1,7 @@
 from .backbone import (
     get_resnet_backbone,
     get_timm_backbone,
-    get_fastervit_backbone,
+    # get_fastervit_backbone,
     get_dino_backbone,
     get_mamba_backbone,
 )
