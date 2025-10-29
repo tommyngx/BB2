@@ -231,12 +231,15 @@ def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
             f"Unsupported model_type: {model_type}. Choose from {list(dino_models.keys())}"
         )
 
-    model = timm_models.create_model(
-        dino_models[model_type],
-        pretrained=True,
-        num_classes=0,
-        dynamic_img_size=True,
-    )
+    model_args = {
+        "pretrained": True,
+        "num_classes": 0,
+    }
+
+    if "dynamic_img_size" in timm_models.create_model.__code__.co_varnames:
+        model_args["dynamic_img_size"] = True
+
+    model = timm_models.create_model(dino_models[model_type], **model_args)
     if hasattr(model, "fc") and hasattr(model.fc, "in_features"):
         feature_dim = model.fc.in_features
         model.fc = nn.Identity()
