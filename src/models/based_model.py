@@ -40,17 +40,24 @@ def get_based_model(model_type="resnet50", num_classes=2):
         "mamba_t",
     ]:
         model, feature_dim = get_timm_backbone(model_type)
-        # Replace the head with a linear classifier for all timm backbones
-        if hasattr(model, "fc"):
-            model.fc = get_linear_head(feature_dim, num_classes)
-        elif hasattr(model, "head") and hasattr(model.head, "fc"):
-            model.head.fc = get_linear_head(feature_dim, num_classes)
-        elif hasattr(model, "head"):
-            model.head = get_linear_head(feature_dim, num_classes)
-        elif hasattr(model, "classifier"):
-            model.classifier = get_linear_head(feature_dim, num_classes)
+        # Nếu là mamba_T thì sửa lại head
+        if model_type == "mamba_T":
+            import torch.nn as nn
+
+            model.model.head = nn.Linear(feature_dim, num_classes)
         else:
-            raise ValueError("Unknown head structure for timm backbone")
+            # Replace the head with a linear classifier for all timm backbones
+            if hasattr(model, "fc"):
+                model.fc = get_linear_head(feature_dim, num_classes)
+            elif hasattr(model, "head") and hasattr(model.head, "fc"):
+                model.head.fc = get_linear_head(feature_dim, num_classes)
+            elif hasattr(model, "head"):
+                model.head = get_linear_head(feature_dim, num_classes)
+            elif hasattr(model, "classifier"):
+                model.classifier = get_linear_head(feature_dim, num_classes)
+            else:
+                raise ValueError("Unknown head structure for timm backbone")
+
     elif model_type == "fastervit":
         model, feature_dim = get_fastervit_backbone()
         model.head = get_linear_head(feature_dim, num_classes)

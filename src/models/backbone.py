@@ -185,7 +185,7 @@ def get_timm_backbone(model_type):
         # Ưu tiên lấy trực tiếp
         if hasattr(model, "head") and hasattr(model.head, "in_features"):
             feature_dim = model.model.head.in_features
-            model.head = nn.Identity()
+            # model.head = nn.Identity()
         elif hasattr(model, "fc") and hasattr(model.fc, "in_features"):
             feature_dim = model.fc.in_features
             model.fc = nn.Identity()
