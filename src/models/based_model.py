@@ -42,11 +42,9 @@ def get_based_model(model_type="resnet50", num_classes=2):
         model, feature_dim = get_timm_backbone(model_type)
         # Nếu là mamba_T thì sửa lại head
         if model_type == "mamba_t":
-            import torch.nn as nn
-
             model.head = get_linear_head(feature_dim, num_classes)
             # nn.Linear(self.feature_dim, num_classes)
-            print("Replaced Mamba_T head with linear classifier", model)
+            # print("Replaced Mamba_T head with linear classifier", model)
         else:
             # Replace the head with a linear classifier for all timm backbones
             if hasattr(model, "fc"):
