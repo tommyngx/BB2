@@ -19,6 +19,10 @@ def get_based_model(model_type="resnet50", num_classes=2):
         # Replace the head with a linear classifier
         model = backbone
         model.fc = get_linear_head(feature_dim, num_classes)
+    elif model_type == "mamba_t":
+        model, feature_dim = get_mamba_backbone(model_type, num_classes=num_classes)
+        # model.model.head = nn.Linear(feature_dim, num_classes)
+
     elif model_type in [
         "resnest50",
         "resnest101",
@@ -38,28 +42,19 @@ def get_based_model(model_type="resnet50", num_classes=2):
         "swinv2_base",
         "swinv2_small",
         "mambaout_tiny",
-        "mamba_t",
     ]:
         model, feature_dim = get_timm_backbone(model_type)
-        # Nếu là mamba_T thì sửa lại head
-        if model_type == "mamba_t":
-            model, feature_dim = get_mamba_backbone(model_type, num_classes=num_classes)
-            # model.head = get_linear_head(feature_dim, num_classes)
-            # nn.Linear(self.feature_dim, num_classes)
-            # print("Replaced Mamba_T head with linear classifier", model)
+        # Replace the head with a linear classifier for all timm backbones
+        if hasattr(model, "fc"):
+            model.fc = get_linear_head(feature_dim, num_classes)
+        elif hasattr(model, "head") and hasattr(model.head, "fc"):
+            model.head.fc = get_linear_head(feature_dim, num_classes)
+        elif hasattr(model, "head"):
+            model.head = get_linear_head(feature_dim, num_classes)
+        elif hasattr(model, "classifier"):
+            model.classifier = get_linear_head(feature_dim, num_classes)
         else:
-            # Replace the head with a linear classifier for all timm backbones
-            if hasattr(model, "fc"):
-                model.fc = get_linear_head(feature_dim, num_classes)
-            elif hasattr(model, "head") and hasattr(model.head, "fc"):
-                model.head.fc = get_linear_head(feature_dim, num_classes)
-            elif hasattr(model, "head"):
-                model.head = get_linear_head(feature_dim, num_classes)
-            elif hasattr(model, "classifier"):
-                model.classifier = get_linear_head(feature_dim, num_classes)
-            else:
-                raise ValueError("Unknown head structure for timm backbone")
-
+            raise ValueError("Unknown head structure for timm backbone")
     elif model_type == "fastervit":
         model, feature_dim = get_fastervit_backbone()
         model.head = get_linear_head(feature_dim, num_classes)
