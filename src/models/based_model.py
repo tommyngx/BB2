@@ -44,7 +44,8 @@ def get_based_model(model_type="resnet50", num_classes=2):
         if model_type == "mamba_t":
             import torch.nn as nn
 
-            model.model.head = nn.Linear(feature_dim, num_classes)
+            model.head = get_linear_head(feature_dim, num_classes)
+            # nn.Linear(self.feature_dim, num_classes)
             print("Replaced Mamba_T head with linear classifier", model)
         else:
             # Replace the head with a linear classifier for all timm backbones
