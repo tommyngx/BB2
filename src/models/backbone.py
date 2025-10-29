@@ -235,7 +235,7 @@ def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
         dino_models[model_type],
         pretrained=True,
         num_classes=0,
-        dynamic_img_size=True,
+        # dynamic_img_size=True,
     )
     if hasattr(model, "num_features") and model.num_features is not None:
         feature_dim = model.num_features
