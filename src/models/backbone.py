@@ -195,30 +195,22 @@ def get_mamba_backbone(model_type, num_classes=None):
 class MambaVisionLogitsWrapper(nn.Module):
     def __init__(self, model_name="nvidia/MambaVision-T-1K", num_classes=None):
         super().__init__()
-        # Load model gốc
         from transformers import AutoModelForImageClassification
 
         base = AutoModelForImageClassification.from_pretrained(
             model_name, trust_remote_code=True
         )
-
-        # Lấy feature_dim từ head cũ
         self.feature_dim = base.model.head.in_features
 
-        # Tắt head cũ
-        base.model.head = nn.Identity()
-
-        # Chuẩn hóa: gán model.head để dễ dùng
-        # base.head = nn.Identity()
-
-        # Nếu có num_classes → thay head mới (tùy chọn)
+        # GÁN ĐÚNG VỊ TRÍ
         if num_classes is not None:
-            base.head = nn.Linear(self.feature_dim, num_classes)
+            base.model.head = nn.Linear(self.feature_dim, num_classes)
+        else:
+            base.model.head = nn.Identity()
 
         self.base_model = base
 
     def forward(self, x):
-        # Trả về Tensor (logits), giống ResNet
         return self.base_model(x)["logits"]
 
 
