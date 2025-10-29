@@ -41,7 +41,7 @@ def get_based_model(model_type="resnet50", num_classes=2):
     ]:
         model, feature_dim = get_timm_backbone(model_type)
         # Nếu là mamba_T thì sửa lại head
-        if model_type == "mamba_T":
+        if model_type == "mamba_t":
             import torch.nn as nn
 
             model.model.head = nn.Linear(feature_dim, num_classes)
