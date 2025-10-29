@@ -183,7 +183,7 @@ def get_mamba_backbone(model_type, num_classes=None):
     if model_type == "mamba_t":
         model_wrapper = MambaVisionLogitsWrapper(
             model_name="nvidia/MambaVision-T-1K",
-            num_classes=None,
+            num_classes=num_classes,
         )
         feature_dim = model_wrapper.feature_dim
         model = model_wrapper
