@@ -200,7 +200,7 @@ def get_timm_backbone(model_type):
         ):
             model.head = model.model.head  # chuẩn hóa về model.head
             feature_dim = model.head.in_features
-            model.head = nn.Identity()
+            model.model.head = nn.Identity()
         else:
             print("DEBUG: model.head =", getattr(model, "head", None))
             print("DEBUG: model.fc =", getattr(model, "fc", None))
