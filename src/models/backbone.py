@@ -226,7 +226,7 @@ class MambaVisionLogitsWrapper(nn.Module):
         base.model.head = nn.Identity()
 
         # Chuẩn hóa: gán model.head để dễ dùng
-        base.head = nn.Identity()
+        # base.head = nn.Identity()
 
         # Nếu có num_classes → thay head mới (tùy chọn)
         if num_classes is not None:
