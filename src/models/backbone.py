@@ -175,21 +175,17 @@ def get_timm_backbone(model_type):
         model.head.fc = nn.Identity()
     # --- MambaVision-T support ---
     elif model_type == "mamba_t":
-        from transformers import AutoModelForImageClassification
-
-        # Load model
-        model = AutoModelForImageClassification.from_pretrained(
-            "nvidia/MambaVision-T-1K",
-            trust_remote_code=True,
+        # Tạo model + tự động lấy feature_dim
+        model_wrapper = MambaVisionLogitsWrapper(
+            model_name="nvidia/MambaVision-T-1K",
+            num_classes=None,  # Không thay head ở đây
         )
-        # MambaVision: head nằm trong model.model.head
-        head_layer = model.model.head
-        if not hasattr(head_layer, "in_features"):
-            raise RuntimeError("MambaVision-T head không có in_features!")
 
-        feature_dim = head_layer.in_features
-        model.model.head = nn.Identity()  # Tắt head cũ
-        model.head = nn.Identity()  # (tùy chọn) chuẩn hóa model.head
+        # Lấy feature_dim từ wrapper
+        feature_dim = model_wrapper.feature_dim
+
+        # Gán model (đã có .head = Identity())
+        model = model_wrapper
         return model, feature_dim
     # --- End MambaVision-T support ---
 
@@ -211,6 +207,36 @@ def get_timm_backbone(model_type):
     else:
         raise ValueError("Unsupported timm backbone type")
     return model, feature_dim
+
+
+class MambaVisionLogitsWrapper(nn.Module):
+    def __init__(self, model_name="nvidia/MambaVision-T-1K", num_classes=None):
+        super().__init__()
+        # Load model gốc
+        from transformers import AutoModelForImageClassification
+
+        base = AutoModelForImageClassification.from_pretrained(
+            model_name, trust_remote_code=True
+        )
+
+        # Lấy feature_dim từ head cũ
+        self.feature_dim = base.model.head.in_features
+
+        # Tắt head cũ
+        base.model.head = nn.Identity()
+
+        # Chuẩn hóa: gán model.head để dễ dùng
+        base.head = nn.Identity()
+
+        # Nếu có num_classes → thay head mới (tùy chọn)
+        if num_classes is not None:
+            base.head = nn.Linear(self.feature_dim, num_classes)
+
+        self.base_model = base
+
+    def forward(self, x):
+        # Trả về Tensor (logits), giống ResNet
+        return self.base_model(x)["logits"]
 
 
 def get_fastervit_backbone():
