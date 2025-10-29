@@ -22,7 +22,7 @@ def get_based_model(model_type="resnet50", num_classes=2):
     elif model_type == "mamba_t":
         model, feature_dim = get_mamba_backbone(model_type, num_classes=num_classes)
         # model.model.head = nn.Linear(feature_dim, num_classes)
-        print("Using Mamba_T backbone with custom head.", model)
+        # print("Using Mamba_T backbone with custom head.", model)
     elif model_type in [
         "resnest50",
         "resnest101",
