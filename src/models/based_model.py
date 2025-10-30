@@ -19,7 +19,7 @@ def get_based_model(model_type="resnet50", num_classes=2):
         # Replace the head with a linear classifier
         model = backbone
         model.fc = get_linear_head(feature_dim, num_classes)
-    elif model_type == "mamba_t":
+    elif model_type in ["mamba_t", "mamba_s"]:
         model, feature_dim = get_mamba_backbone(model_type, num_classes=num_classes)
         # model.model.head = nn.Linear(feature_dim, num_classes)
         # print("Using Mamba_T backbone with custom head.", model)
