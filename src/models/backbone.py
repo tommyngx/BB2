@@ -188,6 +188,14 @@ def get_mamba_backbone(model_type, num_classes=None):
         feature_dim = model_wrapper.feature_dim
         model = model_wrapper
         return model, feature_dim
+    elif model_type == "mamba_s":
+        model_wrapper = MambaVisionLogitsWrapper(
+            model_name="nvidia/MambaVision-S-1K",
+            num_classes=num_classes,
+        )
+        feature_dim = model_wrapper.feature_dim
+        model = model_wrapper
+        return model, feature_dim
     else:
         raise ValueError("Unsupported mamba backbone type")
 
@@ -202,56 +210,4 @@ class MambaVisionLogitsWrapper(nn.Module):
         )
         self.feature_dim = base.model.head.in_features
 
-        # GÁN ĐÚNG VỊ TRÍ
-        if num_classes is not None:
-            base.model.head = nn.Linear(self.feature_dim, num_classes)
-        else:
-            base.model.head = nn.Identity()
-
-        self.base_model = base
-
-    def forward(self, x):
-        return self.base_model(x)["logits"]
-
-
-def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
-    dino_models = {
-        "dinov2_small": "vit_small_patch14_dinov2.lvd142m",
-        "dinov2_base": "vit_base_patch14_dinov2.lvd142m",
-        "dinov2_small_reg": "vit_small_patch14_reg4_dinov2.lvd142m",
-        "dinov2_base_reg": "vit_base_patch14_reg4_dinov3.lvd1689m",
-        "dinov3_convnext_tiny": "convnext_tiny.dinov3_lvd1689m",
-        "dinov3_convnext_small": "convnext_small.dinov3_lvd1689m",
-        "dinov3_vits16": "vit_small_patch16_dinov3_qkvb.lvd1689m",
-        "dinov3_vits16plus": "vit_small_plus_patch16_dinov3.lvd1689m",
-        "dinov3_convnext_base": "convnext_base.dinov3_lvd1689m",
-        "dinov3_vits16base": "vit_base_patch16_dinov3.lvd1689m",
-    }
-
-    if model_type not in dino_models:
-        raise ValueError(
-            f"Unsupported model_type: {model_type}. Choose from {list(dino_models.keys())}"
-        )
-
-    model_args = {
-        "pretrained": True,
-        "num_classes": 0,
-    }
-
-    if "dynamic_img_size" in timm_models.create_model.__code__.co_varnames:
-        model_args["dynamic_img_size"] = True
-
-    model = timm_models.create_model(dino_models[model_type], **model_args)
-    if hasattr(model, "fc") and hasattr(model.fc, "in_features"):
-        feature_dim = model.fc.in_features
-        model.fc = nn.Identity()
-    elif hasattr(model, "num_features") and model.num_features is not None:
-        feature_dim = model.num_features
-    elif hasattr(model, "head") and hasattr(model.head, "in_features"):
-        feature_dim = model.head.in_features
-        model.head = nn.Identity()
-    # print("Feature dim detected:", model)
-    # else:
-    # feature_dim = model  # .num_features
-
-    return model, feature_dim
+        # GÁN ĐÚN
