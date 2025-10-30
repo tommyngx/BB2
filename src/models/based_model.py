@@ -61,6 +61,8 @@ def get_based_model(model_type="resnet50", num_classes=2):
     elif model_type in [
         "dinov2_small",
         "dinov2_base",
+        "dinov2_small_reg",
+        "dinov2_base_reg",
         "dinov3_convnext_tiny",
         "dinov3_convnext_small",
         "dinov3_vits16",
