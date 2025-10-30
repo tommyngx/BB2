@@ -86,7 +86,8 @@ def get_based_model(model_type="resnet50", num_classes=2):
 
                 self.classifier = nn.Sequential(
                     nn.Linear(feature_dim, hidden_dim),
-                    nn.ReLU(inplace=True),
+                    # nn.ReLU(inplace=True),
+                    nn.GELU(),
                     nn.Dropout(p=dropout_p),
                     nn.BatchNorm1d(hidden_dim),
                     nn.Linear(hidden_dim, num_classes),
