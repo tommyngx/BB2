@@ -65,10 +65,12 @@ def get_based_model(model_type="resnet50", num_classes=2):
         "dinov2_base_reg",
         "dinov3_convnext_tiny",
         "dinov3_convnext_small",
-        "dinov3_vits16",
-        "dinov3_vits16plus",
+        "dinov3_vit16small",
+        "dinov3_vit16smallplus",
+        "dinov3_vit16base",
+        "dinov3_vit16large",
         "dinov3_convnext_base",
-        "dinov3_vits16base",
+        "dinov3_convnext_large",
     ]:
         transformer, feature_dim = get_dino_backbone(model_type)
 

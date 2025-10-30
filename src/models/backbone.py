@@ -230,10 +230,13 @@ def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
         "dinov2_base_reg": "vit_base_patch14_reg4_dinov3.lvd1689m",
         "dinov3_convnext_tiny": "convnext_tiny.dinov3_lvd1689m",
         "dinov3_convnext_small": "convnext_small.dinov3_lvd1689m",
-        "dinov3_vits16": "vit_small_patch16_dinov3_qkvb.lvd1689m",
-        "dinov3_vits16plus": "vit_small_plus_patch16_dinov3.lvd1689m",
+        "dinov3_vit16small": "vit_small_patch16_dinov3_qkvb.lvd1689m",
+        "dinov3_vit16smallplus": "vit_small_plus_patch16_dinov3.lvd1689m",
         "dinov3_convnext_base": "convnext_base.dinov3_lvd1689m",
-        "dinov3_vits16base": "vit_base_patch16_dinov3.lvd1689m",
+        "dinov3_vit16base": "vit_base_patch16_dinov3.lvd1689m",
+        # larger models:
+        "dinov3_vit16large": "vit_large_patch16_dinov3.lvd1689m",
+        "dinov3_convnext_large": "convnext_large.dinov3_lvd1689m",
     }
 
     if model_type not in dino_models:
