@@ -243,7 +243,7 @@ def get_gradcam_layer(model, model_name):
     # EfficientNet, EfficientNetV2
     elif "efficientnet" in model_name:
         return "blocks.5.-1.conv_pwl"
-    elif "dinov2" in model_name:
+    elif "dino" in model_name:
         return "transformer.blocks[-1].norm1"
     # If not matched, return the last layer's name
     else:
