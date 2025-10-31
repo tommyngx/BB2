@@ -160,7 +160,7 @@ def gradcam(
     """
     # ===== BẮT BUỘC: Unfreeze model để có gradient =====
     original_training_state = model.training
-    model.train()
+    model.eval()
     for param in model.parameters():
         param.requires_grad = True
 
