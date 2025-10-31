@@ -49,9 +49,15 @@ def get_based_model(model_type="resnet50", num_classes=2):
             feature_dim = model.fc.in_features
             model.fc = get_linear_head(feature_dim, num_classes)
         elif hasattr(model, "head") and hasattr(model.head, "fc"):
-            feature_dim = model.head.fc.in_features
-            model.head.fc = get_linear_head(feature_dim, num_classes)
+            # Kiểm tra xem fc có phải là Linear không
+            if isinstance(model.head.fc, nn.Linear):
+                feature_dim = model.head.fc.in_features
+                model.head.fc = get_linear_head(feature_dim, num_classes)
+            else:
+                # Nếu fc là Identity hoặc layer khác, thay thế toàn bộ head
+                model.head = get_linear_head(feature_dim, num_classes)
         elif hasattr(model, "head"):
+            # Head đơn giản, thay thế toàn bộ
             if isinstance(model.head, nn.Linear):
                 feature_dim = model.head.in_features
             model.head = get_linear_head(feature_dim, num_classes)
@@ -63,7 +69,7 @@ def get_based_model(model_type="resnet50", num_classes=2):
             raise ValueError("Unknown head structure for timm backbone")
         # elif model_type == "fastervit":
         #    model, feature_dim = get_fastervit_backbone()
-        model.head = get_linear_head(feature_dim, num_classes)
+        # model.head = get_linear_head(feature_dim, num_classes)
     elif model_type in [
         "dinov2_small",
         "dinov2_base",
