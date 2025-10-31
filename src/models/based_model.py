@@ -72,6 +72,7 @@ def get_based_model(model_type="resnet50", num_classes=2):
         "dinov3_convnext_base",
         "dinov3_convnext_large",
         "medino_vitb16",
+        "dinov2uni_base",
     ]:
         transformer, feature_dim = get_dino_backbone(model_type)
 

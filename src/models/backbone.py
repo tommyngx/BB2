@@ -261,9 +261,30 @@ def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
             raise ValueError("Cannot determine feature_dim for medino_vitb16")
         return model, feature_dim
 
+    # --- Add dinov2uni_base support ---
+    if model_type == "dinov2uni_base":
+        import timm
+
+        model = timm.create_model(
+            "hf-hub:TommyNgx/UniViT",
+            pretrained=True,
+            init_values=1e-5,
+            dynamic_img_size=True,
+        )
+        # Lấy feature_dim từ head nếu có, hoặc num_features
+        if hasattr(model, "head") and hasattr(model.head, "in_features"):
+            feature_dim = model.head.in_features
+            model.head = nn.Identity()
+        elif hasattr(model, "num_features"):
+            feature_dim = model.num_features
+            model.head = nn.Identity()
+        else:
+            raise ValueError("Cannot determine feature_dim for dinov2uni_base")
+        return model, feature_dim
+
     if model_type not in dino_models:
         raise ValueError(
-            f"Unsupported model_type: {model_type}. Choose from {list(dino_models.keys()) + ['medino_vitb16']}"
+            f"Unsupported model_type: {model_type}. Choose from {list(dino_models.keys()) + ['medino_vitb16', 'dinov2uni_base']}"
         )
 
     model_args = {
