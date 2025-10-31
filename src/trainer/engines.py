@@ -170,6 +170,22 @@ def evaluate_model(
     return (avg_loss, acc) if return_loss else acc
 
 
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+
+
+def setup_ddp():
+    dist.init_process_group(backend="nccl")
+    rank = dist.get_rank()
+    local_rank = int(os.environ["LOCAL_RANK"])
+    torch.cuda.set_device(local_rank)
+    return local_rank
+
+
+def cleanup_ddp():
+    dist.destroy_process_group()
+
+
 def train_model(
     model,
     train_loader,
@@ -187,10 +203,22 @@ def train_model(
     num_patches=None,
 ):
     # Multi-GPU support
+    from torch.nn.parallel import DistributedDataParallel as DDP
+
     if device != "cpu" and torch.cuda.device_count() > 1:
         print(f"Using {torch.cuda.device_count()} GPUs with DataParallel")
         print("Multi-GPU is available and will be used for training.")
-        model = nn.DataParallel(model)
+        local_rank = setup_ddp()
+        device = torch.device(f"cuda:{local_rank}")
+        print(f"🚀 Using DistributedDataParallel on GPU {local_rank}")
+        model = model.to(device)
+        model = DDP(model, device_ids=[local_rank])
+
+    ## Multi-GPU support
+    # if device != "cpu" and torch.cuda.device_count() > 1:
+    #    print(f"Using {torch.cuda.device_count()} GPUs with DataParallel")
+    #    print("Multi-GPU is available and will be used for training.")
+    #    model = nn.DataParallel(model)
     else:
         if device != "cpu" and torch.cuda.device_count() == 1:
             print("Only one GPU detected. Multi-GPU is not available.")
