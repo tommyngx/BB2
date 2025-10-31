@@ -116,6 +116,12 @@ def main():
     parser.add_argument(
         "--random", type=int, default=42, help="Sample index to use (default: 42)"
     )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="./gradcam_outputs",
+        help="Directory to save GradCAM visualizations",
+    )
     args = parser.parse_args()
 
     # Load model and metadata
@@ -138,6 +144,10 @@ def main():
         test_df.iloc[sample_idx]["bbx_list"] if "bbx_list" in test_df.columns else None
     )
     gt = test_df.iloc[sample_idx]["cancer"] if "cancer" in test_df.columns else None
+
+    # Create output directory
+    os.makedirs(args.output_dir, exist_ok=True)
+    base_filename = os.path.splitext(os.path.basename(image_path))[0]
 
     # Prepare input for GradCAM
     if arch_type == "based":
@@ -179,6 +189,7 @@ def main():
             pred=pred_class,
             prob=prob_class,
             gt_label=gt,
+            save_path=os.path.join(args.output_dir, f"{base_filename}_gradcam.png"),
         )
     else:
         # Patch/MIL model
@@ -283,6 +294,9 @@ def main():
                     pred=pred_str,
                     prob=prob_class,
                     gt_label=None,
+                    save_path=os.path.join(
+                        args.output_dir, f"{base_filename}_patch{patch_idx + 1}.png"
+                    ),
                 )
 
             # --- Calculate patch positions based on split_image_into_patches logic ---
@@ -337,6 +351,9 @@ def main():
                 pred=f"Combined Patch: {pred_class}",
                 prob=prob_class,
                 gt_label=None,
+                save_path=os.path.join(
+                    args.output_dir, f"{base_filename}_combined.png"
+                ),
             )
 
             # Visualize the global patch last (if present)
@@ -354,6 +371,9 @@ def main():
                     pred=pred_str,
                     prob=prob_class,
                     gt_label=None,
+                    save_path=os.path.join(
+                        args.output_dir, f"{base_filename}_global.png"
+                    ),
                 )
         else:
             # Standard model - single heatmap
@@ -366,6 +386,7 @@ def main():
                 pred=pred_class,
                 prob=prob_class,
                 gt_label=gt,
+                save_path=os.path.join(args.output_dir, f"{base_filename}_gradcam.png"),
             )
 
 
