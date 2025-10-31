@@ -141,11 +141,19 @@ def pre_gradcam(
 
 
 def vit_reshape_transform(x, grid_h, grid_w):
+    """
+    Reshape ViT output từ [B, N, C] sang [B, C, H, W]
+    Loại bỏ CLS token và extra tokens
+    """
     num_tokens = x.shape[1]
     num_patches = grid_h * grid_w
     num_extra = num_tokens - num_patches
-    x = x[:, num_extra:, :]
-    x = x.reshape(x.size(0), grid_h, grid_w, x.size(2))
+
+    # Loại bỏ CLS token và các extra tokens
+    x = x[:, num_extra:, :]  # [B, num_patches, C]
+
+    # Reshape thành spatial grid
+    x = x.reshape(x.size(0), grid_h, grid_w, x.size(2))  # [B, H, W, C]
     return x.permute(0, 3, 1, 2)  # [B, C, H, W]
 
 
@@ -158,11 +166,8 @@ def gradcam(
     """
     GradCAM for both CNN and ViT. Auto-detects model type and reshapes accordingly.
     """
-    # ===== QUAN TRỌNG: Giữ model ở eval mode nhưng enable gradient =====
-    model.eval()  # Để BatchNorm hoạt động với batch_size=1
-    # in những module layer cuối cùng last layer để debug
-    for name, module in model.named_modules():
-        print(f"Module name: {name}, Type: {type(module)}")
+    # Giữ model ở eval mode nhưng enable gradient
+    model.eval()
 
     # Enable gradient cho tất cả parameters
     for param in model.parameters():
@@ -173,7 +178,13 @@ def gradcam(
 
     # Cho phép truyền tên lớp hoặc module
     if isinstance(target_layer, str):
-        layer = dict([*model.named_modules()])[target_layer]
+        try:
+            layer = dict([*model.named_modules()])[target_layer]
+        except KeyError:
+            raise ValueError(
+                f"Layer '{target_layer}' not found in model. "
+                f"Available layers: {list(dict([*model.named_modules()]).keys())}"
+            )
     else:
         layer = target_layer
 
@@ -195,11 +206,10 @@ def gradcam(
         model.zero_grad()
         output[0, class_idx].backward()
 
-    # Debug
-    print(f"DEBUG: Activations captured: {len(activations)}")
-    print(f"DEBUG: Gradients captured: {len(gradients)}")
-
+    # Kiểm tra hooks có capture được không
     if len(activations) == 0 or len(gradients) == 0:
+        handle_f.remove()
+        handle_b.remove()
         raise RuntimeError(
             f"Hooks failed for layer '{target_layer}'. "
             f"Activations: {len(activations)}, Gradients: {len(gradients)}\n"
@@ -209,32 +219,55 @@ def gradcam(
     acts = activations[0]
     grads = gradients[0]
 
-    print(f"Activation shape: {acts.shape}")
-    print(f"Gradient shape: {grads.shape}")
+    print(f"DEBUG: Activation shape: {acts.shape}")
+    print(f"DEBUG: Gradient shape: {grads.shape}")
 
-    # ===== Kiểm tra cấu trúc wrapper =====
+    # ===== Kiểm tra cấu trúc wrapper và lấy grid_size =====
     is_vit = False
     grid_h, grid_w = None, None
 
     # Kiểm tra DinoVisionTransformerClassifier wrapper
     if hasattr(model, "transformer"):
-        if hasattr(model.transformer, "patch_embed") and hasattr(
-            model.transformer.patch_embed, "grid_size"
-        ):
-            is_vit = True
-            grid_h, grid_w = model.transformer.patch_embed.grid_size
-            print(f"DEBUG: Detected ViT wrapper with grid_size=({grid_h}, {grid_w})")
+        if hasattr(model.transformer, "patch_embed"):
+            if hasattr(model.transformer.patch_embed, "grid_size"):
+                is_vit = True
+                grid_h, grid_w = model.transformer.patch_embed.grid_size
+                print(
+                    f"DEBUG: Detected ViT wrapper with grid_size=({grid_h}, {grid_w})"
+                )
+            elif hasattr(model.transformer.patch_embed, "num_patches"):
+                # Fallback: tính grid_size từ num_patches (giả sử square grid)
+                is_vit = True
+                num_patches = model.transformer.patch_embed.num_patches
+                grid_h = grid_w = int(num_patches**0.5)
+                print(
+                    f"DEBUG: Detected ViT wrapper, calculated grid_size=({grid_h}, {grid_w})"
+                )
     # Kiểm tra direct ViT model
-    elif hasattr(model, "patch_embed") and hasattr(model.patch_embed, "grid_size"):
-        is_vit = True
-        grid_h, grid_w = model.patch_embed.grid_size
-        print(f"DEBUG: Detected direct ViT with grid_size=({grid_h}, {grid_w})")
+    elif hasattr(model, "patch_embed"):
+        if hasattr(model.patch_embed, "grid_size"):
+            is_vit = True
+            grid_h, grid_w = model.patch_embed.grid_size
+            print(f"DEBUG: Detected direct ViT with grid_size=({grid_h}, {grid_w})")
+        elif hasattr(model.patch_embed, "num_patches"):
+            is_vit = True
+            num_patches = model.patch_embed.num_patches
+            grid_h = grid_w = int(num_patches**0.5)
+            print(
+                f"DEBUG: Detected direct ViT, calculated grid_size=({grid_h}, {grid_w})"
+            )
 
     # Reshape nếu là ViT và activation có dạng [B, N, C]
-    if is_vit and acts.ndim == 3:
+    if is_vit and acts.ndim == 3 and grid_h is not None and grid_w is not None:
+        print(f"DEBUG: Reshaping ViT output from {acts.shape}")
         acts = vit_reshape_transform(acts, grid_h, grid_w)  # [B, C, H, W]
         grads = vit_reshape_transform(grads, grid_h, grid_w)  # [B, C, H, W]
-        print(f"After ViT reshape - Acts: {acts.shape}, Grads: {grads.shape}")
+        print(f"DEBUG: After reshape - Acts: {acts.shape}, Grads: {grads.shape}")
+    elif is_vit and acts.ndim == 3:
+        print(
+            "⚠️ WARNING: Detected ViT but couldn't determine grid_size. "
+            "GradCAM may not work correctly."
+        )
 
     # GradCAM logic
     weights = grads.mean(dim=(2, 3), keepdim=True)
