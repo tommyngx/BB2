@@ -117,7 +117,7 @@ def main():
         "--random", type=int, default=42, help="Sample index to use (default: 42)"
     )
     parser.add_argument(
-        "--output_dir",
+        "--output",
         type=str,
         default="./gradcam_outputs",
         help="Directory to save GradCAM visualizations",
