@@ -140,7 +140,74 @@ def pre_gradcam(
     return model, input_tensor, img, target_layer, class_idx, pred_class, pred_prob
 
 
+def vit_reshape_transform(x, grid_h, grid_w):
+    num_tokens = x.shape[1]
+    num_patches = grid_h * grid_w
+    num_extra = num_tokens - num_patches
+    x = x[:, num_extra:, :]
+    x = x.reshape(x.size(0), grid_h, grid_w, x.size(2))
+    return x.permute(0, 3, 1, 2)  # [B, C, H, W]
+
+
 def gradcam(
+    model: nn.Module,
+    input_tensor: torch.Tensor,
+    target_layer: str | nn.Module,
+    class_idx: int | None = None,
+) -> ndarray:
+    """
+    GradCAM for both CNN and ViT. Auto-detects model type and reshapes accordingly.
+    """
+    activations = []
+    gradients = []
+
+    # Cho phép truyền tên lớp hoặc module
+    if isinstance(target_layer, str):
+        layer = dict([*model.named_modules()])[target_layer]
+    else:
+        layer = target_layer
+
+    def forward_hook(module, input, output):
+        activations.append(output.detach())
+
+    def backward_hook(module, grad_in, grad_out):
+        gradients.append(grad_out[0].detach())
+
+    handle_f = layer.register_forward_hook(forward_hook)
+    handle_b = layer.register_full_backward_hook(backward_hook)
+
+    output = model(input_tensor)
+    if class_idx is None:
+        class_idx = output.argmax(dim=1).item()
+
+    model.zero_grad()
+    output[0, class_idx].backward()
+
+    acts = activations[0]
+    grads = gradients[0]
+
+    # Kiểm tra model là ViT/DINOv2
+    is_vit = hasattr(model, "patch_embed") and hasattr(model.patch_embed, "grid_size")
+    if is_vit and acts.ndim == 3:
+        grid_h, grid_w = model.patch_embed.grid_size
+        acts = vit_reshape_transform(acts, grid_h, grid_w)  # [B, C, H, W]
+        grads = vit_reshape_transform(grads, grid_h, grid_w)  # [B, C, H, W]
+
+    # GradCAM logic
+    weights = grads.mean(dim=(2, 3), keepdim=True)
+    cam = (weights * acts).sum(dim=1, keepdim=True)
+    cam = torch.relu(cam)
+    cam = cam.squeeze().cpu().numpy()
+    cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
+    cam = np.uint8(cam * 255)
+
+    handle_f.remove()
+    handle_b.remove()
+
+    return cam
+
+
+def gradcam_ori(
     model: nn.Module,
     input_tensor: torch.Tensor,
     target_layer: str,
