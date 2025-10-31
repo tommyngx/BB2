@@ -351,6 +351,7 @@ def post_gradcam(
     pred: str | None = None,
     prob: float | None = None,
     gt_label: str | None = None,
+    save_path: str | None = None,  # New parameter for saving path
 ) -> None:
     """
     Visualize GradCAM heatmap with multiple display options.
@@ -393,11 +394,14 @@ def post_gradcam(
         Default is None.
     gt_label : str, optional
         Ground truth label to display in the title. Default is None.
+    save_path : str, optional
+        File path to save the visualization. If None, displays the image.
+        Default is None.
 
     Returns
     -------
     None
-        The function displays a matplotlib figure and does not return a value.
+        The function displays or saves a matplotlib figure and does not return a value.
 
     Raises
     ------
@@ -466,7 +470,12 @@ def post_gradcam(
             draw_bbx(ax, bbx_list)
         ax.set_title(main_title)
         ax.axis("off")
-        plt.show()
+        # Save or show
+        if save_path:
+            plt.savefig(save_path, bbox_inches="tight", dpi=150)
+            print(f"✅ Saved GradCAM visualization to: {save_path}")
+        else:
+            plt.show()
     elif option == 2:
         fig, axs = plt.subplots(1, 2, figsize=(10, 5))
         axs[0].imshow(img)
@@ -477,7 +486,12 @@ def post_gradcam(
         axs[1].imshow(cam_img_np, cmap="jet")
         axs[1].set_title("GradCAM Heatmap")
         axs[1].axis("off")
-        plt.show()
+        # Save or show
+        if save_path:
+            plt.savefig(save_path, bbox_inches="tight", dpi=150)
+            print(f"✅ Saved GradCAM visualization to: {save_path}")
+        else:
+            plt.show()
     elif option == 3:
         blend = np.array(img).astype(np.float32) / 255.0
         cam_color = plt.cm.jet(cam_img_np / 255.0)[..., :3]
@@ -494,7 +508,12 @@ def post_gradcam(
         axs[2].imshow(blend_img)
         axs[2].set_title("Blended Image")
         axs[2].axis("off")
-        plt.show()
+        # Save or show
+        if save_path:
+            plt.savefig(save_path, bbox_inches="tight", dpi=150)
+            print(f"✅ Saved GradCAM visualization to: {save_path}")
+        else:
+            plt.show()
     elif option == 4:
         otsu_thresh = threshold_otsu(cam_img_np)
         mask = cam_img_np > otsu_thresh
@@ -516,7 +535,12 @@ def post_gradcam(
         axs[2].imshow(blend_img)
         axs[2].set_title("Blended Image (Otsu)")
         axs[2].axis("off")
-        plt.show()
+        # Save or show
+        if save_path:
+            plt.savefig(save_path, bbox_inches="tight", dpi=150)
+            print(f"✅ Saved GradCAM visualization to: {save_path}")
+        else:
+            plt.show()
     elif option == 5:
         blend = np.array(img).astype(np.float32) / 255.0
         cam_color = plt.cm.jet(cam_img_np / 255.0)[..., :3]
@@ -542,7 +566,12 @@ def post_gradcam(
         axs[3].imshow(blend_img_otsu)
         axs[3].set_title("Blended Image (Otsu)")
         axs[3].axis("off")
-        plt.show()
+        # Save or show
+        if save_path:
+            plt.savefig(save_path, bbox_inches="tight", dpi=150)
+            print(f"✅ Saved GradCAM visualization to: {save_path}")
+        else:
+            plt.show()
     else:
         raise ValueError("option must be 1, 2, 3, 4, or 5")
 
