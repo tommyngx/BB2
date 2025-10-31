@@ -245,67 +245,80 @@ def gradcam(
     is_vit = False
     grid_h, grid_w = None, None
 
+    # **TÍNH GRID_SIZE TỪ INPUT TENSOR THỰC TẾ**
+    actual_input_h, actual_input_w = input_tensor.shape[2], input_tensor.shape[3]
+
     # Kiểm tra DinoVisionTransformerClassifier wrapper
     if hasattr(model, "transformer"):
         if hasattr(model.transformer, "patch_embed"):
-            if hasattr(model.transformer.patch_embed, "grid_size"):
-                is_vit = True
-                grid_h, grid_w = model.transformer.patch_embed.grid_size
-                print(
-                    f"DEBUG: Detected ViT wrapper with grid_size=({grid_h}, {grid_w})"
-                )
-            elif hasattr(model.transformer.patch_embed, "num_patches"):
-                is_vit = True
-                num_patches = model.transformer.patch_embed.num_patches
-                grid_h = grid_w = int(num_patches**0.5)
-                print(
-                    f"DEBUG: Detected ViT wrapper, calculated grid_size=({grid_h}, {grid_w})"
-                )
+            patch_size = None
 
-            # **THÊM: Kiểm tra dynamic_img_size**
-            if hasattr(model.transformer.patch_embed, "img_size"):
-                img_h, img_w = model.transformer.patch_embed.img_size
+            # Lấy patch_size
+            if hasattr(model.transformer.patch_embed, "patch_size"):
                 patch_size = (
                     model.transformer.patch_embed.patch_size[0]
                     if hasattr(model.transformer.patch_embed.patch_size, "__getitem__")
                     else model.transformer.patch_embed.patch_size
                 )
-                # Tính lại grid_size từ image size và patch size
-                real_grid_h = img_h // patch_size
-                real_grid_w = img_w // patch_size
-                print(f"DEBUG: Image size=({img_h}, {img_w}), patch_size={patch_size}")
-                print(f"DEBUG: Recalculated grid_size=({real_grid_h}, {real_grid_w})")
-                grid_h, grid_w = real_grid_h, real_grid_w
+
+            if patch_size is not None:
+                is_vit = True
+                # **TÍNH TỪ INPUT THỰC TẾ, KHÔNG DÙNG model.patch_embed.img_size**
+                grid_h = actual_input_h // patch_size
+                grid_w = actual_input_w // patch_size
+                print(f"DEBUG: Detected ViT wrapper")
+                print(
+                    f"DEBUG: Actual input size=({actual_input_h}, {actual_input_w}), patch_size={patch_size}"
+                )
+                print(f"DEBUG: Calculated grid_size=({grid_h}, {grid_w})")
+            else:
+                # Fallback
+                if hasattr(model.transformer.patch_embed, "grid_size"):
+                    is_vit = True
+                    grid_h, grid_w = model.transformer.patch_embed.grid_size
+                    print(f"DEBUG: Using stored grid_size=({grid_h}, {grid_w})")
+                elif hasattr(model.transformer.patch_embed, "num_patches"):
+                    is_vit = True
+                    num_patches = model.transformer.patch_embed.num_patches
+                    grid_h = grid_w = int(num_patches**0.5)
+                    print(
+                        f"DEBUG: Calculated from num_patches, grid_size=({grid_h}, {grid_w})"
+                    )
 
     # Kiểm tra direct ViT model
     elif hasattr(model, "patch_embed"):
-        if hasattr(model.patch_embed, "grid_size"):
-            is_vit = True
-            grid_h, grid_w = model.patch_embed.grid_size
-            print(f"DEBUG: Detected direct ViT with grid_size=({grid_h}, {grid_w})")
-        elif hasattr(model.patch_embed, "num_patches"):
-            is_vit = True
-            num_patches = model.patch_embed.num_patches
-            grid_h = grid_w = int(num_patches**0.5)
-            print(
-                f"DEBUG: Detected direct ViT, calculated grid_size=({grid_h}, {grid_w})"
-            )
+        patch_size = None
 
-        # **THÊM: Kiểm tra dynamic_img_size cho direct model**
-        if hasattr(model.patch_embed, "img_size"):
-            img_h, img_w = model.patch_embed.img_size
+        if hasattr(model.patch_embed, "patch_size"):
             patch_size = (
                 model.patch_embed.patch_size[0]
                 if hasattr(model.patch_embed.patch_size, "__getitem__")
                 else model.patch_embed.patch_size
             )
-            real_grid_h = img_h // patch_size
-            real_grid_w = img_w // patch_size
+
+        if patch_size is not None:
+            is_vit = True
+            # **TÍNH TỪ INPUT THỰC TẾ**
+            grid_h = actual_input_h // patch_size
+            grid_w = actual_input_w // patch_size
+            print(f"DEBUG: Detected direct ViT")
             print(
-                f"DEBUG: Direct ViT - Image size=({img_h}, {img_w}), patch_size={patch_size}"
+                f"DEBUG: Actual input size=({actual_input_h}, {actual_input_w}), patch_size={patch_size}"
             )
-            print(f"DEBUG: Recalculated grid_size=({real_grid_h}, {real_grid_w})")
-            grid_h, grid_w = real_grid_h, real_grid_w
+            print(f"DEBUG: Calculated grid_size=({grid_h}, {grid_w})")
+        else:
+            # Fallback
+            if hasattr(model.patch_embed, "grid_size"):
+                is_vit = True
+                grid_h, grid_w = model.patch_embed.grid_size
+                print(f"DEBUG: Using stored grid_size=({grid_h}, {grid_w})")
+            elif hasattr(model.patch_embed, "num_patches"):
+                is_vit = True
+                num_patches = model.patch_embed.num_patches
+                grid_h = grid_w = int(num_patches**0.5)
+                print(
+                    f"DEBUG: Calculated from num_patches, grid_size=({grid_h}, {grid_w})"
+                )
 
     # Reshape nếu là ViT và activation có dạng [B, N, C]
     if is_vit and acts.ndim == 3 and grid_h is not None and grid_w is not None:
