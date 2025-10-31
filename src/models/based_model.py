@@ -46,12 +46,18 @@ def get_based_model(model_type="resnet50", num_classes=2):
         model, feature_dim = get_timm_backbone(model_type)
         # Replace the head with a linear classifier for all timm backbones
         if hasattr(model, "fc"):
+            feature_dim = model.fc.in_features
             model.fc = get_linear_head(feature_dim, num_classes)
         elif hasattr(model, "head") and hasattr(model.head, "fc"):
+            feature_dim = model.head.fc.in_features
             model.head.fc = get_linear_head(feature_dim, num_classes)
         elif hasattr(model, "head"):
+            if isinstance(model.head, nn.Linear):
+                feature_dim = model.head.in_features
             model.head = get_linear_head(feature_dim, num_classes)
         elif hasattr(model, "classifier"):
+            if isinstance(model.classifier, nn.Linear):
+                feature_dim = model.classifier.in_features
             model.classifier = get_linear_head(feature_dim, num_classes)
         else:
             raise ValueError("Unknown head structure for timm backbone")
