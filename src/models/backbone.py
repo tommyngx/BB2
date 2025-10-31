@@ -239,9 +239,31 @@ def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
         "dinov3_convnext_large": "convnext_large.dinov3_lvd1689m",
     }
 
+    # --- Add medino_vitb16 support ---
+    if model_type == "medino_vitb16":
+        from huggingface_hub import hf_hub_download
+        import torch
+
+        ckpt_path = hf_hub_download(
+            "TommyNgx/meddino_vitb16", "meddino_vitb16_ct3m.pth"
+        )
+        model = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+        # Giả sử model giống vit_base_patch16_dinov3 về kiến trúc
+        if hasattr(model, "fc") and hasattr(model.fc, "in_features"):
+            feature_dim = model.fc.in_features
+            model.fc = nn.Identity()
+        elif hasattr(model, "num_features") and model.num_features is not None:
+            feature_dim = model.num_features
+        elif hasattr(model, "head") and hasattr(model.head, "in_features"):
+            feature_dim = model.head.in_features
+            model.head = nn.Identity()
+        else:
+            raise ValueError("Cannot determine feature_dim for medino_vitb16")
+        return model, feature_dim
+
     if model_type not in dino_models:
         raise ValueError(
-            f"Unsupported model_type: {model_type}. Choose from {list(dino_models.keys())}"
+            f"Unsupported model_type: {model_type}. Choose from {list(dino_models.keys()) + ['medino_vitb16']}"
         )
 
     model_args = {
