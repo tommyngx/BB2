@@ -160,7 +160,9 @@ def gradcam(
     """
     # ===== QUAN TRỌNG: Giữ model ở eval mode nhưng enable gradient =====
     model.eval()  # Để BatchNorm hoạt động với batch_size=1
-
+    print(
+        "model layers:", list(model.named_modules())[-10:]
+    )  # Debug: In ra các lớp cuối cùng
     # Enable gradient cho tất cả parameters
     for param in model.parameters():
         param.requires_grad = True
