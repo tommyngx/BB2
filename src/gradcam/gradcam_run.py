@@ -20,6 +20,7 @@ import pandas as pd
 import argparse
 from PIL import Image
 import numpy as np
+import matplotlib.pyplot as plt
 
 from src.gradcam.gradcam_utils_based import pre_gradcam, post_gradcam
 from src.gradcam.gradcam_utils_patch import pre_mil_gradcam, split_image_into_patches
@@ -187,6 +188,9 @@ def main():
 
         gradcam_map = gradcam(model_out, input_tensor, target_layer, class_idx)
         # gradcam_map = gradcam_plus_plus(model_out, input_tensor, target_layer, class_idx)
+        save_path = os.path.join(
+            args.output, f"{base_filename}_gradcam{model_suffix}.png"
+        )
         post_gradcam(
             gradcam_map,
             img,
@@ -196,10 +200,17 @@ def main():
             pred=pred_class,
             prob=prob_class,
             gt_label=gt,
-            save_path=os.path.join(
-                args.output, f"{base_filename}_gradcam{model_suffix}.png"
-            ),
+            save_path=save_path,
         )
+        # Display the saved image
+        if os.path.exists(save_path):
+            display_img = plt.imread(save_path)
+            plt.figure(figsize=(10, 10))
+            plt.imshow(display_img)
+            plt.axis("off")
+            plt.title(f"GradCAM - {pred_class} (prob: {prob_class:.3f})")
+            plt.tight_layout()
+            plt.show()
     else:
         # Patch/MIL model
         result = pre_mil_gradcam(model_tuple, image_path)
@@ -294,6 +305,10 @@ def main():
                 if isinstance(patch_img, np.ndarray):
                     patch_img = Image.fromarray(patch_img)
                 pred_str = f"Patch {patch_idx + 1}: {pred_class}"
+                save_path = os.path.join(
+                    args.output,
+                    f"{base_filename}_patch{patch_idx + 1}{model_suffix}.png",
+                )
                 post_gradcam(
                     patch_cam,
                     patch_img,
@@ -303,11 +318,17 @@ def main():
                     pred=pred_str,
                     prob=prob_class,
                     gt_label=None,
-                    save_path=os.path.join(
-                        args.output,
-                        f"{base_filename}_patch{patch_idx + 1}{model_suffix}.png",
-                    ),
+                    save_path=save_path,
                 )
+                # Display the saved patch
+                if os.path.exists(save_path):
+                    display_img = plt.imread(save_path)
+                    plt.figure(figsize=(8, 8))
+                    plt.imshow(display_img)
+                    plt.axis("off")
+                    plt.title(pred_str)
+                    plt.tight_layout()
+                    plt.show()
 
             # --- Calculate patch positions based on split_image_into_patches logic ---
             # Get patch vertical positions (start_h, end_h) for each patch
@@ -352,6 +373,9 @@ def main():
             combined_heatmap_np = np.array(combined_heatmap_img)
 
             print("\n=== Combined Patch Heatmap (Top-down, max overlap) ===")
+            save_path = os.path.join(
+                args.output, f"{base_filename}_combined{model_suffix}.png"
+            )
             post_gradcam(
                 combined_heatmap_np,
                 img,
@@ -361,10 +385,17 @@ def main():
                 pred=f"Combined Patch: {pred_class}",
                 prob=prob_class,
                 gt_label=None,
-                save_path=os.path.join(
-                    args.output, f"{base_filename}_combined{model_suffix}.png"
-                ),
+                save_path=save_path,
             )
+            # Display the combined heatmap
+            if os.path.exists(save_path):
+                display_img = plt.imread(save_path)
+                plt.figure(figsize=(10, 10))
+                plt.imshow(display_img)
+                plt.axis("off")
+                plt.title(f"Combined Patches - {pred_class} (prob: {prob_class:.3f})")
+                plt.tight_layout()
+                plt.show()
 
             # Visualize the global patch last (if present)
             if has_global and global_heatmap is not None and global_img is not None:
@@ -372,6 +403,9 @@ def main():
                     global_img = Image.fromarray(global_img)
                 pred_str = f"Global: {pred_class}"
                 print("\n=== Global Image ===")
+                save_path = os.path.join(
+                    args.output, f"{base_filename}_global{model_suffix}.png"
+                )
                 post_gradcam(
                     global_heatmap,
                     global_img,
@@ -381,12 +415,22 @@ def main():
                     pred=pred_str,
                     prob=prob_class,
                     gt_label=None,
-                    save_path=os.path.join(
-                        args.output, f"{base_filename}_global{model_suffix}.png"
-                    ),
+                    save_path=save_path,
                 )
+                # Display the global patch
+                if os.path.exists(save_path):
+                    display_img = plt.imread(save_path)
+                    plt.figure(figsize=(10, 10))
+                    plt.imshow(display_img)
+                    plt.axis("off")
+                    plt.title(pred_str)
+                    plt.tight_layout()
+                    plt.show()
         else:
             # Standard model - single heatmap
+            save_path = os.path.join(
+                args.output, f"{base_filename}_gradcam{model_suffix}.png"
+            )
             post_gradcam(
                 gradcam_map,
                 img,
@@ -396,10 +440,17 @@ def main():
                 pred=pred_class,
                 prob=prob_class,
                 gt_label=gt,
-                save_path=os.path.join(
-                    args.output, f"{base_filename}_gradcam{model_suffix}.png"
-                ),
+                save_path=save_path,
             )
+            # Display the saved image
+            if os.path.exists(save_path):
+                display_img = plt.imread(save_path)
+                plt.figure(figsize=(10, 10))
+                plt.imshow(display_img)
+                plt.axis("off")
+                plt.title(f"GradCAM - {pred_class} (prob: {prob_class:.3f})")
+                plt.tight_layout()
+                plt.show()
 
 
 if __name__ == "__main__":
