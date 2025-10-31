@@ -149,6 +149,13 @@ def main():
     os.makedirs(args.output, exist_ok=True)
     base_filename = os.path.splitext(os.path.basename(image_path))[0]
 
+    # Extract model name for filename suffix
+    model_suffix = ""
+    if model_name:
+        model_suffix = f"_{model_name}"
+    elif arch_type:
+        model_suffix = f"_{arch_type}"
+
     # Prepare input for GradCAM
     if arch_type == "based":
         (
@@ -189,7 +196,9 @@ def main():
             pred=pred_class,
             prob=prob_class,
             gt_label=gt,
-            save_path=os.path.join(args.output, f"{base_filename}_gradcam.png"),
+            save_path=os.path.join(
+                args.output, f"{base_filename}_gradcam{model_suffix}.png"
+            ),
         )
     else:
         # Patch/MIL model
@@ -295,7 +304,8 @@ def main():
                     prob=prob_class,
                     gt_label=None,
                     save_path=os.path.join(
-                        args.output, f"{base_filename}_patch{patch_idx + 1}.png"
+                        args.output,
+                        f"{base_filename}_patch{patch_idx + 1}{model_suffix}.png",
                     ),
                 )
 
@@ -351,7 +361,9 @@ def main():
                 pred=f"Combined Patch: {pred_class}",
                 prob=prob_class,
                 gt_label=None,
-                save_path=os.path.join(args.output, f"{base_filename}_combined.png"),
+                save_path=os.path.join(
+                    args.output, f"{base_filename}_combined{model_suffix}.png"
+                ),
             )
 
             # Visualize the global patch last (if present)
@@ -369,7 +381,9 @@ def main():
                     pred=pred_str,
                     prob=prob_class,
                     gt_label=None,
-                    save_path=os.path.join(args.output, f"{base_filename}_global.png"),
+                    save_path=os.path.join(
+                        args.output, f"{base_filename}_global{model_suffix}.png"
+                    ),
                 )
         else:
             # Standard model - single heatmap
@@ -382,7 +396,9 @@ def main():
                 pred=pred_class,
                 prob=prob_class,
                 gt_label=gt,
-                save_path=os.path.join(args.output, f"{base_filename}_gradcam.png"),
+                save_path=os.path.join(
+                    args.output, f"{base_filename}_gradcam{model_suffix}.png"
+                ),
             )
 
 
