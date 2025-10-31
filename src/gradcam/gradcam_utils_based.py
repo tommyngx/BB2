@@ -158,11 +158,15 @@ def gradcam(
     """
     GradCAM for both CNN and ViT. Auto-detects model type and reshapes accordingly.
     """
+    # ===== BẮT BUỘC: Unfreeze model để có gradient =====
+    original_training_state = model.training
+    model.train()
+    for param in model.parameters():
+        param.requires_grad = True
+
     activations = []
     gradients = []
-    # print(model)
-    for name, module in model.named_modules():
-        print(name)
+
     # Cho phép truyền tên lớp hoặc module
     if isinstance(target_layer, str):
         layer = dict([*model.named_modules()])[target_layer]
@@ -185,18 +189,46 @@ def gradcam(
     model.zero_grad()
     output[0, class_idx].backward()
 
+    # Debug
+    print(f"DEBUG: Activations captured: {len(activations)}")
+    print(f"DEBUG: Gradients captured: {len(gradients)}")
+
+    if len(activations) == 0 or len(gradients) == 0:
+        raise RuntimeError(
+            f"Hooks failed for layer '{target_layer}'. "
+            f"Activations: {len(activations)}, Gradients: {len(gradients)}\n"
+            f"This may happen if the model is frozen or layer doesn't participate in backward pass."
+        )
+
     acts = activations[0]
     grads = gradients[0]
 
     print(f"Activation shape: {acts.shape}")
     print(f"Gradient shape: {grads.shape}")
 
-    # Kiểm tra model là ViT/DINOv2
-    is_vit = hasattr(model, "patch_embed") and hasattr(model.patch_embed, "grid_size")
-    if is_vit and acts.ndim == 3:
+    # ===== SỬA: Kiểm tra cấu trúc wrapper =====
+    is_vit = False
+    grid_h, grid_w = None, None
+
+    # Kiểm tra DinoVisionTransformerClassifier wrapper
+    if hasattr(model, "transformer"):
+        if hasattr(model.transformer, "patch_embed") and hasattr(
+            model.transformer.patch_embed, "grid_size"
+        ):
+            is_vit = True
+            grid_h, grid_w = model.transformer.patch_embed.grid_size
+            print(f"DEBUG: Detected ViT wrapper with grid_size=({grid_h}, {grid_w})")
+    # Kiểm tra direct ViT model
+    elif hasattr(model, "patch_embed") and hasattr(model.patch_embed, "grid_size"):
+        is_vit = True
         grid_h, grid_w = model.patch_embed.grid_size
+        print(f"DEBUG: Detected direct ViT with grid_size=({grid_h}, {grid_w})")
+
+    # Reshape nếu là ViT và activation có dạng [B, N, C]
+    if is_vit and acts.ndim == 3:
         acts = vit_reshape_transform(acts, grid_h, grid_w)  # [B, C, H, W]
         grads = vit_reshape_transform(grads, grid_h, grid_w)  # [B, C, H, W]
+        print(f"After ViT reshape - Acts: {acts.shape}, Grads: {grads.shape}")
 
     # GradCAM logic
     weights = grads.mean(dim=(2, 3), keepdim=True)
@@ -208,6 +240,10 @@ def gradcam(
 
     handle_f.remove()
     handle_b.remove()
+
+    # Trả model về trạng thái ban đầu
+    if not original_training_state:
+        model.eval()
 
     return cam
 
