@@ -181,7 +181,7 @@ def run_gradcam(
             output, f"gradcam_{type(model).__name__}_full.pth"
         )
     # Use get_gradcam_layer to determine the correct gradcam layer
-    model_name = type(model).__name__.lower()
+    model_name = model_type.lower() if model_type else type(model).__name__.lower()
     gradcam_layer = get_gradcam_layer(model, model_name)
     # Default normalization (same as A.Normalize([0.5]*3, [0.5]*3))
     normalize = {
