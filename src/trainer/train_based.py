@@ -155,6 +155,7 @@ def run_gradcam(
     img_size=None,
     pretrained_model_path=None,
     target_column=None,  # thêm target_column
+    model_type=None,
 ):
     import time
 
@@ -202,7 +203,7 @@ def run_gradcam(
         "model": model,
         "input_size": img_size,
         "gradcam_layer": gradcam_layer,
-        "model_name": type(model).__name__,
+        "model_name": model_type if model_type else type(model).__name__,
         "normalize": normalize,
         "inference_time": inference_time,
         "num_patches": 1,
@@ -348,4 +349,5 @@ if __name__ == "__main__":
             img_size=img_size,
             pretrained_model_path=pretrained_model_path,
             target_column=target_column,
+            model_type=model_type,
         )
