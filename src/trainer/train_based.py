@@ -244,7 +244,7 @@ def get_gradcam_layer(model, model_name):
     elif "efficientnet" in model_name:
         return "blocks.5.-1.conv_pwl"
     elif "dino" in model_name:
-        return "transformer.blocks.23"
+        return "transformer.norm"
     # If not matched, return the last layer's name
     else:
         # Try to get the last layer's name
