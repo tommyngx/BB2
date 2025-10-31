@@ -145,15 +145,34 @@ def vit_reshape_transform(x, grid_h, grid_w):
     Reshape ViT output từ [B, N, C] sang [B, C, H, W]
     Loại bỏ CLS token và extra tokens
     """
-    num_tokens = x.shape[1]
+    B, N, C = x.shape
     num_patches = grid_h * grid_w
-    num_extra = num_tokens - num_patches
 
-    # Loại bỏ CLS token và các extra tokens
+    # Tính số extra tokens (CLS + register tokens)
+    num_extra = N - num_patches
+
+    print(f"DEBUG vit_reshape: B={B}, N={N}, C={C}")
+    print(
+        f"DEBUG vit_reshape: grid=({grid_h}, {grid_w}), num_patches={num_patches}, num_extra={num_extra}"
+    )
+
+    if num_extra < 0:
+        raise ValueError(
+            f"Mismatch: Expected {num_patches} patches but got {N} tokens. "
+            f"Grid size ({grid_h}, {grid_w}) may be incorrect."
+        )
+
+    # Loại bỏ CLS token và register tokens (thường ở đầu)
     x = x[:, num_extra:, :]  # [B, num_patches, C]
 
+    if x.shape[1] != num_patches:
+        raise ValueError(
+            f"After removing {num_extra} extra tokens, got {x.shape[1]} tokens "
+            f"but expected {num_patches} patches."
+        )
+
     # Reshape thành spatial grid
-    x = x.reshape(x.size(0), grid_h, grid_w, x.size(2))  # [B, H, W, C]
+    x = x.reshape(B, grid_h, grid_w, C)  # [B, H, W, C]
     return x.permute(0, 3, 1, 2)  # [B, C, H, W]
 
 
@@ -236,13 +255,28 @@ def gradcam(
                     f"DEBUG: Detected ViT wrapper with grid_size=({grid_h}, {grid_w})"
                 )
             elif hasattr(model.transformer.patch_embed, "num_patches"):
-                # Fallback: tính grid_size từ num_patches (giả sử square grid)
                 is_vit = True
                 num_patches = model.transformer.patch_embed.num_patches
                 grid_h = grid_w = int(num_patches**0.5)
                 print(
                     f"DEBUG: Detected ViT wrapper, calculated grid_size=({grid_h}, {grid_w})"
                 )
+
+            # **THÊM: Kiểm tra dynamic_img_size**
+            if hasattr(model.transformer.patch_embed, "img_size"):
+                img_h, img_w = model.transformer.patch_embed.img_size
+                patch_size = (
+                    model.transformer.patch_embed.patch_size[0]
+                    if hasattr(model.transformer.patch_embed.patch_size, "__getitem__")
+                    else model.transformer.patch_embed.patch_size
+                )
+                # Tính lại grid_size từ image size và patch size
+                real_grid_h = img_h // patch_size
+                real_grid_w = img_w // patch_size
+                print(f"DEBUG: Image size=({img_h}, {img_w}), patch_size={patch_size}")
+                print(f"DEBUG: Recalculated grid_size=({real_grid_h}, {real_grid_w})")
+                grid_h, grid_w = real_grid_h, real_grid_w
+
     # Kiểm tra direct ViT model
     elif hasattr(model, "patch_embed"):
         if hasattr(model.patch_embed, "grid_size"):
@@ -257,12 +291,33 @@ def gradcam(
                 f"DEBUG: Detected direct ViT, calculated grid_size=({grid_h}, {grid_w})"
             )
 
+        # **THÊM: Kiểm tra dynamic_img_size cho direct model**
+        if hasattr(model.patch_embed, "img_size"):
+            img_h, img_w = model.patch_embed.img_size
+            patch_size = (
+                model.patch_embed.patch_size[0]
+                if hasattr(model.patch_embed.patch_size, "__getitem__")
+                else model.patch_embed.patch_size
+            )
+            real_grid_h = img_h // patch_size
+            real_grid_w = img_w // patch_size
+            print(
+                f"DEBUG: Direct ViT - Image size=({img_h}, {img_w}), patch_size={patch_size}"
+            )
+            print(f"DEBUG: Recalculated grid_size=({real_grid_h}, {real_grid_w})")
+            grid_h, grid_w = real_grid_h, real_grid_w
+
     # Reshape nếu là ViT và activation có dạng [B, N, C]
     if is_vit and acts.ndim == 3 and grid_h is not None and grid_w is not None:
         print(f"DEBUG: Reshaping ViT output from {acts.shape}")
-        acts = vit_reshape_transform(acts, grid_h, grid_w)  # [B, C, H, W]
-        grads = vit_reshape_transform(grads, grid_h, grid_w)  # [B, C, H, W]
-        print(f"DEBUG: After reshape - Acts: {acts.shape}, Grads: {grads.shape}")
+        try:
+            acts = vit_reshape_transform(acts, grid_h, grid_w)  # [B, C, H, W]
+            grads = vit_reshape_transform(grads, grid_h, grid_w)  # [B, C, H, W]
+            print(f"DEBUG: After reshape - Acts: {acts.shape}, Grads: {grads.shape}")
+        except ValueError as e:
+            print(f"⚠️ ERROR during reshape: {e}")
+            print(f"⚠️ Falling back to non-ViT mode")
+            is_vit = False
     elif is_vit and acts.ndim == 3:
         print(
             "⚠️ WARNING: Detected ViT but couldn't determine grid_size. "
