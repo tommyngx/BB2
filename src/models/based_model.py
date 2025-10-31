@@ -76,34 +76,6 @@ def get_based_model(model_type="resnet50", num_classes=2):
     ]:
         transformer, feature_dim = get_dino_backbone(model_type)
 
-        class DinoVisionTransformerClassifier(nn.Module):
-            def __init__(
-                self,
-                transformer,
-                feature_dim,
-                num_classes,
-                hidden_dim=512,
-                dropout_p=0.3,
-            ):
-                super().__init__()
-                self.transformer = transformer
-                self.feature_dim = feature_dim
-                # self.classifier = get_linear_head(feature_dim, num_classes)
-
-                self.classifier = nn.Sequential(
-                    nn.Linear(feature_dim, hidden_dim),
-                    # nn.ReLU(inplace=True),
-                    nn.GELU(),
-                    nn.Dropout(p=dropout_p),
-                    nn.BatchNorm1d(hidden_dim),
-                    nn.Linear(hidden_dim, num_classes),
-                )
-
-            def forward(self, x):
-                x = self.transformer(x)
-                x = self.classifier(x)
-                return x
-
         model = DinoVisionTransformerClassifier(transformer, feature_dim, num_classes)
         # Freeze DINO backbone - only train the classification head
         for param in model.transformer.parameters():
@@ -111,3 +83,32 @@ def get_based_model(model_type="resnet50", num_classes=2):
     else:
         raise ValueError("Unsupported model_type for base model")
     return model
+
+
+class DinoVisionTransformerClassifier(nn.Module):
+    def __init__(
+        self,
+        transformer,
+        feature_dim,
+        num_classes,
+        hidden_dim=512,
+        dropout_p=0.3,
+    ):
+        super().__init__()
+        self.transformer = transformer
+        self.feature_dim = feature_dim
+        # self.classifier = get_linear_head(feature_dim, num_classes)
+
+        self.classifier = nn.Sequential(
+            nn.Linear(feature_dim, hidden_dim),
+            # nn.ReLU(inplace=True),
+            nn.GELU(),
+            nn.Dropout(p=dropout_p),
+            nn.BatchNorm1d(hidden_dim),
+            nn.Linear(hidden_dim, num_classes),
+        )
+
+    def forward(self, x):
+        x = self.transformer(x)
+        x = self.classifier(x)
+        return x
