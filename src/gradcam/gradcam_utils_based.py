@@ -160,7 +160,7 @@ def gradcam(
     """
     activations = []
     gradients = []
-
+    print(model)
     # Cho phép truyền tên lớp hoặc module
     if isinstance(target_layer, str):
         layer = dict([*model.named_modules()])[target_layer]
