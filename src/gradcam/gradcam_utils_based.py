@@ -160,7 +160,7 @@ def gradcam(
     """
     activations = []
     gradients = []
-    print(model)
+    # print(model)
     # Cho phép truyền tên lớp hoặc module
     if isinstance(target_layer, str):
         layer = dict([*model.named_modules()])[target_layer]
@@ -185,6 +185,9 @@ def gradcam(
 
     acts = activations[0]
     grads = gradients[0]
+
+    print(f"Activation shape: {acts.shape}")
+    print(f"Gradient shape: {grads.shape}")
 
     # Kiểm tra model là ViT/DINOv2
     is_vit = hasattr(model, "patch_embed") and hasattr(model.patch_embed, "grid_size")
