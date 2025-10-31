@@ -158,9 +158,10 @@ def gradcam(
     """
     GradCAM for both CNN and ViT. Auto-detects model type and reshapes accordingly.
     """
-    # ===== BẮT BUỘC: Unfreeze model để có gradient =====
-    original_training_state = model.training
-    model.eval()
+    # ===== QUAN TRỌNG: Giữ model ở eval mode nhưng enable gradient =====
+    model.eval()  # Để BatchNorm hoạt động với batch_size=1
+
+    # Enable gradient cho tất cả parameters
     for param in model.parameters():
         param.requires_grad = True
 
@@ -182,12 +183,14 @@ def gradcam(
     handle_f = layer.register_forward_hook(forward_hook)
     handle_b = layer.register_full_backward_hook(backward_hook)
 
-    output = model(input_tensor)
-    if class_idx is None:
-        class_idx = output.argmax(dim=1).item()
+    # Enable gradient computation cho forward pass
+    with torch.set_grad_enabled(True):
+        output = model(input_tensor)
+        if class_idx is None:
+            class_idx = output.argmax(dim=1).item()
 
-    model.zero_grad()
-    output[0, class_idx].backward()
+        model.zero_grad()
+        output[0, class_idx].backward()
 
     # Debug
     print(f"DEBUG: Activations captured: {len(activations)}")
@@ -206,7 +209,7 @@ def gradcam(
     print(f"Activation shape: {acts.shape}")
     print(f"Gradient shape: {grads.shape}")
 
-    # ===== SỬA: Kiểm tra cấu trúc wrapper =====
+    # ===== Kiểm tra cấu trúc wrapper =====
     is_vit = False
     grid_h, grid_w = None, None
 
@@ -240,10 +243,6 @@ def gradcam(
 
     handle_f.remove()
     handle_b.remove()
-
-    # Trả model về trạng thái ban đầu
-    if not original_training_state:
-        model.eval()
 
     return cam
 
