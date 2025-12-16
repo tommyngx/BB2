@@ -312,10 +312,18 @@ def train_m2_model(
                 ]
             )
 
+    # Lambda warmup epochs (freeze + warmup)
+    lambda_freeze_epochs = 10
+    lambda_warmup_epochs = 10
+    lambda_full_epoch = lambda_freeze_epochs + lambda_warmup_epochs  # epoch 20
+
     for epoch in range(num_epochs):
         # --- Tính lambda_bbox động theo epoch ---
         lambda_bbox_now = get_lambda_bbox_schedule(
-            epoch, lambda_bbox_target=lambda_bbox, freeze_epochs=10, warmup_epochs=10
+            epoch,
+            lambda_bbox_target=lambda_bbox,
+            freeze_epochs=lambda_freeze_epochs,
+            warmup_epochs=lambda_warmup_epochs,
         )
 
         model.train()
@@ -393,7 +401,7 @@ def train_m2_model(
             return_loss=True,
             cls_criterion=cls_criterion,
             bbox_criterion=bbox_criterion,
-            lambda_bbox=lambda_bbox_now,  # Dùng lambda hiện tại
+            lambda_bbox=lambda_bbox_now,
         )
         test_losses.append(test_loss)
         test_accs.append(test_acc)
@@ -441,7 +449,17 @@ def train_m2_model(
                     print(f"Early stopping at epoch {epoch + 1}")
                     break
 
-        # Save model
+        # --- Chỉ save model sau khi lambda warmup hoàn thành ---
+        if epoch < lambda_full_epoch:
+            print(
+                f"⏸️ Skipping model save (lambda warmup not finished, epoch {epoch + 1}/{lambda_full_epoch})"
+            )
+            # Vẫn plot metrics nhưng không save model
+            plot_path = os.path.join(plot_dir, f"{model_key}.png")
+            plot_metrics(train_losses, train_accs, test_losses, test_accs, plot_path)
+            continue
+
+        # Save model (chỉ sau epoch >= lambda_full_epoch)
         acc4 = int(round(test_acc * 10000))
         weight_name = f"{model_key}_{acc4}.pth"
         weight_path = os.path.join(model_dir, weight_name)
