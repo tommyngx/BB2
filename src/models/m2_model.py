@@ -23,24 +23,6 @@ class SpatialAttention(nn.Module):
         return x * attn_map, attn_map
 
 
-def to_feature_vector(x, pool, attention=None):
-    """
-    Always return [B, F]
-    """
-    if x.dim() == 4:
-        # [B, C, H, W]
-        if attention is not None:
-            x = attention(x)
-        x = pool(x)  # [B, C, 1, 1]
-        x = x.flatten(1)  # [B, C]
-    elif x.dim() == 2:
-        # already [B, F]
-        pass
-    else:
-        raise ValueError(f"Unsupported backbone output shape: {x.shape}")
-    return x
-
-
 class M2Model(nn.Module):
     """Multi-task model: classification + bbox regression"""
 
