@@ -48,7 +48,12 @@ def evaluate_m2_model(
             bboxes = batch["bbox"].to(device)
             has_bbox = batch["has_bbox"].to(device)
 
-            cls_outputs, bbox_outputs = model(images)
+            # Handle both 2-output and 3-output models
+            outputs = model(images)
+            if len(outputs) == 3:
+                cls_outputs, bbox_outputs, _ = outputs
+            else:
+                cls_outputs, bbox_outputs = outputs
 
             # Classification loss
             cls_loss = cls_criterion(cls_outputs, labels)

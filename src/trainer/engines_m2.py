@@ -184,7 +184,13 @@ def train_m2_model(
 
             if scaler is not None:
                 with autocast():
-                    cls_outputs, bbox_outputs = model(images)
+                    # Handle both 2-output and 3-output models
+                    outputs = model(images)
+                    if len(outputs) == 3:
+                        cls_outputs, bbox_outputs, _ = outputs
+                    else:
+                        cls_outputs, bbox_outputs = outputs
+
                     cls_loss = cls_criterion(cls_outputs, labels)
 
                     # Bbox loss with confident mask
@@ -213,7 +219,13 @@ def train_m2_model(
                 scaler.step(optimizer)
                 scaler.update()
             else:
-                cls_outputs, bbox_outputs = model(images)
+                # Handle both 2-output and 3-output models
+                outputs = model(images)
+                if len(outputs) == 3:
+                    cls_outputs, bbox_outputs, _ = outputs
+                else:
+                    cls_outputs, bbox_outputs = outputs
+
                 cls_loss = cls_criterion(cls_outputs, labels)
 
                 # Bbox loss with confident mask
