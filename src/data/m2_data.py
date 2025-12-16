@@ -101,16 +101,18 @@ class M2Dataset(Dataset):
             else:
                 bbox = [0.0, 0.0, 0.0, 0.0]
                 has_bbox = False  # bbox was lost during augmentation
-        elif not has_bbox and self.negative_transform:
+        elif not has_bbox and self.negative_transform is not None:
             # Negative sample - use aggressive transform (no bbox)
             transformed = self.negative_transform(image=image)
             image = transformed["image"]
-        elif self.positive_transform:
-            # Fallback to positive transform with empty bbox
-            transformed = self.positive_transform(
-                image=image, bboxes=[bbox], labels=[label]
-            )
-            image = transformed["image"]
+        else:
+            # Fallback: use positive transform with empty bbox for all cases
+            # This handles test mode where negative_transform is None
+            if self.positive_transform:
+                transformed = self.positive_transform(
+                    image=image, bboxes=[bbox], labels=[label]
+                )
+                image = transformed["image"]
 
         # Normalize bbox to [0, 1] range based on image size
         if has_bbox and bbox != [0.0, 0.0, 0.0, 0.0]:
@@ -171,11 +173,13 @@ def get_m2_dataloaders(
         negative_transform=negative_train_transform,
         mode="train",
     )
+
+    # Test dataset: dùng cùng một transform cho cả positive và negative
     test_dataset = M2Dataset(
         test_df,
         data_folder,
         positive_transform=test_transform,
-        negative_transform=test_transform,  # Test không cần phân biệt
+        negative_transform=None,  # Không dùng negative_transform cho test
         mode="test",
     )
 

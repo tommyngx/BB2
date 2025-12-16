@@ -92,7 +92,7 @@ def run_m2_train(
         )
     )
 
-    model_name = f"{model_type}_m2"
+    model_name = f"{model_type}"
     trained_model = train_m2_model(
         model,
         train_loader,
