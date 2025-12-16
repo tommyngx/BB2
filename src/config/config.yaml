@@ -14,4 +14,4 @@ config:
   target_column: "cancer"
   num_patches: 3  # Số patch (2, 3, hoặc 4)
   arch_type: patch_resnet # patch_transformer
-  lambda_bbox: 0.8
+  lambda_bbox: 0.7
