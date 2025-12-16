@@ -214,11 +214,14 @@ def get_m2_train_augmentation(height, width, enable_rotate90=True):
     positive_transform = A.Compose(
         positive_aug_list,
         bbox_params=A.BboxParams(
-            format="pascal_voc", label_fields=["labels"], min_area=0, min_visibility=0.3
+            format="pascal_voc",
+            label_fields=["labels"],
+            min_area=0,
+            min_visibility=0.3,
         ),
     )
 
-    # Negative transform (aggressive, no bbox)
+    # Negative transform (aggressive, no bbox) - KHÔNG CẦN bbox_params
     negative_aug_list = [A.Resize(height, width)]
     negative_aug_list += get_m2_negative_augmentations(enable_rotate90=enable_rotate90)
     negative_aug_list += [
@@ -226,7 +229,7 @@ def get_m2_train_augmentation(height, width, enable_rotate90=True):
         ToTensorV2(),
     ]
 
-    negative_transform = A.Compose(negative_aug_list)
+    negative_transform = A.Compose(negative_aug_list)  # Không có bbox_params
 
     return positive_transform, negative_transform
 
@@ -244,6 +247,9 @@ def get_m2_test_augmentation(height, width):
     return A.Compose(
         aug_list,
         bbox_params=A.BboxParams(
-            format="pascal_voc", label_fields=["labels"], min_area=0, min_visibility=0
+            format="pascal_voc",
+            label_fields=["labels"],
+            min_area=0,
+            min_visibility=0,
         ),
     )

@@ -70,8 +70,7 @@ def evaluate_m2_model(
     all_labels = []
     all_preds = []
     all_probs = []
-    total_cls_loss = 0.0
-    total_bbox_loss = 0.0
+    total_loss = 0.0
     total_iou = 0.0
     num_bbox_samples = 0
 
@@ -91,12 +90,15 @@ def evaluate_m2_model(
 
             # Classification loss
             cls_loss = cls_criterion(cls_outputs, labels)
-            total_cls_loss += cls_loss.item() * images.size(0)
 
             # Bbox loss (only for positive samples)
             bbox_loss = bbox_criterion(bbox_outputs, bboxes)
             bbox_loss = bbox_loss.sum(dim=1) * has_bbox.float()
-            total_bbox_loss += bbox_loss.sum().item()
+
+            # Total loss
+            total_loss += (
+                cls_loss.item() + lambda_bbox * bbox_loss.mean().item()
+            ) * images.size(0)
 
             # Compute IoU for positive samples
             if has_bbox.sum() > 0:
@@ -117,10 +119,8 @@ def evaluate_m2_model(
             )
 
     acc = correct / total
-    avg_cls_loss = total_cls_loss / total
-    avg_bbox_loss = total_bbox_loss / max(num_bbox_samples, 1)
+    avg_loss = total_loss / total
     avg_iou = total_iou / max(num_bbox_samples, 1)
-    avg_total_loss = avg_cls_loss + lambda_bbox * avg_bbox_loss
 
     # Calculate metrics
     try:
@@ -148,19 +148,17 @@ def evaluate_m2_model(
         precision = 0.0
         recall = 0.0
 
-    # Print results
-    print(f"\n{mode} Results:")
-    print(f"  Accuracy: {acc * 100:.2f}% | Total Loss: {avg_total_loss:.4f}")
-    print(f"  Cls Loss: {avg_cls_loss:.4f} | Bbox Loss: {avg_bbox_loss:.4f}")
-    print(f"  IoU (positive only): {avg_iou:.4f} | Bbox samples: {num_bbox_samples}")
+    # Print results - simplified like engines.py
+    acc_loss_str = f"{mode} Accuracy : {acc * 100:.2f}% | Loss: {avg_loss:.4f} | IoU: {avg_iou:.4f}"
     if auc is not None:
-        print(f"  AUC: {auc * 100:.2f}%")
-    print(f"  Precision: {precision * 100:.2f}% | Recall: {recall * 100:.2f}%")
+        acc_loss_str += f" | AUC: {auc * 100:.2f}%"
+    print(acc_loss_str)
+    print(f"{mode} Precision: {precision * 100:.2f}% | Sens: {recall * 100:.2f}%")
 
     print(classification_report(all_labels, all_preds, digits=4, zero_division=0))
 
     if return_loss:
-        return avg_total_loss, acc, avg_iou
+        return avg_loss, acc, avg_iou
     return acc
 
 
@@ -256,7 +254,6 @@ def train_m2_model(
     model_key = f"{dataset}_{imgsize_str}_{arch_type}_{model_name}"
 
     print(f"Model key: {model_key}")
-    print(f"Lambda bbox: {lambda_bbox}")
 
     # Training history
     train_losses, train_accs, test_losses, test_accs = [], [], [], []
@@ -287,7 +284,7 @@ def train_m2_model(
 
     for epoch in range(num_epochs):
         model.train()
-        running_cls_loss, running_bbox_loss = 0.0, 0.0
+        running_loss = 0.0
         correct, total = 0, 0
         epoch_iou = 0.0
         num_bbox_samples = 0
@@ -323,8 +320,7 @@ def train_m2_model(
                 total_loss.backward()
                 optimizer.step()
 
-            running_cls_loss += cls_loss.item() * images.size(0)
-            running_bbox_loss += bbox_loss.item() * images.size(0)
+            running_loss += total_loss.item() * images.size(0)
 
             # Compute IoU for positive samples
             if has_bbox.sum() > 0:
@@ -338,29 +334,19 @@ def train_m2_model(
             correct += (predicted == labels).sum().item()
             total += labels.size(0)
 
-            loop.set_postfix(
-                cls_loss=cls_loss.item(),
-                bbox_loss=bbox_loss.item(),
-                total_loss=total_loss.item(),
-            )
+            loop.set_postfix(loss=total_loss.item())
 
-        epoch_cls_loss = running_cls_loss / total
-        epoch_bbox_loss = running_bbox_loss / total
-        epoch_total_loss = epoch_cls_loss + lambda_bbox * epoch_bbox_loss
+        epoch_loss = running_loss / total
         epoch_acc = correct / total
         avg_train_iou = epoch_iou / max(num_bbox_samples, 1)
 
-        train_losses.append(epoch_total_loss)
+        train_losses.append(epoch_loss)
         train_accs.append(epoch_acc)
         train_ious.append(avg_train_iou)
 
-        print(f"\nEpoch [{epoch + 1}/{num_epochs}]")
-        print(f"  Train - Total Loss: {epoch_total_loss:.4f} | Acc: {epoch_acc:.4f}")
         print(
-            f"  Train - Cls Loss: {epoch_cls_loss:.4f} | Bbox Loss: {epoch_bbox_loss:.4f}"
-        )
-        print(
-            f"  Train - IoU: {avg_train_iou:.4f} | LR: {optimizer.param_groups[0]['lr']:.6f}"
+            f"\nEpoch [{epoch + 1}/{num_epochs}] Train Loss: {epoch_loss:.4f} Train Acc: {epoch_acc:.4f} "
+            f"IoU: {avg_train_iou:.4f} Learning Rate: {optimizer.param_groups[0]['lr']:.6f}"
         )
 
         # Evaluate
@@ -385,7 +371,7 @@ def train_m2_model(
                 [
                     datetime.now().isoformat(),
                     epoch + 1,
-                    round(epoch_total_loss, 6),
+                    round(epoch_loss, 6),
                     round(epoch_acc, 6),
                     round(avg_train_iou, 6),
                     round(test_loss, 6),
