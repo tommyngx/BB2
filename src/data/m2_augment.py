@@ -253,3 +253,16 @@ def get_m2_test_augmentation(height, width):
             min_visibility=0,
         ),
     )
+
+
+def get_m2_test_augmentation_no_bbox(height, width):
+    """
+    Test augmentation WITHOUT bbox support (for negative samples in test mode)
+    """
+    aug_list = [
+        A.Resize(height, width),
+        A.Normalize([0.5] * 3, [0.5] * 3),
+        ToTensorV2(),
+    ]
+
+    return A.Compose(aug_list)  # No bbox_params

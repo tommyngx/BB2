@@ -83,35 +83,39 @@ class M2Dataset(Dataset):
             bbox = [0.0, 0.0, 0.0, 0.0]
             has_bbox = False
 
-        # Apply different transforms based on has_bbox
-        if has_bbox and self.positive_transform:
-            # Positive sample - use bbox-safe transform
-            transformed = self.positive_transform(
-                image=image, bboxes=[bbox], labels=[label]
-            )
-            image = transformed["image"]
-            # Get transformed bbox
-            if len(transformed["bboxes"]) > 0:
-                bbox = list(transformed["bboxes"][0])
-                # Validate transformed bbox is still valid
-                if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
-                    # Invalid bbox after transform
-                    bbox = [0.0, 0.0, 0.0, 0.0]
-                    has_bbox = False
-            else:
-                bbox = [0.0, 0.0, 0.0, 0.0]
-                has_bbox = False  # bbox was lost during augmentation
-        elif not has_bbox and self.negative_transform is not None:
-            # Negative sample - use aggressive transform (no bbox)
-            transformed = self.negative_transform(image=image)
-            image = transformed["image"]
-        else:
-            # Fallback: use positive transform with empty bbox for all cases
-            # This handles test mode where negative_transform is None
+        # Apply transforms based on has_bbox
+        if has_bbox:
+            # Positive sample with valid bbox - use bbox-safe transform
             if self.positive_transform:
                 transformed = self.positive_transform(
                     image=image, bboxes=[bbox], labels=[label]
                 )
+                image = transformed["image"]
+                # Get transformed bbox
+                if len(transformed["bboxes"]) > 0:
+                    bbox = list(transformed["bboxes"][0])
+                    # Validate transformed bbox is still valid
+                    if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+                        # Invalid bbox after transform
+                        bbox = [0.0, 0.0, 0.0, 0.0]
+                        has_bbox = False
+                else:
+                    bbox = [0.0, 0.0, 0.0, 0.0]
+                    has_bbox = False
+        else:
+            # Negative sample - do NOT pass bbox to transform
+            if self.negative_transform is not None:
+                # Use aggressive transform without bbox
+                transformed = self.negative_transform(image=image)
+                image = transformed["image"]
+            elif self.positive_transform:
+                # Fallback: create a simple transform without bbox_params for test mode
+                # We need to manually apply the same transforms but without bbox
+                from .m2_augment import get_m2_test_augmentation_no_bbox
+
+                h_img, w_img = image.shape[:2]
+                simple_transform = get_m2_test_augmentation_no_bbox(h_img, w_img)
+                transformed = simple_transform(image=image)
                 image = transformed["image"]
 
         # Normalize bbox to [0, 1] range based on image size
