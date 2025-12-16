@@ -10,7 +10,7 @@ from datetime import datetime
 
 from src.utils.loss import FocalLoss, LDAMLoss, FocalLoss2
 from src.utils.plot import plot_metrics
-from src.utils.bbox_loss import GIoULoss
+from src.utils.bbox_loss import GIoULoss, HybridBBoxLoss, SmoothL1BBoxLoss
 from src.utils.m2_utils import compute_iou, get_lambda_bbox_schedule
 from src.trainer.m2_evaluate import evaluate_m2_model
 
@@ -65,7 +65,10 @@ def train_m2_model(
     else:
         cls_criterion = nn.CrossEntropyLoss(weight=weights)
 
-    bbox_criterion = GIoULoss()
+    # Bbox loss: use Hybrid or GIoU
+    # bbox_criterion = GIoULoss()
+    bbox_criterion = HybridBBoxLoss(giou_weight=1.0, l1_weight=0.5)  # More stable
+    # bbox_criterion = SmoothL1BBoxLoss()  # Fallback if GIoU still unstable
 
     # Setup optimizer and schedulers
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-2)
@@ -186,7 +189,6 @@ def train_m2_model(
 
             if scaler is not None:
                 with autocast():
-                    # Handle both 2-output and 3-output models
                     outputs = model(images)
                     if len(outputs) == 3:
                         cls_outputs, bbox_outputs, _ = outputs
@@ -195,7 +197,7 @@ def train_m2_model(
 
                     cls_loss = cls_criterion(cls_outputs, labels)
 
-                    # Bbox loss with confident mask
+                    # Bbox loss with validation
                     if has_bbox.sum() > 0:
                         with torch.no_grad():
                             cls_probs = torch.softmax(cls_outputs, dim=1)
@@ -206,10 +208,35 @@ def train_m2_model(
                         confident_pos_mask = pos_mask & (confident_mask > 0.5)
 
                         if confident_pos_mask.sum() > 0:
-                            bbox_loss = bbox_criterion(
-                                bbox_outputs[confident_pos_mask],
-                                bboxes[confident_pos_mask],
+                            # Validate bbox before computing loss
+                            pred_bbox = bbox_outputs[confident_pos_mask]
+                            true_bbox = bboxes[confident_pos_mask]
+
+                            # Check for invalid bbox (all zeros or NaN)
+                            valid_bbox = (
+                                (true_bbox[:, 2] > true_bbox[:, 0])
+                                & (true_bbox[:, 3] > true_bbox[:, 1])
+                                & ~torch.isnan(true_bbox).any(dim=1)
                             )
+
+                            if valid_bbox.sum() > 0:
+                                bbox_loss = bbox_criterion(
+                                    pred_bbox[valid_bbox], true_bbox[valid_bbox]
+                                )
+
+                                # Safety check: if loss is negative or too large, fall back
+                                if torch.isnan(bbox_loss) or torch.isinf(bbox_loss):
+                                    bbox_loss = torch.tensor(0.0).to(device)
+                                    print(
+                                        f"⚠️ Warning: NaN/Inf bbox loss at epoch {epoch + 1}, skipping"
+                                    )
+                                elif bbox_loss < 0:
+                                    print(
+                                        f"⚠️ Warning: Negative bbox loss {bbox_loss.item():.4f} at epoch {epoch + 1}, clamping to 0"
+                                    )
+                                    bbox_loss = torch.clamp(bbox_loss, min=0.0)
+                            else:
+                                bbox_loss = torch.tensor(0.0).to(device)
                         else:
                             bbox_loss = torch.tensor(0.0).to(device)
                     else:
@@ -230,7 +257,6 @@ def train_m2_model(
 
                 cls_loss = cls_criterion(cls_outputs, labels)
 
-                # Bbox loss with confident mask
                 if has_bbox.sum() > 0:
                     with torch.no_grad():
                         cls_probs = torch.softmax(cls_outputs, dim=1)
@@ -241,9 +267,26 @@ def train_m2_model(
                     confident_pos_mask = pos_mask & (confident_mask > 0.5)
 
                     if confident_pos_mask.sum() > 0:
-                        bbox_loss = bbox_criterion(
-                            bbox_outputs[confident_pos_mask], bboxes[confident_pos_mask]
+                        pred_bbox = bbox_outputs[confident_pos_mask]
+                        true_bbox = bboxes[confident_pos_mask]
+
+                        valid_bbox = (
+                            (true_bbox[:, 2] > true_bbox[:, 0])
+                            & (true_bbox[:, 3] > true_bbox[:, 1])
+                            & ~torch.isnan(true_bbox).any(dim=1)
                         )
+
+                        if valid_bbox.sum() > 0:
+                            bbox_loss = bbox_criterion(
+                                pred_bbox[valid_bbox], true_bbox[valid_bbox]
+                            )
+
+                            if torch.isnan(bbox_loss) or torch.isinf(bbox_loss):
+                                bbox_loss = torch.tensor(0.0).to(device)
+                            elif bbox_loss < 0:
+                                bbox_loss = torch.clamp(bbox_loss, min=0.0)
+                        else:
+                            bbox_loss = torch.tensor(0.0).to(device)
                     else:
                         bbox_loss = torch.tensor(0.0).to(device)
                 else:
