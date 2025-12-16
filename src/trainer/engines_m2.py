@@ -11,7 +11,6 @@ from datetime import datetime
 from src.utils.loss import FocalLoss, LDAMLoss, FocalLoss2
 from src.utils.plot import plot_metrics
 from src.utils.bbox_loss import GIoULoss
-from src.utils.ema import ModelEMA
 from src.utils.m2_utils import compute_iou, get_lambda_bbox_schedule
 from src.trainer.m2_evaluate import evaluate_m2_model
 
@@ -158,9 +157,6 @@ def train_m2_model(
     lambda_warmup_epochs = 10
     lambda_full_epoch = lambda_freeze_epochs + lambda_warmup_epochs
 
-    # Initialize EMA
-    ema = ModelEMA(model, decay=0.999)
-
     # Training loop
     for epoch in range(num_epochs):
         lambda_bbox_now = get_lambda_bbox_schedule(
@@ -257,8 +253,6 @@ def train_m2_model(
             total += labels.size(0)
             loop.set_postfix(loss=total_loss.item())
 
-            ema.update(model)
-
         epoch_loss = running_loss / total
         epoch_acc = correct / total
         avg_train_iou = epoch_iou / max(num_bbox_samples, 1)
@@ -273,7 +267,7 @@ def train_m2_model(
         )
 
         test_loss, test_acc, test_iou = evaluate_m2_model(
-            ema.ema_model,
+            model,
             test_loader,
             device=device,
             mode="Test",
@@ -357,9 +351,9 @@ def train_m2_model(
             top2_paths = set(path for _, path in related_weights[:2])
             if weight_path in top2_paths:
                 if isinstance(model, nn.DataParallel):
-                    torch.save(ema.ema_model.module.state_dict(), weight_path)
+                    torch.save(model.module.state_dict(), weight_path)
                 else:
-                    torch.save(ema.ema_model.state_dict(), weight_path)
+                    torch.save(model.state_dict(), weight_path)
                 print(f"✅ Saved new model: {weight_name}")
             for _, fname_path in related_weights:
                 if fname_path not in top2_paths and os.path.exists(fname_path):
