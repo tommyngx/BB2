@@ -162,6 +162,36 @@ def evaluate_m2_model(
     return acc
 
 
+def get_lambda_bbox_schedule(
+    epoch, lambda_bbox_target=0.5, freeze_epochs=10, warmup_epochs=10
+):
+    """
+    Lambda bbox schedule:
+    - Epoch 0-9: lambda = 0 (chỉ học classification)
+    - Epoch 10-19: lambda tăng dần từ 0 lên lambda_bbox_target (mỗi epoch tăng 10%)
+    - Epoch 20+: lambda = lambda_bbox_target
+
+    Args:
+        epoch: Current epoch (0-indexed)
+        lambda_bbox_target: Target lambda value
+        freeze_epochs: Number of epochs to freeze bbox learning (default 10)
+        warmup_epochs: Number of epochs to warmup from 0 to target (default 10)
+
+    Returns:
+        Current lambda value
+    """
+    if epoch < freeze_epochs:
+        # Phase 1: Freeze bbox learning
+        return 0.0
+    elif epoch < freeze_epochs + warmup_epochs:
+        # Phase 2: Warmup - tăng 10% mỗi epoch
+        progress = (epoch - freeze_epochs + 1) / warmup_epochs
+        return lambda_bbox_target * progress
+    else:
+        # Phase 3: Full lambda
+        return lambda_bbox_target
+
+
 def train_m2_model(
     model,
     train_loader,
@@ -283,6 +313,11 @@ def train_m2_model(
             )
 
     for epoch in range(num_epochs):
+        # --- Tính lambda_bbox động theo epoch ---
+        lambda_bbox_now = get_lambda_bbox_schedule(
+            epoch, lambda_bbox_target=lambda_bbox, freeze_epochs=10, warmup_epochs=10
+        )
+
         model.train()
         running_loss = 0.0
         correct, total = 0, 0
@@ -306,7 +341,7 @@ def train_m2_model(
                     bbox_loss = bbox_criterion(bbox_outputs, bboxes)
                     bbox_loss = bbox_loss.sum(dim=1) * has_bbox.float()
                     bbox_loss = bbox_loss.mean()
-                    total_loss = cls_loss + lambda_bbox * bbox_loss
+                    total_loss = cls_loss + lambda_bbox_now * bbox_loss
                 scaler.scale(total_loss).backward()
                 scaler.step(optimizer)
                 scaler.update()
@@ -316,7 +351,7 @@ def train_m2_model(
                 bbox_loss = bbox_criterion(bbox_outputs, bboxes)
                 bbox_loss = bbox_loss.sum(dim=1) * has_bbox.float()
                 bbox_loss = bbox_loss.mean()
-                total_loss = cls_loss + lambda_bbox * bbox_loss
+                total_loss = cls_loss + lambda_bbox_now * bbox_loss
                 total_loss.backward()
                 optimizer.step()
 
@@ -346,7 +381,7 @@ def train_m2_model(
 
         print(
             f"\nEpoch [{epoch + 1}/{num_epochs}] Train Loss: {epoch_loss:.4f} Train Acc: {epoch_acc:.4f} "
-            f"IoU: {avg_train_iou:.4f} Learning Rate: {optimizer.param_groups[0]['lr']:.6f}"
+            f"IoU: {avg_train_iou:.4f} Learning Rate: {optimizer.param_groups[0]['lr']:.6f} | Lambda: {lambda_bbox_now:.4f}"
         )
 
         # Evaluate
@@ -358,7 +393,7 @@ def train_m2_model(
             return_loss=True,
             cls_criterion=cls_criterion,
             bbox_criterion=bbox_criterion,
-            lambda_bbox=lambda_bbox,
+            lambda_bbox=lambda_bbox_now,  # Dùng lambda hiện tại
         )
         test_losses.append(test_loss)
         test_accs.append(test_acc)
