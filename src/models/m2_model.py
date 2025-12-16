@@ -8,6 +8,24 @@ from .backbone import (
 )
 
 
+class SpatialAttention(nn.Module):
+    """Spatial attention for bbox regression"""
+
+    def __init__(self, feature_dim):
+        super().__init__()
+        self.attention = nn.Sequential(
+            nn.Linear(feature_dim, feature_dim // 4),
+            nn.ReLU(inplace=True),
+            nn.Linear(feature_dim // 4, 1),
+            nn.Sigmoid(),
+        )
+
+    def forward(self, x):
+        # x: [B, feature_dim]
+        attention_weights = self.attention(x)  # [B, 1]
+        return x * attention_weights
+
+
 class M2Model(nn.Module):
     """
     Multi-task model for classification + bbox regression
@@ -27,7 +45,9 @@ class M2Model(nn.Module):
             nn.Linear(feature_dim, num_classes)
         )
 
-        # Bbox regression head
+        # Bbox regression head with attention
+        self.spatial_attention = SpatialAttention(feature_dim)
+
         self.bbox_regressor = nn.Sequential(
             # nn.Linear(feature_dim, 512),
             nn.Linear(feature_dim, 256),
@@ -47,8 +67,11 @@ class M2Model(nn.Module):
         # Classification output
         cls_output = self.classifier(features)
 
+        # Apply spatial attention for bbox
+        attended_features = self.spatial_attention(features)
+
         # Bbox regression output
-        bbox_output = self.bbox_regressor(features)
+        bbox_output = self.bbox_regressor(attended_features)
 
         return cls_output, bbox_output
 

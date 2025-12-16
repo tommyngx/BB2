@@ -17,6 +17,8 @@ import numpy as np
 
 from src.utils.loss import FocalLoss, LDAMLoss, FocalLoss2
 from src.utils.plot import plot_metrics
+from src.utils.bbox_loss import GIoULoss, FocalBBoxLoss
+from src.utils.ema import ModelEMA
 
 
 def compute_iou(bbox_pred, bbox_true):
@@ -166,29 +168,18 @@ def get_lambda_bbox_schedule(
     epoch, lambda_bbox_target=0.5, freeze_epochs=10, warmup_epochs=10
 ):
     """
-    Lambda bbox schedule:
-    - Epoch 0-9: lambda = 0 (chỉ học classification)
-    - Epoch 10-19: lambda tăng dần từ 0 lên lambda_bbox_target (mỗi epoch tăng 10%)
-    - Epoch 20+: lambda = lambda_bbox_target
-
-    Args:
-        epoch: Current epoch (0-indexed)
-        lambda_bbox_target: Target lambda value
-        freeze_epochs: Number of epochs to freeze bbox learning (default 10)
-        warmup_epochs: Number of epochs to warmup from 0 to target (default 10)
-
-    Returns:
-        Current lambda value
+    Lambda bbox schedule with cosine warmup (smoother than linear)
     """
+    import math
+    
     if epoch < freeze_epochs:
-        # Phase 1: Freeze bbox learning
         return 0.0
     elif epoch < freeze_epochs + warmup_epochs:
-        # Phase 2: Warmup - tăng 10% mỗi epoch
-        progress = (epoch - freeze_epochs + 1) / warmup_epochs
-        return lambda_bbox_target * progress
+        # Cosine warmup instead of linear
+        progress = (epoch - freeze_epochs) / warmup_epochs
+        cosine_progress = (1 - math.cos(progress * math.pi)) / 2
+        return lambda_bbox_target * cosine_progress
     else:
-        # Phase 3: Full lambda
         return lambda_bbox_target
 
 
@@ -243,7 +234,11 @@ def train_m2_model(
         cls_criterion = nn.CrossEntropyLoss(weight=weights)
 
     # Bbox regression loss
-    bbox_criterion = nn.SmoothL1Loss(reduction="none")
+    # bbox_criterion = nn.SmoothL1Loss(reduction="none")
+    # Dùng GIoU (tốt hơn cho bbox):
+    bbox_criterion = GIoULoss()
+    # Hoặc dùng Focal Bbox Loss:
+    # bbox_criterion = FocalBBoxLoss(gamma=2.0, alpha=0.25)
 
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-2)
     scaler = GradScaler() if device != "cpu" else None
@@ -285,6 +280,24 @@ def train_m2_model(
 
     print(f"Model key: {model_key}")
 
+    # Check for existing weights
+    print(f"Checking for existing weights in {model_dir} with model_key: {model_key}")
+    existing_weights = []
+    for fname in os.listdir(model_dir):
+        if fname.startswith(model_key) and fname.endswith(".pth"):
+            try:
+                acc_part = fname.replace(".pth", "").split("_")[-1]
+                acc_val = float(acc_part) / 10000
+                existing_weights.append((fname, acc_val))
+            except Exception:
+                print(f"Skipping invalid model file: {fname}")
+    if existing_weights:
+        print("Found existing weights:")
+        for fname, acc_val in existing_weights:
+            print(f"  - {fname} (accuracy: {acc_val:.4f})")
+    else:
+        print("No existing weights found.")
+
     # Training history
     train_losses, train_accs, test_losses, test_accs = [], [], [], []
     train_ious, test_ious = [], []
@@ -317,6 +330,9 @@ def train_m2_model(
     lambda_warmup_epochs = 10
     lambda_full_epoch = lambda_freeze_epochs + lambda_warmup_epochs  # epoch 20
 
+    # Initialize EMA
+    ema = ModelEMA(model, decay=0.999)
+
     for epoch in range(num_epochs):
         # --- Tính lambda_bbox động theo epoch ---
         lambda_bbox_now = get_lambda_bbox_schedule(
@@ -346,21 +362,48 @@ def train_m2_model(
                 with autocast():
                     cls_outputs, bbox_outputs = model(images)
                     cls_loss = cls_criterion(cls_outputs, labels)
+                    
+                    # Only train bbox when classification is confident
+                    with torch.no_grad():
+                        cls_probs = torch.softmax(cls_outputs, dim=1)
+                        max_probs, _ = torch.max(cls_probs, dim=1)
+                        confident_mask = (max_probs > 0.7).float()  # threshold = 0.7
+                    
+                    # Apply confident mask to bbox loss
                     bbox_loss = bbox_criterion(bbox_outputs, bboxes)
-                    bbox_loss = bbox_loss.sum(dim=1) * has_bbox.float()
+                    bbox_loss = bbox_loss.sum(dim=1) * has_bbox.float() * confident_mask
                     bbox_loss = bbox_loss.mean()
+                    
                     total_loss = cls_loss + lambda_bbox_now * bbox_loss
                 scaler.scale(total_loss).backward()
+
+                # Gradient clipping
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
                 scaler.step(optimizer)
                 scaler.update()
             else:
                 cls_outputs, bbox_outputs = model(images)
                 cls_loss = cls_criterion(cls_outputs, labels)
+                
+                # Only train bbox when classification is confident
+                with torch.no_grad():
+                    cls_probs = torch.softmax(cls_outputs, dim=1)
+                    max_probs, _ = torch.max(cls_probs, dim=1)
+                    confident_mask = (max_probs > 0.7).float()  # threshold = 0.7
+                
+                # Apply confident mask to bbox loss
                 bbox_loss = bbox_criterion(bbox_outputs, bboxes)
-                bbox_loss = bbox_loss.sum(dim=1) * has_bbox.float()
+                bbox_loss = bbox_loss.sum(dim=1) * has_bbox.float() * confident_mask
                 bbox_loss = bbox_loss.mean()
+                
                 total_loss = cls_loss + lambda_bbox_now * bbox_loss
                 total_loss.backward()
+
+                # Gradient clipping
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
                 optimizer.step()
 
             running_loss += total_loss.item() * images.size(0)
@@ -379,6 +422,9 @@ def train_m2_model(
 
             loop.set_postfix(loss=total_loss.item())
 
+            # Update EMA after each batch
+            ema.update(model)
+
         epoch_loss = running_loss / total
         epoch_acc = correct / total
         avg_train_iou = epoch_iou / max(num_bbox_samples, 1)
@@ -394,7 +440,7 @@ def train_m2_model(
 
         # Evaluate
         test_loss, test_acc, test_iou = evaluate_m2_model(
-            model,
+            ema.ema_model,  # Use EMA model for evaluation
             test_loader,
             device=device,
             mode="Test",
@@ -478,27 +524,19 @@ def train_m2_model(
         related_weights = sorted(related_weights, key=lambda x: x[0], reverse=True)
         top2_accs = set(acc for acc, _ in related_weights[:2])
 
-        if test_acc not in top2_accs:
-            related_weights.append((test_acc, weight_path))
-            related_weights = sorted(related_weights, key=lambda x: x[0], reverse=True)
-            top2_paths = set(path for _, path in related_weights[:2])
-            if weight_path in top2_paths:
-                if isinstance(model, nn.DataParallel):
-                    torch.save(model.module.state_dict(), weight_path)
-                else:
-                    torch.save(model.state_dict(), weight_path)
-                print(f"✅ Saved new model: {weight_name}")
-            for _, fname_path in related_weights:
-                if fname_path not in top2_paths and os.path.exists(fname_path):
-                    try:
-                        os.remove(fname_path)
-                        print(f"🗑️ Deleted model: {fname_path}")
-                    except Exception as e:
-                        print(f"⚠️ Could not delete {fname_path}: {e}")
 
-        # Plot metrics
-        plot_path = os.path.join(plot_dir, f"{model_key}.png")
-        plot_metrics(train_losses, train_accs, test_losses, test_accs, plot_path)
 
-    print(f"\nTraining finished. Log saved to {log_file}")
-    return model
+
+
+
+
+
+
+
+
+
+
+
+
+
+                print(f"🗑️ Deleted model: {fname_path}")                    continue                    print(f"⚠️ Could not delete {fname_path}: {e}")                except Exception as e:                    os.remove(fname_path)                try:            if fname_path not in top2_paths and os.path.exists(fname_path):        for _, fname_path in related_weights:            print(f"✅ Saved new model: {weight_name}")                torch.save(model.state_dict(), weight_path)            else:                torch.save(model.module.state_dict(), weight_path)            if isinstance(model, nn.DataParallel):        if test_acc not in top2_accs:    print(f"\nTraining finished. Log saved to {log_file}")        plot_metrics(train_losses, train_accs, test_losses, test_accs, plot_path)        plot_path = os.path.join(plot_dir, f"{model_key}.png")        # Plot metrics                        print(f"⚠️ Could not delete {fname_path}: {e}")                    except Exception as e:                        print(f"🗑️ Deleted model: {fname_path}")    return model
