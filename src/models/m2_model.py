@@ -23,42 +23,59 @@ class SpatialAttention(nn.Module):
         return x * attn_map, attn_map
 
 
+def apply_spatial_attention_if_possible(x, attention_module, pool):
+    """
+    Apply spatial attention ONLY if x is a feature map
+    """
+    if x.dim() == 4:
+        x = attention_module(x)  # spatial attention
+        x = pool(x).flatten(1)  # -> [B,C]
+    elif x.dim() == 2:
+        # backbone already pooled → skip spatial attention
+        pass
+    else:
+        raise ValueError(f"Unsupported backbone output shape: {x.shape}")
+    return x
+
+
 class M2Model(nn.Module):
-    """Multi-task model: classification + bbox regression"""
+    """
+    Multi-task: classification + bbox
+    Spatial attention applied conditionally
+    """
 
     def __init__(self, backbone, feature_dim, num_classes=2):
         super().__init__()
         self.backbone = backbone
-        self.global_pool = nn.AdaptiveAvgPool2d(1)
+        self.pool = nn.AdaptiveAvgPool2d(1)
 
-        # Classification head
         self.classifier = nn.Linear(feature_dim, num_classes)
 
-        # Spatial attention for bbox
         self.spatial_attention = SpatialAttention(feature_dim)
 
-        # BBox regression head
         self.bbox_head = nn.Sequential(
             nn.Linear(feature_dim, 256),
             nn.ReLU(inplace=True),
             nn.Linear(256, 4),
-            nn.Sigmoid(),  # normalized [0,1]
+            nn.Sigmoid(),
         )
 
     def forward(self, x):
-        # Backbone feature map [B, C, H, W]
-        feat_map = self.backbone(x)
+        features = self.backbone(x)
 
-        # Classification branch
-        cls_feat = self.global_pool(feat_map).flatten(1)
+        # ---- Classification branch (NO attention) ----
+        cls_feat = apply_spatial_attention_if_possible(
+            features, nn.Identity(), self.pool
+        )
         cls_output = self.classifier(cls_feat)
 
-        # BBox branch with attention
-        attn_feat, attn_map = self.spatial_attention(feat_map)
-        bbox_feat = self.global_pool(attn_feat).flatten(1)
+        # ---- BBox branch (WITH spatial attention if possible) ----
+        bbox_feat = apply_spatial_attention_if_possible(
+            features, self.spatial_attention, self.pool
+        )
         bbox_output = self.bbox_head(bbox_feat)
 
-        return cls_output, bbox_output, attn_map
+        return cls_output, bbox_output
 
 
 def get_m2_model(model_type="resnet50", num_classes=2):
