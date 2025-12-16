@@ -9,8 +9,6 @@ from .backbone import (
 
 
 class SpatialAttention(nn.Module):
-    """Spatial attention on feature map"""
-
     def __init__(self, in_channels):
         super().__init__()
         self.attention = nn.Sequential(
@@ -19,20 +17,21 @@ class SpatialAttention(nn.Module):
         )
 
     def forward(self, x):
-        # x: [B, C, H, W]
-        attn_map = self.attention(x)  # [B,1,H,W]
-        return x * attn_map  # ⚠️ CHỈ TRẢ FEATURE
+        return x * self.attention(x)
 
 
-def apply_spatial_attention_if_possible(x, attention_module, pool):
+def to_feature_vector(x, pool, attention=None):
     """
-    Ensure output is always [B, F]
+    Always return [B, F]
     """
     if x.dim() == 4:
-        x = attention_module(x)  # [B,C,H,W]
-        x = pool(x).flatten(1)  # [B,C]
+        # [B, C, H, W]
+        if attention is not None:
+            x = attention(x)
+        x = pool(x)  # [B, C, 1, 1]
+        x = x.flatten(1)  # [B, C]
     elif x.dim() == 2:
-        # already [B,F]
+        # already [B, F]
         pass
     else:
         raise ValueError(f"Unsupported backbone output shape: {x.shape}")
@@ -42,7 +41,7 @@ def apply_spatial_attention_if_possible(x, attention_module, pool):
 class M2Model(nn.Module):
     """
     Multi-task: classification + bbox
-    Spatial attention applied conditionally
+    Safe for ANY backbone
     """
 
     def __init__(self, backbone, feature_dim, num_classes=2):
@@ -64,15 +63,13 @@ class M2Model(nn.Module):
     def forward(self, x):
         features = self.backbone(x)
 
-        # Classification (NO attention)
-        cls_feat = apply_spatial_attention_if_possible(
-            features, nn.Identity(), self.pool
-        )
+        # ---- Classification (NO attention) ----
+        cls_feat = to_feature_vector(features, pool=self.pool, attention=None)
         cls_output = self.classifier(cls_feat)
 
-        # BBox regression (WITH attention if possible)
-        bbox_feat = apply_spatial_attention_if_possible(
-            features, self.spatial_attention, self.pool
+        # ---- BBox regression (WITH spatial attention if possible) ----
+        bbox_feat = to_feature_vector(
+            features, pool=self.pool, attention=self.spatial_attention
         )
         bbox_output = self.bbox_head(bbox_feat)
 
