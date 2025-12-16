@@ -212,24 +212,24 @@ def get_m2_model(model_type="resnet50", num_classes=2):
 
 
 # Danh sách model cần test
-model_types = [
-    "resnet50",
-    "resnest50",
-    "convnextv2_tiny",
-    "efficientnetv2s",
-    "maxvit_tiny",
-    "eva02_small",
-    "vit_small",
-    "swinv2_tiny",
-    "dinov2_small",
-    "dinov3_vit16small",
-]
+model_configs = {
+    "resnet50": 448,
+    "resnest50": 448,
+    "convnextv2_tiny": 448,
+    "efficientnetv2s": 448,
+    "maxvit_tiny": 448,
+    "eva02_small": 448,  # Hỗ trợ dynamic
+    "vit_small": 448,  # Hỗ trợ dynamic
+    "swinv2_tiny": 256,  # Yêu cầu 256
+    "dinov2_small": 224,  # Yêu cầu 224 (hoặc 518)
+    "dinov3_vit16small": 448,
+}
 
-for model_type in model_types:
+for model_type, img_size in model_configs.items():
     try:
-        print(f"\nTesting {model_type}...")
+        print(f"\nTesting {model_type} with input {img_size}x{img_size}...")
         model = get_m2_model(model_type=model_type, num_classes=2)
-        dummy_input = torch.randn(2, 3, 448, 448)
+        dummy_input = torch.randn(2, 3, img_size, img_size)
         cls_out, bbox_out, attn_map = model(dummy_input)
         print(
             f"  ✅ cls: {cls_out.shape}, bbox: {bbox_out.shape}, attn: {attn_map.shape}"
