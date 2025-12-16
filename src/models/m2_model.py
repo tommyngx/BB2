@@ -9,15 +9,18 @@ from .backbone import (
 
 
 class SpatialAttention(nn.Module):
+    """Spatial attention on feature map"""
+
     def __init__(self, in_channels):
         super().__init__()
         self.attention = nn.Sequential(
-            nn.Conv2d(in_channels, 1, kernel_size=1),
-            nn.Sigmoid(),
+            nn.Conv2d(in_channels, 1, kernel_size=1), nn.Sigmoid()
         )
 
     def forward(self, x):
-        return x * self.attention(x)
+        # x: [B, C, H, W] -> attn_map: [B, 1, H, W]
+        attn_map = self.attention(x)
+        return x * attn_map, attn_map
 
 
 def to_feature_vector(x, pool, attention=None):
@@ -39,20 +42,20 @@ def to_feature_vector(x, pool, attention=None):
 
 
 class M2Model(nn.Module):
-    """
-    Multi-task: classification + bbox
-    Safe for ANY backbone
-    """
+    """Multi-task model: classification + bbox regression"""
 
     def __init__(self, backbone, feature_dim, num_classes=2):
         super().__init__()
         self.backbone = backbone
-        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.global_pool = nn.AdaptiveAvgPool2d(1)
 
+        # Classification head
         self.classifier = nn.Linear(feature_dim, num_classes)
 
+        # Spatial attention for bbox
         self.spatial_attention = SpatialAttention(feature_dim)
 
+        # BBox regression head
         self.bbox_head = nn.Sequential(
             nn.Linear(feature_dim, 256),
             nn.ReLU(inplace=True),
@@ -61,19 +64,28 @@ class M2Model(nn.Module):
         )
 
     def forward(self, x):
-        features = self.backbone(x)
+        # Backbone feature map
+        feat_map = self.backbone(x)  # Should be [B, C, H, W]
 
-        # ---- Classification (NO attention) ----
-        cls_feat = to_feature_vector(features, pool=self.pool, attention=None)
+        # Ensure feature map is 4D
+        if feat_map.dim() == 2:
+            # If backbone returns [B, C], unsqueeze to [B, C, 1, 1]
+            feat_map = feat_map.unsqueeze(-1).unsqueeze(-1)
+        elif feat_map.dim() != 4:
+            raise ValueError(
+                f"Unexpected backbone output shape: {feat_map.shape}. Expected 4D [B, C, H, W]"
+            )
+
+        # Classification branch (no attention)
+        cls_feat = self.global_pool(feat_map).flatten(1)  # [B, C]
         cls_output = self.classifier(cls_feat)
 
-        # ---- BBox regression (WITH spatial attention if possible) ----
-        bbox_feat = to_feature_vector(
-            features, pool=self.pool, attention=self.spatial_attention
-        )
+        # BBox branch with attention
+        attn_feat, attn_map = self.spatial_attention(feat_map)  # [B, C, H, W]
+        bbox_feat = self.global_pool(attn_feat).flatten(1)  # [B, C]
         bbox_output = self.bbox_head(bbox_feat)
 
-        return cls_output, bbox_output
+        return cls_output, bbox_output, attn_map
 
 
 def get_m2_model(model_type="resnet50", num_classes=2):
@@ -81,8 +93,32 @@ def get_m2_model(model_type="resnet50", num_classes=2):
     # Get backbone
     if model_type in ["resnet34", "resnet50", "resnet101", "resnext50", "resnet152"]:
         backbone, feature_dim = get_resnet_backbone(model_type)
-        backbone.fc = nn.Identity()
-        backbone.avgpool = nn.Identity()  # Keep feature map
+
+        # Wrap ResNet to return feature map before avgpool
+        class ResNetFeatureWrapper(nn.Module):
+            def __init__(self, base_model):
+                super().__init__()
+                self.conv1 = base_model.conv1
+                self.bn1 = base_model.bn1
+                self.relu = base_model.relu
+                self.maxpool = base_model.maxpool
+                self.layer1 = base_model.layer1
+                self.layer2 = base_model.layer2
+                self.layer3 = base_model.layer3
+                self.layer4 = base_model.layer4
+
+            def forward(self, x):
+                x = self.conv1(x)
+                x = self.bn1(x)
+                x = self.relu(x)
+                x = self.maxpool(x)
+                x = self.layer1(x)
+                x = self.layer2(x)
+                x = self.layer3(x)
+                x = self.layer4(x)
+                return x  # [B, C, H, W]
+
+        backbone = ResNetFeatureWrapper(backbone)
 
     elif model_type in ["mamba_t", "mamba_s"]:
         raise ValueError(
