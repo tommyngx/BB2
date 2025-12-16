@@ -46,12 +46,36 @@ class M2Dataset(Dataset):
                 and pd.notna(row["width"])
                 and pd.notna(row["height"])
             ):
-                x, y, w, h = row["x"], row["y"], row["width"], row["height"]
-                # Convert to x1, y1, x2, y2 format
-                x1, y1 = float(x), float(y)
-                x2, y2 = float(x + w), float(y + h)
-                bbox = [x1, y1, x2, y2]
-                has_bbox = True
+                # Ensure non-negative values
+                x = max(0, float(row["x"]))
+                y = max(0, float(row["y"]))
+                w = max(0, float(row["width"]))
+                h = max(0, float(row["height"]))
+
+                # Get image dimensions for validation
+                img_h, img_w = image.shape[:2]
+
+                # Validate and clip bbox to image boundaries
+                x = min(x, img_w - 1)
+                y = min(y, img_h - 1)
+
+                # Ensure bbox doesn't exceed image boundaries
+                if x + w > img_w:
+                    w = img_w - x
+                if y + h > img_h:
+                    h = img_h - y
+
+                # Final check: bbox must have positive area
+                if w > 0 and h > 0:
+                    # Convert to x1, y1, x2, y2 format
+                    x1, y1 = x, y
+                    x2, y2 = x + w, y + h
+                    bbox = [x1, y1, x2, y2]
+                    has_bbox = True
+                else:
+                    # Invalid bbox (zero or negative area)
+                    bbox = [0.0, 0.0, 0.0, 0.0]
+                    has_bbox = False
             else:
                 bbox = [0.0, 0.0, 0.0, 0.0]
                 has_bbox = False
@@ -69,6 +93,11 @@ class M2Dataset(Dataset):
             # Get transformed bbox
             if len(transformed["bboxes"]) > 0:
                 bbox = list(transformed["bboxes"][0])
+                # Validate transformed bbox is still valid
+                if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+                    # Invalid bbox after transform
+                    bbox = [0.0, 0.0, 0.0, 0.0]
+                    has_bbox = False
             else:
                 bbox = [0.0, 0.0, 0.0, 0.0]
                 has_bbox = False  # bbox was lost during augmentation
@@ -86,7 +115,17 @@ class M2Dataset(Dataset):
         # Normalize bbox to [0, 1] range based on image size
         if has_bbox and bbox != [0.0, 0.0, 0.0, 0.0]:
             h_img, w_img = image.shape[1], image.shape[2]  # CHW format after ToTensorV2
-            bbox = [bbox[0] / w_img, bbox[1] / h_img, bbox[2] / w_img, bbox[3] / h_img]
+            bbox = [
+                max(0.0, min(1.0, bbox[0] / w_img)),
+                max(0.0, min(1.0, bbox[1] / h_img)),
+                max(0.0, min(1.0, bbox[2] / w_img)),
+                max(0.0, min(1.0, bbox[3] / h_img)),
+            ]
+
+            # Final validation: ensure x2 > x1 and y2 > y1
+            if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+                bbox = [0.0, 0.0, 0.0, 0.0]
+                has_bbox = False
 
         return {
             "image": image,
