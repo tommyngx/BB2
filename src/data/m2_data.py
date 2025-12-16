@@ -17,12 +17,14 @@ class M2Dataset(Dataset):
         positive_transform=None,
         negative_transform=None,
         mode="train",
+        img_size=None,  # Thêm img_size để biết kích thước cần resize
     ):
         self.df = df.reset_index(drop=True)
         self.data_folder = data_folder
-        self.positive_transform = positive_transform  # For images with bbox
-        self.negative_transform = negative_transform  # For images without bbox
+        self.positive_transform = positive_transform
+        self.negative_transform = negative_transform
         self.mode = mode
+        self.img_size = img_size
 
     def __len__(self):
         return len(self.df)
@@ -108,13 +110,21 @@ class M2Dataset(Dataset):
                 # Use aggressive transform without bbox
                 transformed = self.negative_transform(image=image)
                 image = transformed["image"]
-            elif self.positive_transform:
-                # Fallback: create a simple transform without bbox_params for test mode
-                # We need to manually apply the same transforms but without bbox
+            else:
+                # Test mode fallback: use simple resize + normalize without bbox_params
                 from .m2_augment import get_m2_test_augmentation_no_bbox
 
-                h_img, w_img = image.shape[:2]
-                simple_transform = get_m2_test_augmentation_no_bbox(h_img, w_img)
+                # Get target size from img_size or default
+                if self.img_size is not None:
+                    if isinstance(self.img_size, (list, tuple)):
+                        h_target, w_target = self.img_size
+                    else:
+                        h_target = w_target = self.img_size
+                else:
+                    # Fallback to 448 if not specified
+                    h_target = w_target = 448
+
+                simple_transform = get_m2_test_augmentation_no_bbox(h_target, w_target)
                 transformed = simple_transform(image=image)
                 image = transformed["image"]
 
@@ -176,6 +186,7 @@ def get_m2_dataloaders(
         positive_transform=positive_train_transform,
         negative_transform=negative_train_transform,
         mode="train",
+        img_size=(height, width),  # Truyền img_size vào
     )
 
     # Test dataset: dùng cùng một transform cho cả positive và negative
@@ -183,8 +194,9 @@ def get_m2_dataloaders(
         test_df,
         data_folder,
         positive_transform=test_transform,
-        negative_transform=None,  # Không dùng negative_transform cho test
+        negative_transform=None,
         mode="test",
+        img_size=(height, width),  # Truyền img_size vào
     )
 
     # Create dataloaders
