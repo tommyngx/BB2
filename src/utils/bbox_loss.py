@@ -16,7 +16,6 @@ class FocalBBoxLoss(nn.Module):
         loss = self.smooth_l1(pred, target)
 
         # Compute focal weight
-        # Large errors get more weight
         pt = torch.exp(-loss)
         focal_weight = self.alpha * (1 - pt) ** self.gamma
 

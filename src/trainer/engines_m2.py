@@ -5,182 +5,15 @@ import torch.optim as optim
 from torch.cuda.amp import GradScaler, autocast
 from tqdm import tqdm
 from torch.optim.lr_scheduler import LambdaLR
-from sklearn.metrics import (
-    classification_report,
-    roc_auc_score,
-    precision_score,
-    recall_score,
-)
 import csv
 from datetime import datetime
-import numpy as np
 
 from src.utils.loss import FocalLoss, LDAMLoss, FocalLoss2
 from src.utils.plot import plot_metrics
-from src.utils.bbox_loss import GIoULoss, FocalBBoxLoss
+from src.utils.bbox_loss import GIoULoss
 from src.utils.ema import ModelEMA
-
-
-def compute_iou(bbox_pred, bbox_true):
-    """
-    Compute IoU between predicted and true bboxes
-    bbox format: [x1, y1, x2, y2] normalized to [0, 1]
-    """
-    # Get intersection coords
-    x1_i = torch.max(bbox_pred[:, 0], bbox_true[:, 0])
-    y1_i = torch.max(bbox_pred[:, 1], bbox_true[:, 1])
-    x2_i = torch.min(bbox_pred[:, 2], bbox_true[:, 2])
-    y2_i = torch.min(bbox_pred[:, 3], bbox_true[:, 3])
-
-    # Intersection area
-    inter_w = torch.clamp(x2_i - x1_i, min=0)
-    inter_h = torch.clamp(y2_i - y1_i, min=0)
-    inter_area = inter_w * inter_h
-
-    # Union area
-    pred_area = (bbox_pred[:, 2] - bbox_pred[:, 0]) * (
-        bbox_pred[:, 3] - bbox_pred[:, 1]
-    )
-    true_area = (bbox_true[:, 2] - bbox_true[:, 0]) * (
-        bbox_true[:, 3] - bbox_true[:, 1]
-    )
-    union_area = pred_area + true_area - inter_area
-
-    # IoU
-    iou = inter_area / (union_area + 1e-6)
-    return iou
-
-
-def evaluate_m2_model(
-    model,
-    data_loader,
-    device="cpu",
-    mode="Test",
-    return_loss=False,
-    cls_criterion=None,
-    bbox_criterion=None,
-    lambda_bbox=1.0,
-):
-    """Evaluate multi-task model"""
-    if isinstance(model, nn.DataParallel):
-        model = model.module
-    model = model.to(device)
-    model.eval()
-
-    correct = 0
-    total = 0
-    all_labels = []
-    all_preds = []
-    all_probs = []
-    total_loss = 0.0
-    total_iou = 0.0
-    num_bbox_samples = 0
-
-    if cls_criterion is None:
-        cls_criterion = nn.CrossEntropyLoss()
-    if bbox_criterion is None:
-        bbox_criterion = nn.SmoothL1Loss(reduction="none")
-
-    with torch.no_grad():
-        for batch in data_loader:
-            images = batch["image"].to(device)
-            labels = batch["label"].to(device)
-            bboxes = batch["bbox"].to(device)
-            has_bbox = batch["has_bbox"].to(device)
-
-            cls_outputs, bbox_outputs = model(images)
-
-            # Classification loss
-            cls_loss = cls_criterion(cls_outputs, labels)
-
-            # Bbox loss (only for positive samples)
-            bbox_loss = bbox_criterion(bbox_outputs, bboxes)
-            bbox_loss = bbox_loss.sum(dim=1) * has_bbox.float()
-
-            # Total loss
-            total_loss += (
-                cls_loss.item() + lambda_bbox * bbox_loss.mean().item()
-            ) * images.size(0)
-
-            # Compute IoU for positive samples
-            if has_bbox.sum() > 0:
-                pos_mask = has_bbox.bool()
-                iou = compute_iou(bbox_outputs[pos_mask], bboxes[pos_mask])
-                total_iou += iou.sum().item()
-                num_bbox_samples += has_bbox.sum().item()
-
-            # Classification metrics
-            _, predicted = torch.max(cls_outputs, 1)
-            probs = torch.softmax(cls_outputs, dim=1)
-            correct += (predicted == labels).sum().item()
-            total += labels.size(0)
-            all_labels.extend(labels.cpu().numpy())
-            all_preds.extend(predicted.cpu().numpy())
-            all_probs.extend(
-                probs[:, 1].cpu().numpy() if probs.shape[1] > 1 else probs.cpu().numpy()
-            )
-
-    acc = correct / total
-    avg_loss = total_loss / total
-    avg_iou = total_iou / max(num_bbox_samples, 1)
-
-    # Calculate metrics
-    try:
-        if len(set(all_labels)) == 2:
-            auc = roc_auc_score(all_labels, all_probs)
-        else:
-            auc = None
-    except Exception:
-        auc = None
-
-    try:
-        precision = precision_score(
-            all_labels,
-            all_preds,
-            average="binary" if len(set(all_labels)) == 2 else "macro",
-            zero_division=0,
-        )
-        recall = recall_score(
-            all_labels,
-            all_preds,
-            average="binary" if len(set(all_labels)) == 2 else "macro",
-            zero_division=0,
-        )
-    except Exception:
-        precision = 0.0
-        recall = 0.0
-
-    # Print results - simplified like engines.py
-    acc_loss_str = f"{mode} Accuracy : {acc * 100:.2f}% | Loss: {avg_loss:.4f} | IoU: {avg_iou:.4f}"
-    if auc is not None:
-        acc_loss_str += f" | AUC: {auc * 100:.2f}%"
-    print(acc_loss_str)
-    print(f"{mode} Precision: {precision * 100:.2f}% | Sens: {recall * 100:.2f}%")
-
-    print(classification_report(all_labels, all_preds, digits=4, zero_division=0))
-
-    if return_loss:
-        return avg_loss, acc, avg_iou
-    return acc
-
-
-def get_lambda_bbox_schedule(
-    epoch, lambda_bbox_target=0.5, freeze_epochs=10, warmup_epochs=10
-):
-    """
-    Lambda bbox schedule with cosine warmup (smoother than linear)
-    """
-    import math
-    
-    if epoch < freeze_epochs:
-        return 0.0
-    elif epoch < freeze_epochs + warmup_epochs:
-        # Cosine warmup instead of linear
-        progress = (epoch - freeze_epochs) / warmup_epochs
-        cosine_progress = (1 - math.cos(progress * math.pi)) / 2
-        return lambda_bbox_target * cosine_progress
-    else:
-        return lambda_bbox_target
+from src.utils.m2_utils import compute_iou, get_lambda_bbox_schedule
+from src.trainer.m2_evaluate import evaluate_m2_model
 
 
 def train_m2_model(
@@ -206,7 +39,7 @@ def train_m2_model(
         model = nn.DataParallel(model)
     model = model.to(device)
 
-    # Classification loss
+    # Setup loss functions
     if train_df is not None:
         class_counts = train_df["cancer"].value_counts()
         total_samples = len(train_df)
@@ -233,13 +66,9 @@ def train_m2_model(
     else:
         cls_criterion = nn.CrossEntropyLoss(weight=weights)
 
-    # Bbox regression loss
-    # bbox_criterion = nn.SmoothL1Loss(reduction="none")
-    # Dùng GIoU (tốt hơn cho bbox):
     bbox_criterion = GIoULoss()
-    # Hoặc dùng Focal Bbox Loss:
-    # bbox_criterion = FocalBBoxLoss(gamma=2.0, alpha=0.25)
 
+    # Setup optimizer and schedulers
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-2)
     scaler = GradScaler() if device != "cpu" else None
 
@@ -256,7 +85,7 @@ def train_m2_model(
         optimizer, mode="min", factor=0.5, patience=20, min_lr=1e-5
     )
 
-    # Setup directories
+    # Setup directories and model key
     model_dir = os.path.join(output, "models")
     plot_dir = os.path.join(output, "figures")
     log_dir = os.path.join(output, "logs")
@@ -325,16 +154,15 @@ def train_m2_model(
                 ]
             )
 
-    # Lambda warmup epochs (freeze + warmup)
     lambda_freeze_epochs = 10
     lambda_warmup_epochs = 10
-    lambda_full_epoch = lambda_freeze_epochs + lambda_warmup_epochs  # epoch 20
+    lambda_full_epoch = lambda_freeze_epochs + lambda_warmup_epochs
 
     # Initialize EMA
     ema = ModelEMA(model, decay=0.999)
 
+    # Training loop
     for epoch in range(num_epochs):
-        # --- Tính lambda_bbox động theo epoch ---
         lambda_bbox_now = get_lambda_bbox_schedule(
             epoch,
             lambda_bbox_target=lambda_bbox,
@@ -362,53 +190,64 @@ def train_m2_model(
                 with autocast():
                     cls_outputs, bbox_outputs = model(images)
                     cls_loss = cls_criterion(cls_outputs, labels)
-                    
-                    # Only train bbox when classification is confident
-                    with torch.no_grad():
-                        cls_probs = torch.softmax(cls_outputs, dim=1)
-                        max_probs, _ = torch.max(cls_probs, dim=1)
-                        confident_mask = (max_probs > 0.7).float()  # threshold = 0.7
-                    
-                    # Apply confident mask to bbox loss
-                    bbox_loss = bbox_criterion(bbox_outputs, bboxes)
-                    bbox_loss = bbox_loss.sum(dim=1) * has_bbox.float() * confident_mask
-                    bbox_loss = bbox_loss.mean()
-                    
-                    total_loss = cls_loss + lambda_bbox_now * bbox_loss
-                scaler.scale(total_loss).backward()
 
-                # Gradient clipping
+                    # Bbox loss with confident mask
+                    if has_bbox.sum() > 0:
+                        with torch.no_grad():
+                            cls_probs = torch.softmax(cls_outputs, dim=1)
+                            max_probs, _ = torch.max(cls_probs, dim=1)
+                            confident_mask = (max_probs > 0.7).float()
+
+                        pos_mask = has_bbox.bool()
+                        confident_pos_mask = pos_mask & (confident_mask > 0.5)
+
+                        if confident_pos_mask.sum() > 0:
+                            bbox_loss = bbox_criterion(
+                                bbox_outputs[confident_pos_mask],
+                                bboxes[confident_pos_mask],
+                            )
+                        else:
+                            bbox_loss = torch.tensor(0.0).to(device)
+                    else:
+                        bbox_loss = torch.tensor(0.0).to(device)
+
+                    total_loss = cls_loss + lambda_bbox_now * bbox_loss
+
+                scaler.scale(total_loss).backward()
                 scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-
                 scaler.step(optimizer)
                 scaler.update()
             else:
                 cls_outputs, bbox_outputs = model(images)
                 cls_loss = cls_criterion(cls_outputs, labels)
-                
-                # Only train bbox when classification is confident
-                with torch.no_grad():
-                    cls_probs = torch.softmax(cls_outputs, dim=1)
-                    max_probs, _ = torch.max(cls_probs, dim=1)
-                    confident_mask = (max_probs > 0.7).float()  # threshold = 0.7
-                
-                # Apply confident mask to bbox loss
-                bbox_loss = bbox_criterion(bbox_outputs, bboxes)
-                bbox_loss = bbox_loss.sum(dim=1) * has_bbox.float() * confident_mask
-                bbox_loss = bbox_loss.mean()
-                
+
+                # Bbox loss with confident mask
+                if has_bbox.sum() > 0:
+                    with torch.no_grad():
+                        cls_probs = torch.softmax(cls_outputs, dim=1)
+                        max_probs, _ = torch.max(cls_probs, dim=1)
+                        confident_mask = (max_probs > 0.7).float()
+
+                    pos_mask = has_bbox.bool()
+                    confident_pos_mask = pos_mask & (confident_mask > 0.5)
+
+                    if confident_pos_mask.sum() > 0:
+                        bbox_loss = bbox_criterion(
+                            bbox_outputs[confident_pos_mask], bboxes[confident_pos_mask]
+                        )
+                    else:
+                        bbox_loss = torch.tensor(0.0).to(device)
+                else:
+                    bbox_loss = torch.tensor(0.0).to(device)
+
                 total_loss = cls_loss + lambda_bbox_now * bbox_loss
                 total_loss.backward()
-
-                # Gradient clipping
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-
                 optimizer.step()
 
             running_loss += total_loss.item() * images.size(0)
 
-            # Compute IoU for positive samples
             if has_bbox.sum() > 0:
                 with torch.no_grad():
                     pos_mask = has_bbox.bool()
@@ -419,10 +258,8 @@ def train_m2_model(
             _, predicted = torch.max(cls_outputs, 1)
             correct += (predicted == labels).sum().item()
             total += labels.size(0)
-
             loop.set_postfix(loss=total_loss.item())
 
-            # Update EMA after each batch
             ema.update(model)
 
         epoch_loss = running_loss / total
@@ -438,9 +275,8 @@ def train_m2_model(
             f"IoU: {avg_train_iou:.4f} Learning Rate: {optimizer.param_groups[0]['lr']:.6f} | Lambda: {lambda_bbox_now:.4f}"
         )
 
-        # Evaluate
         test_loss, test_acc, test_iou = evaluate_m2_model(
-            ema.ema_model,  # Use EMA model for evaluation
+            ema.ema_model,
             test_loader,
             device=device,
             mode="Test",
@@ -453,7 +289,6 @@ def train_m2_model(
         test_accs.append(test_acc)
         test_ious.append(test_iou)
 
-        # Log to CSV
         with open(log_file, "a", newline="") as logf:
             writer = csv.writer(logf)
             writer.writerow(
@@ -472,7 +307,6 @@ def train_m2_model(
                 ]
             )
 
-        # Learning rate scheduling
         if epoch < warmup_epochs:
             warmup_scheduler.step()
         else:
@@ -495,22 +329,18 @@ def train_m2_model(
                     print(f"Early stopping at epoch {epoch + 1}")
                     break
 
-        # --- Chỉ save model sau khi lambda warmup hoàn thành ---
         if epoch < lambda_full_epoch:
             print(
                 f"⏸️ Skipping model save (lambda warmup not finished, epoch {epoch + 1}/{lambda_full_epoch})"
             )
-            # Vẫn plot metrics nhưng không save model
             plot_path = os.path.join(plot_dir, f"{model_key}.png")
             plot_metrics(train_losses, train_accs, test_losses, test_accs, plot_path)
             continue
 
-        # Save model (chỉ sau epoch >= lambda_full_epoch)
         acc4 = int(round(test_acc * 10000))
         weight_name = f"{model_key}_{acc4}.pth"
         weight_path = os.path.join(model_dir, weight_name)
 
-        # Keep only top 2 models
         related_weights = []
         for fname in os.listdir(model_dir):
             if fname.startswith(model_key) and fname.endswith(".pth"):
@@ -524,19 +354,26 @@ def train_m2_model(
         related_weights = sorted(related_weights, key=lambda x: x[0], reverse=True)
         top2_accs = set(acc for acc, _ in related_weights[:2])
 
+        if test_acc not in top2_accs:
+            related_weights.append((test_acc, weight_path))
+            related_weights = sorted(related_weights, key=lambda x: x[0], reverse=True)
+            top2_paths = set(path for _, path in related_weights[:2])
+            if weight_path in top2_paths:
+                if isinstance(model, nn.DataParallel):
+                    torch.save(ema.ema_model.module.state_dict(), weight_path)
+                else:
+                    torch.save(ema.ema_model.state_dict(), weight_path)
+                print(f"✅ Saved new model: {weight_name}")
+            for _, fname_path in related_weights:
+                if fname_path not in top2_paths and os.path.exists(fname_path):
+                    try:
+                        os.remove(fname_path)
+                        print(f"🗑️ Deleted model: {fname_path}")
+                    except Exception as e:
+                        print(f"⚠️ Could not delete {fname_path}: {e}")
 
+        plot_path = os.path.join(plot_dir, f"{model_key}.png")
+        plot_metrics(train_losses, train_accs, test_losses, test_accs, plot_path)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-                print(f"🗑️ Deleted model: {fname_path}")                    continue                    print(f"⚠️ Could not delete {fname_path}: {e}")                except Exception as e:                    os.remove(fname_path)                try:            if fname_path not in top2_paths and os.path.exists(fname_path):        for _, fname_path in related_weights:            print(f"✅ Saved new model: {weight_name}")                torch.save(model.state_dict(), weight_path)            else:                torch.save(model.module.state_dict(), weight_path)            if isinstance(model, nn.DataParallel):        if test_acc not in top2_accs:    print(f"\nTraining finished. Log saved to {log_file}")        plot_metrics(train_losses, train_accs, test_losses, test_accs, plot_path)        plot_path = os.path.join(plot_dir, f"{model_key}.png")        # Plot metrics                        print(f"⚠️ Could not delete {fname_path}: {e}")                    except Exception as e:                        print(f"🗑️ Deleted model: {fname_path}")    return model
+    print(f"\nTraining finished. Log saved to {log_file}")
+    return model
