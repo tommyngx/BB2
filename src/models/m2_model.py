@@ -218,7 +218,7 @@ model_configs = {
     "convnextv2_tiny": 448,
     "efficientnetv2s": 448,
     "maxvit_tiny": 448,
-    "eva02_small": 224,  # Hỗ trợ dynamic
+    "eva02_small": 336,  # Hỗ trợ dynamic
     "vit_small": 224,  # Hỗ trợ dynamic
     "swinv2_tiny": 256,  # Yêu cầu 256
     "dinov2_small": 518,  # Yêu cầu 224 (hoặc 518)
