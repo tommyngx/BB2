@@ -14,24 +14,25 @@ class SpatialAttention(nn.Module):
     def __init__(self, in_channels):
         super().__init__()
         self.attention = nn.Sequential(
-            nn.Conv2d(in_channels, 1, kernel_size=1), nn.Sigmoid()
+            nn.Conv2d(in_channels, 1, kernel_size=1),
+            nn.Sigmoid(),
         )
 
     def forward(self, x):
         # x: [B, C, H, W]
-        attn_map = self.attention(x)  # [B, 1, H, W]
-        return x * attn_map, attn_map
+        attn_map = self.attention(x)  # [B,1,H,W]
+        return x * attn_map  # ⚠️ CHỈ TRẢ FEATURE
 
 
 def apply_spatial_attention_if_possible(x, attention_module, pool):
     """
-    Apply spatial attention ONLY if x is a feature map
+    Ensure output is always [B, F]
     """
     if x.dim() == 4:
-        x = attention_module(x)  # spatial attention
-        x = pool(x).flatten(1)  # -> [B,C]
+        x = attention_module(x)  # [B,C,H,W]
+        x = pool(x).flatten(1)  # [B,C]
     elif x.dim() == 2:
-        # backbone already pooled → skip spatial attention
+        # already [B,F]
         pass
     else:
         raise ValueError(f"Unsupported backbone output shape: {x.shape}")
@@ -63,13 +64,13 @@ class M2Model(nn.Module):
     def forward(self, x):
         features = self.backbone(x)
 
-        # ---- Classification branch (NO attention) ----
+        # Classification (NO attention)
         cls_feat = apply_spatial_attention_if_possible(
             features, nn.Identity(), self.pool
         )
         cls_output = self.classifier(cls_feat)
 
-        # ---- BBox branch (WITH spatial attention if possible) ----
+        # BBox regression (WITH attention if possible)
         bbox_feat = apply_spatial_attention_if_possible(
             features, self.spatial_attention, self.pool
         )
