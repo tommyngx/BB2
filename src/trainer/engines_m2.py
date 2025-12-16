@@ -214,8 +214,6 @@ def train_m2_model(
                     total_loss = cls_loss + lambda_bbox_now * bbox_loss
 
                 scaler.scale(total_loss).backward()
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 scaler.step(optimizer)
                 scaler.update()
             else:
@@ -243,7 +241,6 @@ def train_m2_model(
 
                 total_loss = cls_loss + lambda_bbox_now * bbox_loss
                 total_loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
 
             running_loss += total_loss.item() * images.size(0)
