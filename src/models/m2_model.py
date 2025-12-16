@@ -20,20 +20,22 @@ class M2Model(nn.Module):
 
         # Classification head
         self.classifier = nn.Sequential(
-            nn.Linear(feature_dim, 512),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.3),
-            nn.Linear(512, num_classes),
+            # nn.Linear(feature_dim, 512),
+            # nn.ReLU(inplace=True),
+            # nn.Dropout(0.3),
+            # nn.Linear(512, num_classes),
+            nn.Linear(feature_dim, num_classes)
         )
 
         # Bbox regression head
         self.bbox_regressor = nn.Sequential(
-            nn.Linear(feature_dim, 512),
+            # nn.Linear(feature_dim, 512),
+            nn.Linear(feature_dim, 256),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.3),
-            nn.Linear(512, 256),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.2),
+            # nn.Dropout(0.3),
+            # nn.Linear(512, 256),
+            # nn.ReLU(inplace=True),
+            # nn.Dropout(0.2),
             nn.Linear(256, 4),
             nn.Sigmoid(),  # Output normalized coords [0, 1]
         )
