@@ -225,14 +225,14 @@ model_configs = {
     "dinov3_vit16small": 224,
 }
 
-for model_type, img_size in model_configs.items():
-    try:
-        print(f"\nTesting {model_type} with input {img_size}x{img_size}...")
-        model = get_m2_model(model_type=model_type, num_classes=2)
-        dummy_input = torch.randn(2, 3, img_size, img_size)
-        cls_out, bbox_out, attn_map = model(dummy_input)
-        print(
-            f"  ✅ cls: {cls_out.shape}, bbox: {bbox_out.shape}, attn: {attn_map.shape}"
-        )
-    except Exception as e:
-        print(f"  ❌ Error: {e}")
+# for model_type, img_size in model_configs.items():
+#    try:
+#        print(f"\nTesting {model_type} with input {img_size}x{img_size}...")
+#        model = get_m2_model(model_type=model_type, num_classes=2)
+#        dummy_input = torch.randn(2, 3, img_size, img_size)
+#        cls_out, bbox_out, attn_map = model(dummy_input)
+#        print(
+#            f"  ✅ cls: {cls_out.shape}, bbox: {bbox_out.shape}, attn: {attn_map.shape}"
+#        )
+#    except Exception as e:
+#        print(f"  ❌ Error: {e}")
