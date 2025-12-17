@@ -142,7 +142,7 @@ def visualize_m2_result(
     image_tensor,
     attn_map,
     pred_bbox,
-    gt_bbox,
+    gt_bbox_list,  # Changed: list of all GT bboxes for this image
     pred_class,
     gt_label,
     pred_prob,
@@ -196,37 +196,45 @@ def visualize_m2_result(
     # Create figure with 2 subplots
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
 
-    # Left: Original image + GT bbox
+    # Left: Original image + ALL GT bboxes
     ax1.imshow(img_original_np)
-    if gt_bbox is not None and not torch.isnan(gt_bbox).any():
-        # Convert normalized COCO [x, y, w, h] to pixel coordinates
-        x_pix, y_pix, w_pix, h_pix = bbox_to_pixel(gt_bbox.cpu().numpy(), original_size)
+    num_valid_bboxes = 0
 
-        # Validate bbox is within image bounds
-        if (
-            x_pix >= 0
-            and y_pix >= 0
-            and x_pix + w_pix <= orig_w
-            and y_pix + h_pix <= orig_h
-            and w_pix > 0
-            and h_pix > 0
-        ):
-            rect = mpatches.Rectangle(
-                (x_pix, y_pix),
-                w_pix,
-                h_pix,
-                linewidth=2,
-                edgecolor="lime",
-                facecolor="none",
-            )
-            ax1.add_patch(rect)
-            title_left = f"Original ({orig_w}x{orig_h}) | GT: {class_names[gt_label]} | BBox: {int(w_pix)}x{int(h_pix)}"
+    if gt_bbox_list is not None and len(gt_bbox_list) > 0:
+        # Plot all GT bboxes from metadata
+        for bbox_data in gt_bbox_list:
+            # bbox_data is [x, y, width, height] in original pixel coords
+            if (
+                isinstance(bbox_data, (list, np.ndarray))
+                and len(bbox_data) == 4
+                and not any(pd.isna(v) for v in bbox_data)
+            ):
+                x, y, w, h = bbox_data
+
+                # Validate bbox is within image bounds
+                if (
+                    x >= 0
+                    and y >= 0
+                    and x + w <= orig_w
+                    and y + h <= orig_h
+                    and w > 0
+                    and h > 0
+                ):
+                    rect = mpatches.Rectangle(
+                        (x, y), w, h, linewidth=2, edgecolor="lime", facecolor="none"
+                    )
+                    ax1.add_patch(rect)
+                    num_valid_bboxes += 1
+
+        if num_valid_bboxes > 0:
+            title_left = f"Original ({orig_w}x{orig_h}) | GT: {class_names[gt_label]} | {num_valid_bboxes} bbox(es)"
         else:
-            title_left = f"Original ({orig_w}x{orig_h}) | GT: {class_names[gt_label]} (Invalid bbox)"
+            title_left = f"Original ({orig_w}x{orig_h}) | GT: {class_names[gt_label]} (Invalid bboxes)"
     else:
         title_left = (
             f"Original ({orig_w}x{orig_h}) | GT: {class_names[gt_label]} (No bbox)"
         )
+
     ax1.set_title(title_left, fontsize=12, fontweight="bold")
     ax1.axis("off")
 
@@ -471,7 +479,7 @@ def run_m2_test_with_visualization(
                 labels = batch["label"].to(device)
                 bboxes = batch["bbox"].to(
                     device
-                )  # [B, 4] in COCO format [x, y, w, h], normalized
+                )  # [B, 4] - only first bbox from dataloader
                 has_bbox = batch["has_bbox"].to(device)
 
                 # Calculate image_ids from batch_idx and batch_size
@@ -481,9 +489,7 @@ def run_m2_test_with_visualization(
 
                 outputs = model(images)
                 if len(outputs) == 3:
-                    cls_outputs, bbox_outputs, attn_maps = (
-                        outputs  # bbox_outputs: [B, 4] COCO format, normalized
-                    )
+                    cls_outputs, bbox_outputs, attn_maps = outputs
                 else:
                     cls_outputs, bbox_outputs = outputs
                     attn_maps = None
@@ -506,44 +512,18 @@ def run_m2_test_with_visualization(
                     # Get predicted bbox (COCO format, normalized)
                     pred_bbox = bbox_outputs[i] if bbox_outputs is not None else None
 
-                    # Get GT bbox (COCO format, normalized)
-                    gt_bbox = bboxes[i] if has_bbox[i].item() > 0 else None
-
-                    # Validate GT bbox
-                    if gt_bbox is not None:
-                        # Check if bbox is valid (not all zeros, not NaN)
-                        if (
-                            torch.isnan(gt_bbox).any()
-                            or (gt_bbox[2] <= 0)
-                            or (gt_bbox[3] <= 0)
-                        ):  # w or h <= 0
-                            gt_bbox = None
-
-                    # Compute bbox confidence (IoU)
-                    bbox_conf = None
-                    if (
-                        pred_bbox is not None
-                        and gt_bbox is not None
-                        and not torch.isnan(pred_bbox).any()
-                        and not torch.isnan(gt_bbox).any()
-                    ):
-                        try:
-                            bbox_conf = compute_bbox_confidence(pred_bbox, gt_bbox)
-                        except Exception as e:
-                            print(f"⚠️ Warning: Error computing IoU for {image_id}: {e}")
-                            bbox_conf = None
-
-                    # Get attention map
-                    attn_map = attn_maps[i] if attn_maps is not None else None
-                    if attn_map is None:
-                        print(f"⚠️ Warning: No attention map for {image_id}")
-                        continue
-
-                    # Get original image info from image_info dict
+                    # Get ALL GT bboxes from metadata (not just first one from dataloader)
+                    gt_bbox_list = None
                     if image_id in image_info:
                         info = image_info[image_id]
                         original_size = info["original_size"]
                         image_path = info["image_path"]
+
+                        # Get ALL bboxes for this image from metadata
+                        bbx_list = info.get("bbx_list", None)
+                        if bbx_list is not None and len(bbx_list) > 0:
+                            # bbx_list contains all bboxes in original pixel coords [x, y, w, h]
+                            gt_bbox_list = bbx_list
                     else:
                         print(
                             f"⚠️ Warning: image_id '{image_id}' not found in image_info dict"
@@ -558,6 +538,39 @@ def run_m2_test_with_visualization(
                         )
                         continue
 
+                    # Compute bbox confidence (IoU with first GT bbox if available)
+                    bbox_conf = None
+                    if (
+                        pred_bbox is not None
+                        and gt_bbox_list is not None
+                        and len(gt_bbox_list) > 0
+                    ):
+                        # Use first bbox from dataloader for IoU calculation
+                        gt_bbox_first = bboxes[i] if has_bbox[i].item() > 0 else None
+
+                        if (
+                            gt_bbox_first is not None
+                            and not torch.isnan(pred_bbox).any()
+                            and not torch.isnan(gt_bbox_first).any()
+                            and gt_bbox_first[2] > 0
+                            and gt_bbox_first[3] > 0
+                        ):
+                            try:
+                                bbox_conf = compute_bbox_confidence(
+                                    pred_bbox, gt_bbox_first
+                                )
+                            except Exception as e:
+                                print(
+                                    f"⚠️ Warning: Error computing IoU for {image_id}: {e}"
+                                )
+                                bbox_conf = None
+
+                    # Get attention map
+                    attn_map = attn_maps[i] if attn_maps is not None else None
+                    if attn_map is None:
+                        print(f"⚠️ Warning: No attention map for {image_id}")
+                        continue
+
                     # Save visualization with image_id as filename
                     save_path = os.path.join(vis_dir, f"{image_id}.png")
                     try:
@@ -565,7 +578,7 @@ def run_m2_test_with_visualization(
                             images[i],
                             attn_map,
                             pred_bbox,
-                            gt_bbox,
+                            gt_bbox_list,  # Pass ALL GT bboxes
                             pred_class,
                             gt_label,
                             pred_prob,
