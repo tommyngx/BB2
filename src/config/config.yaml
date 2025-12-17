@@ -15,3 +15,6 @@ config:
   num_patches: 3  # Số patch (2, 3, hoặc 4)
   arch_type: patch_resnet # patch_transformer
   lambda_bbox: 0.7
+  mean_std:
+    mean: [0.5, 0.5, 0.5]
+    std: [0.5, 0.5, 0.5]

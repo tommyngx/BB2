@@ -43,7 +43,7 @@ def denormalize_image(tensor, mean, std):
     return img
 
 
-def bbox_to_xyxy(bbox, original_size, current_size):
+def bbox_to_xyxy(bbox, original_size):
     """
     Convert normalized bbox [x, y, w, h] to pixel coordinates [x1, y1, x2, y2]
     in original image size
@@ -51,7 +51,6 @@ def bbox_to_xyxy(bbox, original_size, current_size):
     Args:
         bbox: normalized bbox [x, y, w, h] in range [0, 1]
         original_size: (height, width) of original image
-        current_size: (height, width) of current/resized image (usually img_size)
     """
     x, y, w, h = bbox
     orig_h, orig_w = original_size
@@ -82,9 +81,8 @@ def visualize_m2_result(
     pred_prob,
     bbox_conf,
     save_path,
-    normalize_params,
     class_names,
-    original_size,  # Add original_size parameter
+    original_size,  # (height, width) of original image
 ):
     """
     Create side-by-side visualization:
@@ -94,25 +92,19 @@ def visualize_m2_result(
     Args:
         original_size: (height, width) of the original image before resizing
     """
-    # Denormalize image
-    if normalize_params:
-        mean = normalize_params.get("mean", [0.485, 0.456, 0.406])
-        std = normalize_params.get("std", [0.229, 0.224, 0.225])
-        img_denorm = denormalize_image(image_tensor.cpu(), mean, std)
-    else:
-        img_denorm = torch.clamp(image_tensor.cpu(), 0, 1)
+    # Denormalize image using m2_data normalization: mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]
+    mean = [0.5, 0.5, 0.5]
+    std = [0.5, 0.5, 0.5]
+    img_denorm = denormalize_image(image_tensor.cpu(), mean, std)
 
     # Convert to numpy
     img_np = img_denorm.permute(1, 2, 0).numpy()
-    current_h, current_w = img_np.shape[:2]
 
     # Resize image to original size for visualization
-    img_pil = Image.fromarray((img_np * 255).astype(np.uint8))
-    img_original_size = img_pil.resize(
-        (original_size[1], original_size[0]), Image.Resampling.BILINEAR
-    )
-    img_original_np = np.array(img_original_size).astype(np.float32) / 255.0
     orig_h, orig_w = original_size
+    img_pil = Image.fromarray((img_np * 255).astype(np.uint8))
+    img_original_size = img_pil.resize((orig_w, orig_h), Image.Resampling.BILINEAR)
+    img_original_np = np.array(img_original_size).astype(np.float32) / 255.0
 
     # Process attention map - resize to original size
     attn_np = attn_map.squeeze().cpu().numpy()
@@ -140,9 +132,7 @@ def visualize_m2_result(
     ax1.imshow(img_original_np)
     if gt_bbox is not None and not torch.isnan(gt_bbox).any():
         # Convert bbox to original image coordinates
-        x1, y1, x2, y2 = bbox_to_xyxy(
-            gt_bbox.cpu().numpy(), original_size, (current_h, current_w)
-        )
+        x1, y1, x2, y2 = bbox_to_xyxy(gt_bbox.cpu().numpy(), original_size)
         rect = mpatches.Rectangle(
             (x1, y1), x2 - x1, y2 - y1, linewidth=2, edgecolor="lime", facecolor="none"
         )
@@ -159,9 +149,7 @@ def visualize_m2_result(
     ax2.imshow(blend_img)
     if pred_bbox is not None:
         # Convert bbox to original image coordinates
-        x1, y1, x2, y2 = bbox_to_xyxy(
-            pred_bbox.cpu().numpy(), original_size, (current_h, current_w)
-        )
+        x1, y1, x2, y2 = bbox_to_xyxy(pred_bbox.cpu().numpy(), original_size)
         rect = mpatches.Rectangle(
             (x1, y1), x2 - x1, y2 - y1, linewidth=2, edgecolor="red", facecolor="none"
         )
@@ -251,8 +239,8 @@ def run_m2_test_with_visualization(
     # Extract model name from pretrained path
     model_filename = os.path.basename(pretrained_model_path).replace(".pth", "")
 
-    # Get normalize params from config
-    normalize_params = config.get("normalize", None)
+    # Get normalize params - use m2_data default
+    normalize_params = {"mean": [0.5, 0.5, 0.5], "std": [0.5, 0.5, 0.5]}
 
     # Use get_gradcam_layer function to determine the correct layer
     model_name = model_type.lower()
@@ -386,7 +374,6 @@ def run_m2_test_with_visualization(
                         original_size = original_sizes[image_id]
                     else:
                         # Fallback: try to load original image to get size
-                        # Assume image path follows pattern in metadata
                         test_row = test_df[test_df["image_id"] == image_id]
                         if not test_row.empty:
                             img_path = os.path.join(
@@ -412,7 +399,6 @@ def run_m2_test_with_visualization(
                         pred_prob,
                         bbox_conf,
                         save_path,
-                        normalize_params,
                         class_names,
                         original_size,
                     )
