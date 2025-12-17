@@ -5,12 +5,15 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 import argparse
 import os
+import random
 import torch
 from src.data.m2_data import get_m2_dataloaders
 from src.data.dataloader import load_metadata
 from src.models.m2_model import get_m2_model
 from src.trainer.engines_m2 import train_m2_model, evaluate_m2_model
 from src.utils.common import load_config, get_arg_or_config, clear_cuda_memory
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 
 
 def parse_img_size(val):
@@ -65,6 +68,64 @@ def prepare_m2_data_and_model(
     return train_df, test_df, train_loader, test_loader, model, device
 
 
+def sample_viz_batches(
+    data_loader,
+    output_dir,
+    class_names,
+    num_batches=5,
+    seed=42,
+):
+    """
+    Visualize a few batches of input images and their GT bbox for sanity check.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    random.seed(seed)
+    batch_indices = set(
+        random.sample(range(len(data_loader)), min(num_batches, len(data_loader)))
+    )
+    for batch_idx, batch in enumerate(data_loader):
+        if batch_idx not in batch_indices:
+            continue
+        images = batch["image"]
+        labels = batch["label"]
+        bboxes = batch["bbox"]
+        has_bbox = batch["has_bbox"]
+        image_ids = batch.get(
+            "image_id", [f"img_{batch_idx}_{i}" for i in range(len(images))]
+        )
+        bs = images.shape[0]
+        for i in range(bs):
+            img = images[i].cpu()
+            # Denormalize for visualization
+            img_np = (img.permute(1, 2, 0).numpy() * 0.5 + 0.5).clip(0, 1)
+            fig, ax = plt.subplots(figsize=(5, 5))
+            ax.imshow(img_np)
+            label = labels[i].item()
+            title = f"Batch {batch_idx} | {image_ids[i]} | Label: {class_names[label]}"
+            if has_bbox[i].item() > 0 and not torch.isnan(bboxes[i]).any():
+                x, y, w, h = bboxes[i].cpu().numpy()
+                x1 = int(x * img_np.shape[1])
+                y1 = int(y * img_np.shape[0])
+                x2 = int((x + w) * img_np.shape[1])
+                y2 = int((y + h) * img_np.shape[0])
+                rect = mpatches.Rectangle(
+                    (x1, y1),
+                    x2 - x1,
+                    y2 - y1,
+                    linewidth=2,
+                    edgecolor="lime",
+                    facecolor="none",
+                )
+                ax.add_patch(rect)
+                title += f" | BBox: [{x1},{y1},{x2},{y2}]"
+            ax.set_title(title, fontsize=10)
+            ax.axis("off")
+            save_path = os.path.join(output_dir, f"batch{batch_idx}_{image_ids[i]}.png")
+            plt.tight_layout()
+            plt.savefig(save_path, dpi=120, bbox_inches="tight")
+            plt.close(fig)
+
+
 def run_m2_train(
     data_folder,
     model_type,
@@ -79,6 +140,7 @@ def run_m2_train(
     lambda_bbox=1.0,
     pretrained_model_path=None,
     target_column=None,
+    sample_viz=False,  # new param
 ):
     train_df, test_df, train_loader, test_loader, model, device = (
         prepare_m2_data_and_model(
@@ -93,6 +155,20 @@ def run_m2_train(
     )
 
     model_name = f"{model_type}"
+    class_names = (
+        sorted(train_df[target_column].unique())
+        if target_column
+        else sorted(train_df["cancer"].unique())
+    )
+
+    # Sample visualization
+    if sample_viz:
+        viz_dir = os.path.join(output, "train_sample")
+        print(
+            f"🔍 Visualizing {min(5, len(train_loader))} random batches to {viz_dir} ..."
+        )
+        sample_viz_batches(train_loader, viz_dir, class_names, num_batches=5)
+
     trained_model = train_m2_model(
         model,
         train_loader,
@@ -176,6 +252,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--lambda_bbox", type=float, default=1.0, help="Weight for bbox regression loss"
     )
+    parser.add_argument(
+        "--sample_viz",
+        action="store_true",
+        help="Visualize a few training batches and their GT bbox",
+    )
 
     args = parser.parse_args()
     config = load_config(args.config)
@@ -215,6 +296,7 @@ if __name__ == "__main__":
             lambda_bbox=lambda_bbox,
             pretrained_model_path=pretrained_model_path,
             target_column=target_column,
+            sample_viz=args.sample_viz,  # pass flag
         )
     elif args.mode == "test":
         run_m2_test(
