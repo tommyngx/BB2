@@ -39,79 +39,94 @@ def validate_and_clip_bbox(x, y, w, h, img_w, img_h, min_area=100):
 def group_bboxes_by_image(df, data_folder, validate_bbox=True, min_area=100):
     """
     Group multiple bbox annotations by image_id with image-based validation
-
-    Args:
-        df: DataFrame with columns [image_id, link, cancer, x, y, width, height, split, ...]
-        data_folder: Root folder containing images
-        validate_bbox: Whether to validate and filter invalid bboxes
-        min_area: Minimum bbox area (pixels) to be considered valid
-
-    Returns:
-        DataFrame with one row per image_id, with bbox_list column containing all bboxes
+    OPTIMIZED: Batch process image dimensions, vectorized bbox validation
     """
-    grouped_rows = []
+    # Pre-load image dimensions for all unique images (parallel if needed)
+    print("  Loading image dimensions...")
+    unique_links = df[["image_id", "link"]].drop_duplicates("image_id")
+
+    img_dims = {}
     skipped_images = 0
 
+    for _, row in unique_links.iterrows():
+        img_path = os.path.join(data_folder, row["link"])
+        try:
+            img = cv2.imread(img_path)
+            if img is not None:
+                img_dims[row["image_id"]] = (img.shape[0], img.shape[1])  # (h, w)
+            else:
+                skipped_images += 1
+        except:
+            skipped_images += 1
+
+    if skipped_images > 0:
+        print(f"⚠️ Skipped {skipped_images} images due to read errors")
+
+    # Vectorized bbox validation
+    def validate_bboxes_batch(group, img_h, img_w):
+        """Validate all bboxes for one image at once"""
+        # Get bbox columns
+        bbox_cols = ["x", "y", "width", "height"]
+        if not all(col in group.columns for col in bbox_cols):
+            return []
+
+        # Filter valid rows
+        valid_rows = group[group[bbox_cols].notna().all(axis=1)].copy()
+        if len(valid_rows) == 0:
+            return []
+
+        # Vectorized operations
+        bboxes = valid_rows[bbox_cols].values.astype(float)
+
+        # Clip to boundaries
+        bboxes[:, 0] = np.clip(bboxes[:, 0], 0, img_w - 1)  # x
+        bboxes[:, 1] = np.clip(bboxes[:, 1], 0, img_h - 1)  # y
+        bboxes[:, 2] = np.maximum(0, bboxes[:, 2])  # w
+        bboxes[:, 3] = np.maximum(0, bboxes[:, 3])  # h
+
+        # Ensure bbox doesn't exceed bounds
+        bboxes[:, 2] = np.minimum(bboxes[:, 2], img_w - bboxes[:, 0])
+        bboxes[:, 3] = np.minimum(bboxes[:, 3], img_h - bboxes[:, 1])
+
+        # Filter by area
+        areas = bboxes[:, 2] * bboxes[:, 3]
+        valid_mask = (bboxes[:, 2] > 0) & (bboxes[:, 3] > 0) & (areas >= min_area)
+
+        return bboxes[valid_mask].tolist()
+
+    # Group and process
+    grouped_rows = []
     for image_id, group in df.groupby("image_id"):
-        # Get first row for image-level metadata
         first_row = group.iloc[0]
 
-        # Get image path
-        img_path = os.path.join(data_folder, first_row["link"])
-
-        # Load image to get dimensions for validation
-        try:
-            temp_img = cv2.imread(img_path)
-            if temp_img is None:
-                print(f"⚠️ Cannot read image: {img_path}")
-                skipped_images += 1
-                continue
-            img_h, img_w = temp_img.shape[:2]
-        except Exception as e:
-            print(f"⚠️ Error reading {img_path}: {e}")
-            skipped_images += 1
+        # Skip if image dimensions not available
+        if image_id not in img_dims:
             continue
 
-        # Collect all valid bboxes for this image
-        bbox_list = []
+        img_h, img_w = img_dims[image_id]
 
-        for _, row in group.iterrows():
-            # Check if bbox columns exist and are valid
-            if all(col in row.index for col in ["x", "y", "width", "height"]):
-                if all(pd.notna(row[col]) for col in ["x", "y", "width", "height"]):
-                    x, y, w, h = row["x"], row["y"], row["width"], row["height"]
+        # Validate bboxes in batch
+        if validate_bbox:
+            bbox_list = validate_bboxes_batch(group, img_h, img_w)
+        else:
+            # No validation, just extract
+            bbox_cols = ["x", "y", "width", "height"]
+            valid_rows = group[group[bbox_cols].notna().all(axis=1)]
+            bbox_list = valid_rows[bbox_cols].values.tolist()
 
-                    if validate_bbox:
-                        # Validate and clip bbox
-                        x, y, w, h, is_valid = validate_and_clip_bbox(
-                            x, y, w, h, img_w, img_h, min_area=min_area
-                        )
-
-                        if is_valid:
-                            bbox_list.append([x, y, w, h])
-                    else:
-                        # No validation, but ensure non-negative
-                        x = max(0, float(x))
-                        y = max(0, float(y))
-                        w = max(0, float(w))
-                        h = max(0, float(h))
-
-                        if w > 0 and h > 0:
-                            bbox_list.append([x, y, w, h])
-
-        # Create new row with grouped bboxes
+        # Create row
         new_row = {
             "image_id": image_id,
             "link": first_row["link"],
             "cancer": int(first_row["cancer"]),
             "split": first_row["split"],
-            "bbox_list": bbox_list,  # List of lists: [[x,y,w,h], ...] in pixel coords
+            "bbox_list": bbox_list,
             "num_bboxes": len(bbox_list),
             "image_width": img_w,
             "image_height": img_h,
         }
 
-        # Copy other metadata columns if exist
+        # Copy metadata
         for col in [
             "original_width",
             "original_height",
@@ -124,13 +139,7 @@ def group_bboxes_by_image(df, data_folder, validate_bbox=True, min_area=100):
 
         grouped_rows.append(new_row)
 
-    if skipped_images > 0:
-        print(f"⚠️ Skipped {skipped_images} images due to read errors")
-
-    # Create grouped DataFrame
-    df_grouped = pd.DataFrame(grouped_rows)
-
-    return df_grouped
+    return pd.DataFrame(grouped_rows)
 
 
 def prepare_detr_dataframe(
