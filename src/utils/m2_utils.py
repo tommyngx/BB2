@@ -2,16 +2,20 @@ import torch
 import math
 
 
-def compute_iou(bbox_pred, bbox_true):
+def compute_iou(pred_boxes, gt_boxes):
     """
-    Compute IoU between predicted and true bboxes
-    bbox format: [x1, y1, x2, y2] normalized to [0, 1]
+    Compute IoU between predicted and ground truth boxes (COCO format)
+    Args:
+        pred_boxes: [N, 4] or [B, N, 4] in format [x, y, w, h]
+        gt_boxes: [M, 4] or [B, M, 4] in format [x, y, w, h]
+    Returns:
+        iou: [N, M] or [B, N, M]
     """
     # Get intersection coords
-    x1_i = torch.max(bbox_pred[:, 0], bbox_true[:, 0])
-    y1_i = torch.max(bbox_pred[:, 1], bbox_true[:, 1])
-    x2_i = torch.min(bbox_pred[:, 2], bbox_true[:, 2])
-    y2_i = torch.min(bbox_pred[:, 3], bbox_true[:, 3])
+    x1_i = torch.max(pred_boxes[:, 0], gt_boxes[:, 0])
+    y1_i = torch.max(pred_boxes[:, 1], gt_boxes[:, 1])
+    x2_i = torch.min(pred_boxes[:, 2], gt_boxes[:, 2])
+    y2_i = torch.min(pred_boxes[:, 3], gt_boxes[:, 3])
 
     # Intersection area
     inter_w = torch.clamp(x2_i - x1_i, min=0)
@@ -19,12 +23,10 @@ def compute_iou(bbox_pred, bbox_true):
     inter_area = inter_w * inter_h
 
     # Union area
-    pred_area = (bbox_pred[:, 2] - bbox_pred[:, 0]) * (
-        bbox_pred[:, 3] - bbox_pred[:, 1]
+    pred_area = (pred_boxes[:, 2] - pred_boxes[:, 0]) * (
+        pred_boxes[:, 3] - pred_boxes[:, 1]
     )
-    true_area = (bbox_true[:, 2] - bbox_true[:, 0]) * (
-        bbox_true[:, 3] - bbox_true[:, 1]
-    )
+    true_area = (gt_boxes[:, 2] - gt_boxes[:, 0]) * (gt_boxes[:, 3] - gt_boxes[:, 1])
     union_area = pred_area + true_area - inter_area
 
     # IoU

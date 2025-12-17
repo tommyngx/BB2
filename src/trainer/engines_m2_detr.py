@@ -27,18 +27,18 @@ class HungarianMatcher(nn.Module):
     def forward(self, pred_bboxes, target_bboxes, target_mask):
         """
         Args:
-            pred_bboxes: [B, N, 4] predicted boxes (COCO format, normalized)
-            target_bboxes: [B, M, 4] target boxes (COCO format, normalized)
-            target_mask: [B, M] 1 for valid boxes, 0 for padding
+            pred_bboxes: [B, N, 4] predicted boxes
+            target_bboxes: [B, M, 4] target boxes
+            target_mask: [B, M] 1 for valid, 0 for padding
         Returns:
-            List of (pred_idx, target_idx) tuples for each sample in batch
+            List of (pred_idx, target_idx) for each sample
         """
         B, N = pred_bboxes.shape[:2]
         M = target_bboxes.shape[1]
 
         indices = []
         for i in range(B):
-            # Filter valid targets FIRST
+            # Get valid targets FIRST
             valid_mask = target_mask[i] > 0.5
             num_valid = valid_mask.sum().item()
 
@@ -52,27 +52,41 @@ class HungarianMatcher(nn.Module):
 
             # Compute costs on [N, num_valid] matrix
             try:
+                # L1 cost: [N, num_valid]
                 cost_bbox = torch.cdist(pred, tgt, p=1)
+
+                # GIoU cost: [N, num_valid]
                 cost_giou = -compute_iou(pred, tgt)
 
+                # Total cost: [N, num_valid]
                 C = self.cost_bbox * cost_bbox + self.cost_giou * cost_giou
                 C = C.cpu().numpy()
+
+                # CRITICAL FIX: Ensure C is exactly [N, num_valid]
+                assert C.shape == (N, num_valid), (
+                    f"Cost matrix shape mismatch: {C.shape} != ({N}, {num_valid})"
+                )
 
                 # Hungarian matching: returns indices in range [0, N-1] and [0, num_valid-1]
                 pred_idx, tgt_idx = linear_sum_assignment(C)
 
-                # Sanity check
+                # CRITICAL VALIDATION
                 if len(pred_idx) > 0:
-                    assert max(pred_idx) < N, f"pred_idx {max(pred_idx)} >= N {N}"
-                    assert max(tgt_idx) < num_valid, (
-                        f"tgt_idx {max(tgt_idx)} >= num_valid {num_valid}"
-                    )
+                    max_pred = max(pred_idx)
+                    max_tgt = max(tgt_idx)
+                    if max_pred >= N or max_tgt >= num_valid:
+                        raise ValueError(
+                            f"Invalid indices from Hungarian: pred_idx max={max_pred} (N={N}), "
+                            f"tgt_idx max={max_tgt} (num_valid={num_valid})"
+                        )
 
                 indices.append((pred_idx.tolist(), tgt_idx.tolist()))
+
             except Exception as e:
                 print(f"⚠️ Error in Hungarian matching for sample {i}: {e}")
                 print(f"  pred shape: {pred.shape}, tgt shape: {tgt.shape}")
-                print(f"  num_valid: {num_valid}, N: {N}")
+                print(f"  Cost matrix shape: {C.shape if 'C' in locals() else 'N/A'}")
+                print(f"  Expected: ({N}, {num_valid})")
                 indices.append(([], []))
 
         return indices
