@@ -216,8 +216,8 @@ def get_m2_train_augmentation(height, width, enable_rotate90=True):
         bbox_params=A.BboxParams(
             format="pascal_voc",
             label_fields=["labels"],
-            min_area=0,
-            min_visibility=0.3,
+            min_area=100.0,  # Bbox phải có diện tích tối thiểu 1 pixel
+            min_visibility=0.3,  # Giảm từ 0.3 xuống 0.1 để giữ nhiều bbox hơn
         ),
     )
 
@@ -249,8 +249,8 @@ def get_m2_test_augmentation(height, width):
         bbox_params=A.BboxParams(
             format="pascal_voc",
             label_fields=["labels"],
-            min_area=0,
-            min_visibility=0,
+            min_area=0.0,
+            min_visibility=0.0,  # Test mode: giữ tất cả bbox
         ),
     )
 

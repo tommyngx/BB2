@@ -93,15 +93,47 @@ class M2Dataset(Dataset):
                     image=image, bboxes=[bbox], labels=[label]
                 )
                 image = transformed["image"]
-                # Get transformed bbox
+
+                # Validate transformed bbox
                 if len(transformed["bboxes"]) > 0:
                     bbox = list(transformed["bboxes"][0])
-                    # Validate transformed bbox is still valid
+
+                    # Check bbox validity after transform
+                    # 1. Check format: x2 > x1 and y2 > y1
                     if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
-                        # Invalid bbox after transform
                         bbox = [0.0, 0.0, 0.0, 0.0]
                         has_bbox = False
+                    # 2. Check bbox is within image bounds (after resize to img_size)
+                    elif self.img_size is not None:
+                        h_img, w_img = self.img_size
+                        # Bbox should be in pixel coords [x1, y1, x2, y2]
+                        # After ToTensorV2, image is [C, H, W]
+                        # But bbox is still in original coords before normalize
+                        # So we need to check against img_size
+                        if (
+                            bbox[0] < 0
+                            or bbox[1] < 0
+                            or bbox[2] > w_img
+                            or bbox[3] > h_img
+                        ):
+                            # Clip bbox to image bounds
+                            bbox[0] = max(0.0, bbox[0])
+                            bbox[1] = max(0.0, bbox[1])
+                            bbox[2] = min(float(w_img), bbox[2])
+                            bbox[3] = min(float(h_img), bbox[3])
+
+                            # Recheck validity after clipping
+                            if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+                                bbox = [0.0, 0.0, 0.0, 0.0]
+                                has_bbox = False
+                    # 3. Check bbox area (must be > 0)
+                    if has_bbox:
+                        area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+                        if area <= 0:
+                            bbox = [0.0, 0.0, 0.0, 0.0]
+                            has_bbox = False
                 else:
+                    # Transform removed bbox (due to min_visibility or out of bounds)
                     bbox = [0.0, 0.0, 0.0, 0.0]
                     has_bbox = False
         else:
@@ -130,7 +162,8 @@ class M2Dataset(Dataset):
 
         # Normalize bbox to [0, 1] range based on image size
         if has_bbox and bbox != [0.0, 0.0, 0.0, 0.0]:
-            h_img, w_img = image.shape[1], image.shape[2]  # CHW format after ToTensorV2
+            # Image after ToTensorV2 is [C, H, W]
+            h_img, w_img = image.shape[1], image.shape[2]
             bbox = [
                 max(0.0, min(1.0, bbox[0] / w_img)),
                 max(0.0, min(1.0, bbox[1] / h_img)),
@@ -138,10 +171,19 @@ class M2Dataset(Dataset):
                 max(0.0, min(1.0, bbox[3] / h_img)),
             ]
 
-            # Final validation: ensure x2 > x1 and y2 > y1
+            # Final validation: ensure x2 > x1 and y2 > y1 after normalization
             if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
                 bbox = [0.0, 0.0, 0.0, 0.0]
                 has_bbox = False
+
+            # Check minimum bbox size (avoid too small bbox)
+            min_bbox_size = 0.01  # 1% of image
+            if has_bbox:
+                bbox_width = bbox[2] - bbox[0]
+                bbox_height = bbox[3] - bbox[1]
+                if bbox_width < min_bbox_size or bbox_height < min_bbox_size:
+                    bbox = [0.0, 0.0, 0.0, 0.0]
+                    has_bbox = False
 
         return {
             "image": image,
