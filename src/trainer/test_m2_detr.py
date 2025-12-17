@@ -603,7 +603,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=str)
     parser.add_argument("--img_size", type=str, default=None)
     parser.add_argument("--target_column", type=str, default=None)
-    parser.add_argument("--num_queries", type=int, default=5)
+    parser.add_argument("--num_queries", type=int, default=3)
     parser.add_argument("--max_objects", type=int, default=5)
     parser.add_argument("--no_viz", action="store_true", help="Skip visualizations")
     parser.add_argument(
