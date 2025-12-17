@@ -398,7 +398,7 @@ def train_m2_detr_model(
     print(f"Model key: {model_key}")
 
     # Check for existing weights
-    print(f"Checking for existing weights in {model_dir} with model_key: {model_key}")
+    print(f"Checking for existing weights in {model_dir}\n with model_key: {model_key}")
     existing_weights = []
     for fname in os.listdir(model_dir):
         if fname.startswith(model_key) and fname.endswith(".pth"):
