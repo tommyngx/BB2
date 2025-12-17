@@ -188,7 +188,7 @@ class EfficientDETRDecoder(nn.Module):
     - Iterative bbox refinement
     """
 
-    def __init__(self, feature_dim, num_queries=5, num_heads=8, num_layers=2):
+    def __init__(self, feature_dim, num_queries=5, num_heads=4, num_layers=2):
         super().__init__()
         self.num_queries = num_queries
         self.num_layers = num_layers
@@ -335,7 +335,7 @@ class M2DETRModel(nn.Module):
         self.detr_decoder = EfficientDETRDecoder(
             feature_dim,
             num_queries=num_queries,
-            num_heads=8,
+            num_heads=4,
             num_layers=2,  # Reduced from 3 to 2
         )
 
