@@ -64,19 +64,17 @@ class M2DETRDataset(Dataset):
     def _prepare_samples(self, df):
         """Group bboxes by image_id with proper validation"""
         samples = []
+        multi_bbox_count = 0  # Count images with >1 bbox
 
         for image_id in df["image_id"].unique():
             img_rows = df[df["image_id"] == image_id]
             first_row = img_rows.iloc[0]
 
-            # Get image info
             img_path = os.path.join(self.data_folder, first_row["link"])
             label = int(first_row["cancer"])
 
-            # Get all valid bboxes for this image
             bboxes = []
             if label == 1:
-                # Load image to get dimensions for validation
                 try:
                     temp_img = cv2.imread(img_path)
                     if temp_img is not None:
@@ -88,12 +86,12 @@ class M2DETRDataset(Dataset):
                     print(f"⚠️ Error reading {img_path}: {e}")
                     continue
 
+                # Process ALL rows for this image_id (multi-bbox support)
                 for _, row in img_rows.iterrows():
                     if all(col in row.index for col in ["x", "y", "width", "height"]):
                         if all(
                             pd.notna(row[col]) for col in ["x", "y", "width", "height"]
                         ):
-                            # Validate and clip bbox
                             x, y, w, h, is_valid = validate_and_clip_bbox(
                                 row["x"],
                                 row["y"],
@@ -103,19 +101,25 @@ class M2DETRDataset(Dataset):
                                 img_h,
                                 min_area=100,
                             )
-
                             if is_valid:
                                 bboxes.append([x, y, w, h])
+
+                # Debug: count images with multiple bboxes
+                if len(bboxes) > 1:
+                    multi_bbox_count += 1
+                    if multi_bbox_count <= 5:  # Print first 5 multi-bbox images
+                        print(f"[DEBUG] image_id={image_id} has {len(bboxes)} bboxes")
 
             samples.append(
                 {
                     "image_path": img_path,
                     "label": label,
-                    "bboxes": bboxes,  # List of validated bboxes [x, y, w, h] in pixel coords
+                    "bboxes": bboxes,
                     "image_id": image_id,
                 }
             )
 
+        print(f"[INFO] Total images with >1 bbox: {multi_bbox_count}/{len(samples)}")
         return samples
 
     def __len__(self):
