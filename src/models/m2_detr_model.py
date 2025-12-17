@@ -88,8 +88,7 @@ class EfficientDeformableAttention(nn.Module):
         self.value_proj = nn.Linear(embed_dim, embed_dim)
         self.output_proj = nn.Linear(embed_dim, embed_dim)
 
-        # ADDED: Register buffer for spatial normalization (avoid creating tensor on each forward)
-        self.register_buffer("_spatial_norm_cache", torch.zeros(2), persistent=False)
+        # REMOVED: buffer approach doesn't work with DataParallel
 
         self._reset_parameters()
 
@@ -139,24 +138,9 @@ class EfficientDeformableAttention(nn.Module):
         )
         attn_weights = F.softmax(attn_weights, dim=-1)
 
-        # FIXED: Use cached buffer and update in-place
-        if (
-            self._spatial_norm_cache.shape[0] != 2
-            or self._spatial_norm_cache.device != query.device
-        ):
-            self._spatial_norm_cache = torch.tensor(
-                [W, H], dtype=query.dtype, device=query.device
-            )
-        else:
-            self._spatial_norm_cache[0] = W
-            self._spatial_norm_cache[1] = H
-
-        # Normalize offsets
-        offsets = offsets / self._spatial_norm_cache * 0.1
-
-        # ALTERNATIVE FIX: Direct division without creating tensor
-        offsets_x = offsets[..., 0] / W * 0.1
-        offsets_y = offsets[..., 1] / H * 0.1
+        # FIXED: Direct division to avoid creating tensor (multi-GPU safe)
+        offsets_x = offsets[..., 0] / float(W) * 0.1
+        offsets_y = offsets[..., 1] / float(H) * 0.1
         offsets = torch.stack([offsets_x, offsets_y], dim=-1)
 
         # Sampling locations
@@ -425,8 +409,8 @@ class M2DETRModel(nn.Module):
         self.detr_decoder = EfficientDETRDecoder(
             feature_dim,
             num_queries=num_queries,
-            num_heads=2,  # CHANGED: từ 4 xuống 2
-            num_layers=1,  # CHANGED: từ 2 xuống 1
+            num_heads=1,  # TEMPORARY: 1 head to avoid multi-GPU issues
+            num_layers=1,
         )
 
     def forward(self, x, gt_boxes=None):
@@ -628,3 +612,4 @@ def get_m2_detr_model(model_type="resnet50", num_classes=2, num_queries=5):
         backbone, feature_dim, num_classes, num_queries, reduced_dim=256
     )  # ADDED: reduced_dim
     return model
+        "eva02_small",    ]:        backbone, feature_dim = get_timm_backbone(model_type)        if hasattr(backbone, "forward_features"):            backbone = TimmFeatureWrapper(backbone)    elif model_type in ["dinov2_small", "dinov2_base", "dinov3_vit16small"]:        backbone, feature_dim = get_dino_backbone(model_type)        backbone = DinoFeatureWrapper(backbone)    else:        raise ValueError(f"Unsupported model_type: {model_type}")    model = M2DETRModel(        backbone, feature_dim, num_classes, num_queries, reduced_dim=256    )  # ADDED: reduced_dim    return model
