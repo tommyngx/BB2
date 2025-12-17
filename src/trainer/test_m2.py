@@ -25,7 +25,7 @@ from src.trainer.train_based import get_gradcam_layer
 
 
 def load_data_bbx3(data_folder):
-    """Load metadata with bounding box information"""
+    """Load metadata with bounding box information grouped by image_id"""
     metadata_path = os.path.join(data_folder, "metadata2.csv")
     if not os.path.exists(metadata_path):
         metadata_path = os.path.join(data_folder, "metadata.csv")
@@ -49,20 +49,41 @@ def load_data_bbx3(data_folder):
         )
         df = df.merge(bbx_grouped, on="image_id", how="left")
 
-    # Get original image sizes
-    original_sizes = {}
-    for _, row in df.iterrows():
-        img_id = row.get("image_id", None)
-        if img_id:
-            orig_h = row.get("original_height", None)
-            orig_w = row.get("original_width", None)
-            if orig_h and orig_w:
-                original_sizes[img_id] = (int(orig_h), int(orig_w))
+    # Create mapping: image_id -> (original_size, image_path, bbx_list)
+    image_info = {}
+    for image_id in df["image_id"].unique():
+        img_rows = df[df["image_id"] == image_id]
+        first_row = img_rows.iloc[0]
+
+        # Get image path
+        img_path = os.path.join(data_folder, first_row["link"])
+
+        # Get original size
+        if "original_height" in first_row and "original_width" in first_row:
+            orig_h = int(first_row["original_height"])
+            orig_w = int(first_row["original_width"])
+            original_size = (orig_h, orig_w)
+        else:
+            # Load image to get size
+            if os.path.exists(img_path):
+                with Image.open(img_path) as img_orig:
+                    original_size = (img_orig.height, img_orig.width)
+            else:
+                original_size = None
+
+        # Get bbox list
+        bbx_list = first_row.get("bbx_list", None)
+
+        image_info[image_id] = {
+            "original_size": original_size,
+            "image_path": img_path,
+            "bbx_list": bbx_list,
+        }
 
     train_df = df[df["split"] == "train"] if "split" in df.columns else df
     test_df = df[df["split"] == "test"] if "split" in df.columns else df
 
-    return train_df, test_df, original_sizes
+    return train_df, test_df, image_info
 
 
 def parse_img_size(val):
@@ -116,30 +137,31 @@ def visualize_m2_result(
     save_path,
     class_names,
     original_size,
-    image_path=None,  # new param for original image path
+    image_path=None,
 ):
     """Create side-by-side visualization with original image size"""
-    mean = [0.5, 0.5, 0.5]
-    std = [0.5, 0.5, 0.5]
-    img_denorm = denormalize_image(image_tensor.cpu(), mean, std)
-    img_np = img_denorm.permute(1, 2, 0).numpy()
     orig_h, orig_w = original_size
 
-    # Always reload original image for plotting if possible
-    img_original_np = None
+    # ALWAYS load original image from disk for accurate visualization
     if image_path and os.path.exists(image_path):
-        img_original_size = (
-            Image.open(image_path)
-            .convert("RGB")
-            .resize((orig_w, orig_h), Image.Resampling.BILINEAR)
-        )
-        img_original_np = np.array(img_original_size).astype(np.float32) / 255.0
+        img_original = Image.open(image_path).convert("RGB")
+        # Ensure size matches metadata
+        if img_original.size != (orig_w, orig_h):
+            img_original = img_original.resize(
+                (orig_w, orig_h), Image.Resampling.BILINEAR
+            )
+        img_original_np = np.array(img_original).astype(np.float32) / 255.0
     else:
+        # Fallback: denormalize tensor (less accurate)
+        mean = [0.5, 0.5, 0.5]
+        std = [0.5, 0.5, 0.5]
+        img_denorm = denormalize_image(image_tensor.cpu(), mean, std)
+        img_np = img_denorm.permute(1, 2, 0).numpy()
         img_pil = Image.fromarray((img_np * 255).astype(np.uint8))
-        img_original_size = img_pil.resize((orig_w, orig_h), Image.Resampling.BILINEAR)
-        img_original_np = np.array(img_original_size).astype(np.float32) / 255.0
+        img_original = img_pil.resize((orig_w, orig_h), Image.Resampling.BILINEAR)
+        img_original_np = np.array(img_original).astype(np.float32) / 255.0
 
-    # Process attention map - resize to original size
+    # Resize attention map to original size
     attn_np = attn_map.squeeze().cpu().numpy()
     attn_resized = Image.fromarray((attn_np * 255).astype(np.uint8)).resize(
         (orig_w, orig_h), Image.Resampling.BILINEAR
@@ -164,6 +186,7 @@ def visualize_m2_result(
     # Left: Original image + GT bbox
     ax1.imshow(img_original_np)
     if gt_bbox is not None and not torch.isnan(gt_bbox).any():
+        # Scale bbox to original image size
         x1, y1, x2, y2 = bbox_to_xyxy(gt_bbox.cpu().numpy(), original_size)
         rect = mpatches.Rectangle(
             (x1, y1), x2 - x1, y2 - y1, linewidth=2, edgecolor="lime", facecolor="none"
@@ -180,6 +203,7 @@ def visualize_m2_result(
     # Right: Heatmap + Predicted bbox
     ax2.imshow(blend_img)
     if pred_bbox is not None:
+        # Scale bbox to original image size
         x1, y1, x2, y2 = bbox_to_xyxy(pred_bbox.cpu().numpy(), original_size)
         rect = mpatches.Rectangle(
             (x1, y1), x2 - x1, y2 - y1, linewidth=2, edgecolor="red", facecolor="none"
@@ -217,8 +241,8 @@ def run_m2_test_with_visualization(
         data_folder, config_path, target_column=target_column
     )
 
-    # Load metadata with bbox info
-    _, test_df_bbx, original_sizes = load_data_bbx3(data_folder)
+    # Load metadata with bbox info and image paths
+    _, test_df_bbx, image_info = load_data_bbx3(data_folder)
 
     _, test_loader = get_m2_dataloaders(
         train_df,
@@ -372,16 +396,6 @@ def run_m2_test_with_visualization(
         vis_dir = os.path.join(output, "test", model_filename)
         os.makedirs(vis_dir, exist_ok=True)
 
-        # Prepare a mapping from image_id to original image path (from test_df_bbx)
-        imageid2path = {}
-        if (
-            test_df_bbx is not None
-            and "image_id" in test_df_bbx.columns
-            and "link" in test_df_bbx.columns
-        ):
-            for _, row in test_df_bbx.iterrows():
-                imageid2path[row["image_id"]] = os.path.join(data_folder, row["link"])
-
         model.eval()
         with torch.no_grad():
             for batch_idx, batch in enumerate(tqdm(test_loader, desc="Visualizing")):
@@ -404,16 +418,20 @@ def run_m2_test_with_visualization(
                 probs = torch.softmax(cls_outputs, dim=1)
 
                 for i in range(len(images)):
+                    # Get image_id (convert to string if needed)
                     image_id = (
                         image_ids[i]
                         if isinstance(image_ids, list)
                         else str(image_ids[i].item())
                     )
+
                     pred_class = predicted[i].item()
                     gt_label = labels[i].item()
                     pred_prob = probs[i, pred_class].item()
                     pred_bbox = bbox_outputs[i] if bbox_outputs is not None else None
                     gt_bbox = bboxes[i] if has_bbox[i].item() > 0 else None
+
+                    # Compute bbox confidence
                     bbox_conf = None
                     if (
                         pred_bbox is not None
@@ -421,35 +439,29 @@ def run_m2_test_with_visualization(
                         and not torch.isnan(gt_bbox).any()
                     ):
                         bbox_conf = compute_bbox_confidence(pred_bbox, gt_bbox)
+
+                    # Get attention map
                     attn_map = attn_maps[i] if attn_maps is not None else None
                     if attn_map is None:
                         continue
 
-                    # Get original image size and path
-                    if image_id in original_sizes:
-                        original_size = original_sizes[image_id]
+                    # Get original image info from image_info dict
+                    if image_id in image_info:
+                        info = image_info[image_id]
+                        original_size = info["original_size"]
+                        image_path = info["image_path"]
                     else:
-                        if test_df_bbx is not None:
-                            test_row = test_df_bbx[test_df_bbx["image_id"] == image_id]
-                            if not test_row.empty:
-                                img_path = os.path.join(
-                                    data_folder, test_row.iloc[0]["link"]
-                                )
-                                if os.path.exists(img_path):
-                                    with Image.open(img_path) as img_orig:
-                                        original_size = (
-                                            img_orig.height,
-                                            img_orig.width,
-                                        )
-                                else:
-                                    original_size = actual_input_size
-                            else:
-                                original_size = actual_input_size
-                        else:
-                            original_size = actual_input_size
+                        # Fallback: use actual_input_size
+                        original_size = actual_input_size
+                        image_path = None
+                        print(f"⚠️ Warning: image_id '{image_id}' not found in metadata")
 
-                    # Get original image path for plotting
-                    image_path = imageid2path.get(image_id, None)
+                    # Skip if no original size
+                    if original_size is None:
+                        print(
+                            f"⚠️ Warning: Could not determine original size for {image_id}"
+                        )
+                        continue
 
                     # Save visualization with image_id as filename
                     save_path = os.path.join(vis_dir, f"{image_id}.png")
