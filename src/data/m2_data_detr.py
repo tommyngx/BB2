@@ -64,7 +64,7 @@ class M2DETRDataset(Dataset):
     def _prepare_samples(self, df):
         """Group bboxes by image_id with proper validation"""
         samples = []
-        multi_bbox_count = 0  # Count images with >1 bbox
+        multi_bbox_count = 0
 
         for image_id in df["image_id"].unique():
             img_rows = df[df["image_id"] == image_id]
@@ -86,7 +86,7 @@ class M2DETRDataset(Dataset):
                     print(f"⚠️ Error reading {img_path}: {e}")
                     continue
 
-                # Process ALL rows for this image_id (multi-bbox support)
+                # CRITICAL FIX: Loop through ALL rows for this image_id
                 for _, row in img_rows.iterrows():
                     if all(col in row.index for col in ["x", "y", "width", "height"]):
                         if all(
@@ -104,11 +104,12 @@ class M2DETRDataset(Dataset):
                             if is_valid:
                                 bboxes.append([x, y, w, h])
 
-                # Debug: count images with multiple bboxes
                 if len(bboxes) > 1:
                     multi_bbox_count += 1
-                    if multi_bbox_count <= 5:  # Print first 5 multi-bbox images
-                        print(f"[DEBUG] image_id={image_id} has {len(bboxes)} bboxes")
+                    if multi_bbox_count <= 10:  # Print first 10
+                        print(
+                            f"[DEBUG] image_id={image_id} has {len(bboxes)} valid bboxes"
+                        )
 
             samples.append(
                 {
@@ -119,7 +120,9 @@ class M2DETRDataset(Dataset):
                 }
             )
 
-        print(f"[INFO] Total images with >1 bbox: {multi_bbox_count}/{len(samples)}")
+        print(
+            f"[INFO] Found {multi_bbox_count} images with >1 bbox (total: {len(samples)})"
+        )
         return samples
 
     def __len__(self):

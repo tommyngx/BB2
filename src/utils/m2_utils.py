@@ -4,32 +4,43 @@ import math
 
 def compute_iou(pred_boxes, gt_boxes):
     """
-    Compute IoU between predicted and ground truth boxes (COCO format)
+    Compute IoU between predicted and ground truth boxes (COCO format [x, y, w, h])
     Args:
-        pred_boxes: [N, 4] or [B, N, 4] in format [x, y, w, h]
-        gt_boxes: [M, 4] or [B, M, 4] in format [x, y, w, h]
+        pred_boxes: [N, 4] in format [x, y, w, h] (normalized)
+        gt_boxes: [M, 4] in format [x, y, w, h] (normalized)
     Returns:
-        iou: [N, M] or [B, N, M]
+        iou: [N, M] IoU matrix
     """
-    # Get intersection coords
-    x1_i = torch.max(pred_boxes[:, 0], gt_boxes[:, 0])
-    y1_i = torch.max(pred_boxes[:, 1], gt_boxes[:, 1])
-    x2_i = torch.min(pred_boxes[:, 2], gt_boxes[:, 2])
-    y2_i = torch.min(pred_boxes[:, 3], gt_boxes[:, 3])
+    # Convert COCO [x, y, w, h] to [x1, y1, x2, y2]
+    pred_x1 = pred_boxes[:, 0:1]  # [N, 1]
+    pred_y1 = pred_boxes[:, 1:2]
+    pred_x2 = pred_boxes[:, 0:1] + pred_boxes[:, 2:3]
+    pred_y2 = pred_boxes[:, 1:2] + pred_boxes[:, 3:4]
 
-    # Intersection area
+    gt_x1 = gt_boxes[:, 0:1].T  # [1, M]
+    gt_y1 = gt_boxes[:, 1:2].T
+    gt_x2 = (gt_boxes[:, 0:1] + gt_boxes[:, 2:3]).T
+    gt_y2 = (gt_boxes[:, 1:2] + gt_boxes[:, 3:4]).T
+
+    # Intersection coordinates [N, M]
+    x1_i = torch.max(pred_x1, gt_x1)
+    y1_i = torch.max(pred_y1, gt_y1)
+    x2_i = torch.min(pred_x2, gt_x2)
+    y2_i = torch.min(pred_y2, gt_y2)
+
+    # Intersection area [N, M]
     inter_w = torch.clamp(x2_i - x1_i, min=0)
     inter_h = torch.clamp(y2_i - y1_i, min=0)
     inter_area = inter_w * inter_h
 
-    # Union area
-    pred_area = (pred_boxes[:, 2] - pred_boxes[:, 0]) * (
-        pred_boxes[:, 3] - pred_boxes[:, 1]
-    )
-    true_area = (gt_boxes[:, 2] - gt_boxes[:, 0]) * (gt_boxes[:, 3] - gt_boxes[:, 1])
-    union_area = pred_area + true_area - inter_area
+    # Box areas [N, 1] and [1, M]
+    pred_area = (pred_x2 - pred_x1) * (pred_y2 - pred_y1)
+    gt_area = ((gt_x2 - gt_x1) * (gt_y2 - gt_y1)).T
 
-    # IoU
+    # Union area [N, M]
+    union_area = pred_area + gt_area - inter_area
+
+    # IoU [N, M]
     iou = inter_area / (union_area + 1e-6)
     return iou
 
@@ -37,17 +48,10 @@ def compute_iou(pred_boxes, gt_boxes):
 def get_lambda_bbox_schedule(
     epoch, lambda_bbox_target=0.5, freeze_epochs=10, warmup_epochs=10
 ):
-    """
-    Lambda bbox schedule with cosine warmup (smoother than linear)
-
-    - Epoch 0-9: lambda = 0 (chỉ học classification)
-    - Epoch 10-19: lambda tăng dần từ 0 lên lambda_bbox_target (cosine)
-    - Epoch 20+: lambda = lambda_bbox_target
-    """
+    """Lambda bbox schedule with cosine warmup"""
     if epoch < freeze_epochs:
         return 0.0
     elif epoch < freeze_epochs + warmup_epochs:
-        # Cosine warmup instead of linear
         progress = (epoch - freeze_epochs) / warmup_epochs
         cosine_progress = (1 - math.cos(progress * math.pi)) / 2
         return lambda_bbox_target * cosine_progress
