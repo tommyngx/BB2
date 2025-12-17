@@ -144,7 +144,7 @@ if __name__ == "__main__":
     parser.add_argument("--img_size", type=str, default=None)
     parser.add_argument("--patience", type=int, default=150)
     parser.add_argument(
-        "--loss_type", type=str, choices=["ce", "focal", "ldam"], default="ce"
+        "--loss_type", type=str, choices=["ce", "focal", "ldam"], default=None
     )
     parser.add_argument("--lambda_bbox", type=float, default=5.0)
     parser.add_argument("--lambda_giou", type=float, default=2.0)
@@ -167,7 +167,11 @@ if __name__ == "__main__":
     lr = get_arg_or_config(args.lr, config.get("lr"), 1e-4)
     output = get_arg_or_config(args.output, config.get("output"), "output")
     img_size = get_arg_or_config(args.img_size, config.get("image_size"), None)
-    loss_type = get_arg_or_config(args.loss_type, config.get("loss_type"), "focal")
+    loss_type = (
+        args.loss_type
+        if args.loss_type is not None
+        else config.get("loss_type", "focal")
+    )
     print(f"Using loss type: {loss_type}")
     if img_size and isinstance(img_size, str):
         img_size = parse_img_size(img_size)
@@ -182,7 +186,7 @@ if __name__ == "__main__":
         config_path=args.config,
         img_size=img_size,
         patience=pateience,
-        loss_type=loss_type,  # <-- Sửa lại dòng này
+        loss_type=loss_type,
         lambda_bbox=args.lambda_bbox,
         lambda_giou=args.lambda_giou,
         lambda_obj=args.lambda_obj,
