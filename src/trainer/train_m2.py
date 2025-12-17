@@ -78,6 +78,7 @@ def sample_viz_batches(
     """
     Visualize a few batches as grid images with GT bbox.
     Each batch is saved as one grid image (max 16 samples per batch).
+    Supports both classification and DETR dataloader.
     """
     import math
 
@@ -95,8 +96,8 @@ def sample_viz_batches(
 
         images = batch["image"]
         labels = batch["label"]
-        bboxes = batch["bbox"]
-        has_bbox = batch["has_bbox"]
+        # Detect DETR or classification dataloader
+        is_detr = "bboxes" in batch and "bbox_mask" in batch
 
         batch_size = images.shape[0]
         num_samples = min(batch_size, 16)  # Max 16 samples per grid
@@ -127,26 +128,53 @@ def sample_viz_batches(
             label = labels[i].item()
             title = f"{class_names[label]}"
 
-            # Draw bbox if exists (COCO format: [x, y, w, h] normalized)
-            if has_bbox[i].item() > 0 and not torch.isnan(bboxes[i]).any():
-                x, y, w, h = bboxes[i].cpu().numpy()
-                # Convert normalized to pixel
+            if is_detr:
+                # DETR: draw all valid bboxes for this sample
+                bboxes = batch["bboxes"][i].cpu().numpy()  # [max_objects, 4]
+                bbox_mask = batch["bbox_mask"][i].cpu().numpy()  # [max_objects]
                 h_img, w_img = img_np.shape[:2]
-                x_pix = int(x * w_img)
-                y_pix = int(y * h_img)
-                w_pix = int(w * w_img)
-                h_pix = int(h * h_img)
-
-                rect = mpatches.Rectangle(
-                    (x_pix, y_pix),
-                    w_pix,
-                    h_pix,
-                    linewidth=2,
-                    edgecolor="lime",
-                    facecolor="none",
-                )
-                ax.add_patch(rect)
-                title += f"\nBBox: {w_pix}x{h_pix}"
+                num_box = 0
+                for j in range(bboxes.shape[0]):
+                    if bbox_mask[j] > 0.5:
+                        x, y, w, h = bboxes[j]
+                        x_pix = int(x * w_img)
+                        y_pix = int(y * h_img)
+                        w_pix = int(w * w_img)
+                        h_pix = int(h * h_img)
+                        if w_pix > 0 and h_pix > 0:
+                            rect = mpatches.Rectangle(
+                                (x_pix, y_pix),
+                                w_pix,
+                                h_pix,
+                                linewidth=2,
+                                edgecolor="lime",
+                                facecolor="none",
+                            )
+                            ax.add_patch(rect)
+                            num_box += 1
+                if num_box > 0:
+                    title += f"\n{num_box} bbox(es)"
+            else:
+                # Classification: draw single bbox if exists
+                bboxes = batch["bbox"]
+                has_bbox = batch["has_bbox"]
+                if has_bbox[i].item() > 0 and not torch.isnan(bboxes[i]).any():
+                    x, y, w, h = bboxes[i].cpu().numpy()
+                    h_img, w_img = img_np.shape[:2]
+                    x_pix = int(x * w_img)
+                    y_pix = int(y * h_img)
+                    w_pix = int(w * w_img)
+                    h_pix = int(h * h_img)
+                    rect = mpatches.Rectangle(
+                        (x_pix, y_pix),
+                        w_pix,
+                        h_pix,
+                        linewidth=2,
+                        edgecolor="lime",
+                        facecolor="none",
+                    )
+                    ax.add_patch(rect)
+                    title += f"\nBBox: {w_pix}x{h_pix}"
 
             ax.set_title(title, fontsize=10)
             ax.axis("off")
