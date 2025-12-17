@@ -11,16 +11,23 @@ def compute_iou(pred_boxes, gt_boxes):
     Returns:
         iou: [N, M] IoU matrix
     """
-    # Convert COCO [x, y, w, h] to [x1, y1, x2, y2]
-    pred_x1 = pred_boxes[:, 0:1]  # [N, 1]
-    pred_y1 = pred_boxes[:, 1:2]
-    pred_x2 = pred_boxes[:, 0:1] + pred_boxes[:, 2:3]
-    pred_y2 = pred_boxes[:, 1:2] + pred_boxes[:, 3:4]
+    # CRITICAL FIX: Ensure proper broadcasting by unsqueezing dimensions
+    # pred_boxes: [N, 4] -> [N, 1, 4] for broadcasting
+    # gt_boxes: [M, 4] -> [1, M, 4] for broadcasting
 
-    gt_x1 = gt_boxes[:, 0:1].T  # [1, M]
-    gt_y1 = gt_boxes[:, 1:2].T
-    gt_x2 = (gt_boxes[:, 0:1] + gt_boxes[:, 2:3]).T
-    gt_y2 = (gt_boxes[:, 1:2] + gt_boxes[:, 3:4]).T
+    pred = pred_boxes.unsqueeze(1)  # [N, 1, 4]
+    gt = gt_boxes.unsqueeze(0)  # [1, M, 4]
+
+    # Convert COCO [x, y, w, h] to [x1, y1, x2, y2]
+    pred_x1 = pred[..., 0]  # [N, 1]
+    pred_y1 = pred[..., 1]  # [N, 1]
+    pred_x2 = pred[..., 0] + pred[..., 2]  # [N, 1]
+    pred_y2 = pred[..., 1] + pred[..., 3]  # [N, 1]
+
+    gt_x1 = gt[..., 0]  # [1, M]
+    gt_y1 = gt[..., 1]  # [1, M]
+    gt_x2 = gt[..., 0] + gt[..., 2]  # [1, M]
+    gt_y2 = gt[..., 1] + gt[..., 3]  # [1, M]
 
     # Intersection coordinates [N, M]
     x1_i = torch.max(pred_x1, gt_x1)
@@ -34,8 +41,8 @@ def compute_iou(pred_boxes, gt_boxes):
     inter_area = inter_w * inter_h
 
     # Box areas [N, 1] and [1, M]
-    pred_area = (pred_x2 - pred_x1) * (pred_y2 - pred_y1)
-    gt_area = ((gt_x2 - gt_x1) * (gt_y2 - gt_y1)).T
+    pred_area = (pred_x2 - pred_x1) * (pred_y2 - pred_y1)  # [N, 1]
+    gt_area = (gt_x2 - gt_x1) * (gt_y2 - gt_y1)  # [1, M]
 
     # Union area [N, M]
     union_area = pred_area + gt_area - inter_area
