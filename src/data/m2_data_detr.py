@@ -8,6 +8,33 @@ from .dataloader import get_weighted_sampler, load_metadata
 from .m2_augment import get_m2_train_augmentation, get_m2_test_augmentation
 
 
+def validate_and_clip_bbox(x, y, w, h, img_w, img_h, min_area=100):
+    """
+    Validate and clip bbox to image boundaries
+    Returns: (x, y, w, h, is_valid)
+    """
+    # Ensure non-negative
+    x = max(0, float(x))
+    y = max(0, float(y))
+    w = max(0, float(w))
+    h = max(0, float(h))
+
+    # Clip to image boundaries
+    x = min(x, img_w - 1)
+    y = min(y, img_h - 1)
+
+    # Ensure bbox doesn't exceed boundaries
+    if x + w > img_w:
+        w = img_w - x
+    if y + h > img_h:
+        h = img_h - y
+
+    # Check validity: positive area and min size
+    is_valid = w > 0 and h > 0 and (w * h) >= min_area
+
+    return x, y, w, h, is_valid
+
+
 class M2DETRDataset(Dataset):
     """
     Dataset for DETR-style multi-bbox detection
@@ -22,7 +49,7 @@ class M2DETRDataset(Dataset):
         negative_transform=None,
         mode="train",
         img_size=None,
-        max_objects=10,  # Max number of objects per image
+        max_objects=5,  # Reduced from 10 to 5 for mammography
     ):
         self.data_folder = data_folder
         self.mode = mode
@@ -35,7 +62,7 @@ class M2DETRDataset(Dataset):
         self.samples = self._prepare_samples(df)
 
     def _prepare_samples(self, df):
-        """Group bboxes by image_id"""
+        """Group bboxes by image_id with proper validation"""
         samples = []
 
         for image_id in df["image_id"].unique():
@@ -49,25 +76,42 @@ class M2DETRDataset(Dataset):
             # Get all valid bboxes for this image
             bboxes = []
             if label == 1:
+                # Load image to get dimensions for validation
+                try:
+                    temp_img = cv2.imread(img_path)
+                    if temp_img is not None:
+                        img_h, img_w = temp_img.shape[:2]
+                    else:
+                        print(f"⚠️ Cannot read image: {img_path}")
+                        continue
+                except Exception as e:
+                    print(f"⚠️ Error reading {img_path}: {e}")
+                    continue
+
                 for _, row in img_rows.iterrows():
                     if all(col in row.index for col in ["x", "y", "width", "height"]):
                         if all(
                             pd.notna(row[col]) for col in ["x", "y", "width", "height"]
                         ):
-                            x, y, w, h = (
-                                float(row["x"]),
-                                float(row["y"]),
-                                float(row["width"]),
-                                float(row["height"]),
+                            # Validate and clip bbox
+                            x, y, w, h, is_valid = validate_and_clip_bbox(
+                                row["x"],
+                                row["y"],
+                                row["width"],
+                                row["height"],
+                                img_w,
+                                img_h,
+                                min_area=100,
                             )
-                            if w > 0 and h > 0 and (w * h) >= 100:
+
+                            if is_valid:
                                 bboxes.append([x, y, w, h])
 
             samples.append(
                 {
                     "image_path": img_path,
                     "label": label,
-                    "bboxes": bboxes,  # List of bboxes in pixel coords [x, y, w, h]
+                    "bboxes": bboxes,  # List of validated bboxes [x, y, w, h] in pixel coords
                     "image_id": image_id,
                 }
             )
@@ -82,18 +126,31 @@ class M2DETRDataset(Dataset):
 
         # Load image
         image = cv2.imread(sample["image_path"])
+        if image is None:
+            # Fallback: return dummy data
+            print(f"⚠️ Failed to load image: {sample['image_path']}")
+            dummy_img = np.zeros((448, 448, 3), dtype=np.uint8)
+            return {
+                "image": torch.zeros(3, 448, 448),
+                "label": 0,
+                "bboxes": torch.zeros(self.max_objects, 4),
+                "bbox_mask": torch.zeros(self.max_objects),
+                "num_objects": 0,
+                "image_id": sample["image_id"],
+            }
+
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         img_h, img_w = image.shape[:2]
 
         label = sample["label"]
-        bboxes = sample["bboxes"].copy()  # List of [x, y, w, h]
+        bboxes = sample["bboxes"].copy()  # List of [x, y, w, h] already validated
 
         # Apply augmentation
         if len(bboxes) > 0:
             # Positive sample: use bbox-aware transform
             if self.positive_transform:
                 # Albumentations expects list of bboxes and labels
-                bbox_labels = [1] * len(bboxes)  # All bboxes have same class (cancer)
+                bbox_labels = [1] * len(bboxes)
 
                 transformed = self.positive_transform(
                     image=image, bboxes=bboxes, labels=bbox_labels
@@ -123,16 +180,31 @@ class M2DETRDataset(Dataset):
                 transformed = simple_transform(image=image)
                 image = transformed["image"]
 
-        # Normalize bboxes to [0, 1] and pad to max_objects
+        # Get target image size after transform
         if self.img_size:
             h_img, w_img = self.img_size
         else:
             h_img, w_img = image.shape[1], image.shape[2]
 
-        # Normalize and pad bboxes
+        # Normalize and validate bboxes to [0, 1], then pad to max_objects
         normalized_bboxes = []
         for bbox in bboxes[: self.max_objects]:  # Limit to max_objects
             x, y, w, h = bbox
+
+            # Re-validate after augmentation (bbox might be out of bounds)
+            x, y, w, h, is_valid = validate_and_clip_bbox(
+                x,
+                y,
+                w,
+                h,
+                w_img,
+                h_img,
+                min_area=1,  # Allow small bboxes after resize
+            )
+
+            if not is_valid:
+                continue
+
             # Normalize to [0, 1]
             norm_bbox = [
                 max(0.0, min(1.0, x / w_img)),
@@ -140,8 +212,9 @@ class M2DETRDataset(Dataset):
                 max(0.0, min(1.0, w / w_img)),
                 max(0.0, min(1.0, h / h_img)),
             ]
-            # Validate
-            if norm_bbox[2] > 0.01 and norm_bbox[3] > 0.01:  # Min 1% size
+
+            # Final check: min 1% size
+            if norm_bbox[2] > 0.01 and norm_bbox[3] > 0.01:
                 normalized_bboxes.append(norm_bbox)
 
         # Pad to max_objects
@@ -172,7 +245,7 @@ def get_m2_detr_dataloaders(
     config_path="config/config.yaml",
     img_size=None,
     mode="train",
-    max_objects=10,
+    max_objects=5,  # Default 5 for mammography
 ):
     """Get DETR-style dataloaders"""
     from .dataloader import get_image_size_from_config
