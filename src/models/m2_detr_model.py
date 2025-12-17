@@ -73,7 +73,7 @@ class EfficientDeformableAttention(nn.Module):
     Efficient Deformable Attention with reduced complexity
     """
 
-    def __init__(self, embed_dim, num_heads=8, num_points=4):
+    def __init__(self, embed_dim, num_heads=4, num_points=4):
         super().__init__()
         self.embed_dim = embed_dim
         self.num_heads = num_heads
@@ -87,6 +87,9 @@ class EfficientDeformableAttention(nn.Module):
         # Value projection
         self.value_proj = nn.Linear(embed_dim, embed_dim)
         self.output_proj = nn.Linear(embed_dim, embed_dim)
+
+        # ADDED: Register buffer for spatial normalization (avoid creating tensor on each forward)
+        self.register_buffer("_spatial_norm_cache", torch.zeros(2), persistent=False)
 
         self._reset_parameters()
 
@@ -136,8 +139,25 @@ class EfficientDeformableAttention(nn.Module):
         )
         attn_weights = F.softmax(attn_weights, dim=-1)
 
+        # FIXED: Use cached buffer and update in-place
+        if (
+            self._spatial_norm_cache.shape[0] != 2
+            or self._spatial_norm_cache.device != query.device
+        ):
+            self._spatial_norm_cache = torch.tensor(
+                [W, H], dtype=query.dtype, device=query.device
+            )
+        else:
+            self._spatial_norm_cache[0] = W
+            self._spatial_norm_cache[1] = H
+
         # Normalize offsets
-        offsets = offsets / torch.tensor([W, H], device=query.device) * 0.1
+        offsets = offsets / self._spatial_norm_cache * 0.1
+
+        # ALTERNATIVE FIX: Direct division without creating tensor
+        offsets_x = offsets[..., 0] / W * 0.1
+        offsets_y = offsets[..., 1] / H * 0.1
+        offsets = torch.stack([offsets_x, offsets_y], dim=-1)
 
         # Sampling locations
         sampling_locations = reference_points[:, :, None, None, :] + offsets
