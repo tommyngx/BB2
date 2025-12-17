@@ -116,21 +116,28 @@ def visualize_m2_result(
     save_path,
     class_names,
     original_size,
+    image_path=None,  # new param for original image path
 ):
     """Create side-by-side visualization with original image size"""
-    # Denormalize image using m2_data normalization
     mean = [0.5, 0.5, 0.5]
     std = [0.5, 0.5, 0.5]
     img_denorm = denormalize_image(image_tensor.cpu(), mean, std)
-
-    # Convert to numpy
     img_np = img_denorm.permute(1, 2, 0).numpy()
-
-    # Resize image to original size for visualization
     orig_h, orig_w = original_size
-    img_pil = Image.fromarray((img_np * 255).astype(np.uint8))
-    img_original_size = img_pil.resize((orig_w, orig_h), Image.Resampling.BILINEAR)
-    img_original_np = np.array(img_original_size).astype(np.float32) / 255.0
+
+    # Always reload original image for plotting if possible
+    img_original_np = None
+    if image_path and os.path.exists(image_path):
+        img_original_size = (
+            Image.open(image_path)
+            .convert("RGB")
+            .resize((orig_w, orig_h), Image.Resampling.BILINEAR)
+        )
+        img_original_np = np.array(img_original_size).astype(np.float32) / 255.0
+    else:
+        img_pil = Image.fromarray((img_np * 255).astype(np.uint8))
+        img_original_size = img_pil.resize((orig_w, orig_h), Image.Resampling.BILINEAR)
+        img_original_np = np.array(img_original_size).astype(np.float32) / 255.0
 
     # Process attention map - resize to original size
     attn_np = attn_map.squeeze().cpu().numpy()
@@ -362,9 +369,18 @@ def run_m2_test_with_visualization(
         print("Task 3: Generate Visualizations")
         print("=" * 50)
 
-        # Create output directory
         vis_dir = os.path.join(output, "test", model_filename)
         os.makedirs(vis_dir, exist_ok=True)
+
+        # Prepare a mapping from image_id to original image path (from test_df_bbx)
+        imageid2path = {}
+        if (
+            test_df_bbx is not None
+            and "image_id" in test_df_bbx.columns
+            and "link" in test_df_bbx.columns
+        ):
+            for _, row in test_df_bbx.iterrows():
+                imageid2path[row["image_id"]] = os.path.join(data_folder, row["link"])
 
         model.eval()
         with torch.no_grad():
@@ -377,7 +393,6 @@ def run_m2_test_with_visualization(
                     "image_id", [f"img_{batch_idx}_{i}" for i in range(len(images))]
                 )
 
-                # Forward pass
                 outputs = model(images)
                 if len(outputs) == 3:
                     cls_outputs, bbox_outputs, attn_maps = outputs
@@ -385,11 +400,9 @@ def run_m2_test_with_visualization(
                     cls_outputs, bbox_outputs = outputs
                     attn_maps = None
 
-                # Get predictions
                 _, predicted = torch.max(cls_outputs, 1)
                 probs = torch.softmax(cls_outputs, dim=1)
 
-                # Process each image in batch
                 for i in range(len(images)):
                     image_id = (
                         image_ids[i]
@@ -399,12 +412,8 @@ def run_m2_test_with_visualization(
                     pred_class = predicted[i].item()
                     gt_label = labels[i].item()
                     pred_prob = probs[i, pred_class].item()
-
-                    # Get bbox
                     pred_bbox = bbox_outputs[i] if bbox_outputs is not None else None
                     gt_bbox = bboxes[i] if has_bbox[i].item() > 0 else None
-
-                    # Compute bbox confidence
                     bbox_conf = None
                     if (
                         pred_bbox is not None
@@ -412,19 +421,14 @@ def run_m2_test_with_visualization(
                         and not torch.isnan(gt_bbox).any()
                     ):
                         bbox_conf = compute_bbox_confidence(pred_bbox, gt_bbox)
-
-                    # Get attention map
                     attn_map = attn_maps[i] if attn_maps is not None else None
-
-                    # Skip if no attention map
                     if attn_map is None:
                         continue
 
-                    # Get original image size
+                    # Get original image size and path
                     if image_id in original_sizes:
                         original_size = original_sizes[image_id]
                     else:
-                        # Fallback: try to load from test_df_bbx or load image
                         if test_df_bbx is not None:
                             test_row = test_df_bbx[test_df_bbx["image_id"] == image_id]
                             if not test_row.empty:
@@ -444,7 +448,10 @@ def run_m2_test_with_visualization(
                         else:
                             original_size = actual_input_size
 
-                    # Save visualization with proper image_id
+                    # Get original image path for plotting
+                    image_path = imageid2path.get(image_id, None)
+
+                    # Save visualization with image_id as filename
                     save_path = os.path.join(vis_dir, f"{image_id}.png")
                     visualize_m2_result(
                         images[i],
@@ -458,6 +465,7 @@ def run_m2_test_with_visualization(
                         save_path,
                         class_names,
                         original_size,
+                        image_path=image_path,
                     )
 
         print(f"✅ Saved visualizations to: {vis_dir}")
