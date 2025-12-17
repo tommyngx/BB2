@@ -564,3 +564,30 @@ def compute_iou_weighted_obj_loss(pred_boxes, pred_scores, gt_boxes, dn_outputs=
                 total_loss += loss_dn
 
     return total_loss / B
+
+
+def get_m2_detr_model(model_type="resnet50", num_classes=2, num_queries=5):
+    """Get efficient M2 DETR model (num_queries=5 for mammography)"""
+    # Get backbone (reuse from m2_model.py)
+    if model_type in ["resnet34", "resnet50", "resnet101", "resnext50", "resnet152"]:
+        backbone, feature_dim = get_resnet_backbone(model_type)
+        backbone = ResNetFeatureWrapper(backbone)
+    elif model_type in [
+        "resnest50",
+        "convnextv2_tiny",
+        "efficientnetv2s",
+        "maxvit_tiny",
+        "swinv2_tiny",
+        "eva02_small",
+    ]:
+        backbone, feature_dim = get_timm_backbone(model_type)
+        if hasattr(backbone, "forward_features"):
+            backbone = TimmFeatureWrapper(backbone)
+    elif model_type in ["dinov2_small", "dinov2_base", "dinov3_vit16small"]:
+        backbone, feature_dim = get_dino_backbone(model_type)
+        backbone = DinoFeatureWrapper(backbone)
+    else:
+        raise ValueError(f"Unsupported model_type: {model_type}")
+
+    model = M2DETRModel(backbone, feature_dim, num_classes, num_queries)
+    return model
