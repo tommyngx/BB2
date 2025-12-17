@@ -231,6 +231,7 @@ def run_m2_test_with_visualization(
     target_column=None,
     lambda_bbox=1.0,
     save_visualizations=True,
+    only_viz=False,  # New parameter
 ):
     """Test M2Model with visualization of results"""
     # Load config
@@ -285,70 +286,7 @@ def run_m2_test_with_visualization(
         model = nn.DataParallel(model)
     model = model.to(device)
 
-    # Task 1: Evaluate on test set with tqdm
-    print("\n" + "=" * 50)
-    print("Task 1: Evaluation on Test Set")
-    print("=" * 50)
-
-    # Run evaluation with tqdm progress bar
-    model.eval()
-    correct, total = 0, 0
-    total_loss = 0.0
-    total_iou = 0.0
-    num_bbox_samples = 0
-
-    with torch.no_grad():
-        for batch in tqdm(test_loader, desc="Evaluating"):
-            images = batch["image"].to(device)
-            labels = batch["label"].to(device)
-            bboxes = batch["bbox"].to(device)
-            has_bbox = batch["has_bbox"].to(device)
-
-            outputs = model(images)
-            if len(outputs) == 3:
-                cls_outputs, bbox_outputs, _ = outputs
-            else:
-                cls_outputs, bbox_outputs = outputs
-
-            # Classification
-            _, predicted = torch.max(cls_outputs, 1)
-            correct += (predicted == labels).sum().item()
-            total += labels.size(0)
-
-            # IoU for bbox
-            if has_bbox.sum() > 0:
-                pos_mask = has_bbox.bool()
-                from src.utils.m2_utils import compute_iou
-
-                iou = compute_iou(bbox_outputs[pos_mask], bboxes[pos_mask])
-                total_iou += iou.sum().item()
-                num_bbox_samples += has_bbox.sum().item()
-
-    test_acc = correct / total
-    test_iou = total_iou / max(num_bbox_samples, 1)
-    print(f"Test Accuracy: {test_acc * 100:.2f}% | IoU: {test_iou:.4f}")
-
-    # Task 2: Save full model (like run_gradcam in train_based)
-    print("\n" + "=" * 50)
-    print("Task 2: Save Full Model")
-    print("=" * 50)
-
-    # Extract model name from pretrained path
-    model_filename = os.path.basename(pretrained_model_path).replace(".pth", "")
-
-    # Get normalize params - use m2_data default
-    normalize_params = {"mean": [0.5, 0.5, 0.5], "std": [0.5, 0.5, 0.5]}
-
-    # Use get_gradcam_layer function
-    model_name = model_type.lower()
-    if isinstance(model, nn.DataParallel):
-        gradcam_layer = get_gradcam_layer(model.module, model_name)
-        model_to_save = model.module
-    else:
-        gradcam_layer = get_gradcam_layer(model, model_name)
-        model_to_save = model
-
-    # Get actual input size from test_loader
+    # Get actual input size
     try:
         sample_batch = next(iter(test_loader))
         actual_input_size = (
@@ -358,45 +296,110 @@ def run_m2_test_with_visualization(
     except Exception:
         actual_input_size = img_size if img_size else (448, 448)
 
-    # Calculate real inference time
-    if isinstance(actual_input_size, int):
-        actual_input_size = (actual_input_size, actual_input_size)
-    dummy_input = torch.randn(1, 3, actual_input_size[0], actual_input_size[1]).to(
-        device
-    )
-    model_to_save.eval()
-    with torch.no_grad():
-        start = time.time()
-        _ = model_to_save(dummy_input)
-        end = time.time()
-        inference_time = end - start
+    # Extract model name from pretrained path
+    model_filename = os.path.basename(pretrained_model_path).replace(".pth", "")
 
-    # Save only state_dict and all metadata (avoid pickling local classes)
-    model_info = {
-        "state_dict": model_to_save.state_dict(),
-        "input_size": actual_input_size,
-        "gradcam_layer": gradcam_layer,
-        "model_name": model_type,
-        "normalize": normalize_params,
-        "inference_time": inference_time,
-        "num_patches": None,
-        "arch_type": "m2",
-        "class_names": class_names,
-    }
+    # Skip Task 1 and Task 2 if only_viz is True
+    if not only_viz:
+        # Task 1: Evaluate on test set with tqdm
+        print("\n" + "=" * 50)
+        print("Task 1: Evaluation on Test Set")
+        print("=" * 50)
 
-    full_model_dir = os.path.join(output, "models")
-    os.makedirs(full_model_dir, exist_ok=True)
-    full_model_path = os.path.join(full_model_dir, f"{model_filename}_full.pth")
+        # Run evaluation with tqdm progress bar
+        model.eval()
+        correct, total = 0, 0
+        total_loss = 0.0
+        total_iou = 0.0
+        num_bbox_samples = 0
 
-    try:
-        torch.save(model_info, full_model_path)
-        print(f"✅ Saved full model info (state_dict + meta) to: {full_model_path}")
-        print(f"   Model name: {model_type}")
-        print(f"   Input size: {actual_input_size}")
-        print(f"   GradCAM layer: {gradcam_layer}")
-        print(f"   Inference time: {inference_time:.4f}s")
-    except Exception as e:
-        print(f"⚠️ Error saving full model: {e}")
+        with torch.no_grad():
+            for batch in tqdm(test_loader, desc="Evaluating"):
+                images = batch["image"].to(device)
+                labels = batch["label"].to(device)
+                bboxes = batch["bbox"].to(device)
+                has_bbox = batch["has_bbox"].to(device)
+
+                outputs = model(images)
+                if len(outputs) == 3:
+                    cls_outputs, bbox_outputs, _ = outputs
+                else:
+                    cls_outputs, bbox_outputs = outputs
+
+                # Classification
+                _, predicted = torch.max(cls_outputs, 1)
+                correct += (predicted == labels).sum().item()
+                total += labels.size(0)
+
+                # IoU for bbox
+                if has_bbox.sum() > 0:
+                    pos_mask = has_bbox.bool()
+                    from src.utils.m2_utils import compute_iou
+
+                    iou = compute_iou(bbox_outputs[pos_mask], bboxes[pos_mask])
+                    total_iou += iou.sum().item()
+                    num_bbox_samples += has_bbox.sum().item()
+
+        test_acc = correct / total
+        test_iou = total_iou / max(num_bbox_samples, 1)
+        print(f"Test Accuracy: {test_acc * 100:.2f}% | IoU: {test_iou:.4f}")
+
+        # Task 2: Save full model
+        print("\n" + "=" * 50)
+        print("Task 2: Save Full Model")
+        print("=" * 50)
+
+        # Get normalize params
+        normalize_params = {"mean": [0.5, 0.5, 0.5], "std": [0.5, 0.5, 0.5]}
+
+        # Use get_gradcam_layer function
+        model_name = model_type.lower()
+        if isinstance(model, nn.DataParallel):
+            gradcam_layer = get_gradcam_layer(model.module, model_name)
+            model_to_save = model.module
+        else:
+            gradcam_layer = get_gradcam_layer(model, model_name)
+            model_to_save = model
+
+        # Calculate real inference time
+        if isinstance(actual_input_size, int):
+            actual_input_size = (actual_input_size, actual_input_size)
+        dummy_input = torch.randn(1, 3, actual_input_size[0], actual_input_size[1]).to(
+            device
+        )
+        model_to_save.eval()
+        with torch.no_grad():
+            start = time.time()
+            _ = model_to_save(dummy_input)
+            end = time.time()
+            inference_time = end - start
+
+        # Save model info
+        model_info = {
+            "state_dict": model_to_save.state_dict(),
+            "input_size": actual_input_size,
+            "gradcam_layer": gradcam_layer,
+            "model_name": model_type,
+            "normalize": normalize_params,
+            "inference_time": inference_time,
+            "num_patches": None,
+            "arch_type": "m2",
+            "class_names": class_names,
+        }
+
+        full_model_dir = os.path.join(output, "models")
+        os.makedirs(full_model_dir, exist_ok=True)
+        full_model_path = os.path.join(full_model_dir, f"{model_filename}_full.pth")
+
+        try:
+            torch.save(model_info, full_model_path)
+            print(f"✅ Saved full model info (state_dict + meta) to: {full_model_path}")
+            print(f"   Model name: {model_type}")
+            print(f"   Input size: {actual_input_size}")
+            print(f"   GradCAM layer: {gradcam_layer}")
+            print(f"   Inference time: {inference_time:.4f}s")
+        except Exception as e:
+            print(f"⚠️ Error saving full model: {e}")
 
     # Task 3: Visualize results
     if save_visualizations:
@@ -407,21 +410,24 @@ def run_m2_test_with_visualization(
         vis_dir = os.path.join(output, "test", model_filename)
         os.makedirs(vis_dir, exist_ok=True)
 
+        # Create image_id index from test_df_bbx (similar to gradcam_run)
+        test_image_ids = test_df_bbx["image_id"].unique().tolist()
+        print(f"Total test images: {len(test_image_ids)}")
+
         model.eval()
+        batch_size_actual = batch_size
+
         with torch.no_grad():
             for batch_idx, batch in enumerate(tqdm(test_loader, desc="Visualizing")):
                 images = batch["image"].to(device)
                 labels = batch["label"].to(device)
                 bboxes = batch["bbox"].to(device)
                 has_bbox = batch["has_bbox"].to(device)
-                image_ids = batch.get("image_id", None)
 
-                # Debug: check if image_ids are loaded correctly
-                if image_ids is None:
-                    print(
-                        f"⚠️ Warning: No image_id in batch {batch_idx}, skipping visualization"
-                    )
-                    continue
+                # Calculate image_ids from batch_idx and batch_size
+                start_idx = batch_idx * batch_size_actual
+                end_idx = min(start_idx + len(images), len(test_image_ids))
+                batch_image_ids = test_image_ids[start_idx:end_idx]
 
                 outputs = model(images)
                 if len(outputs) == 3:
@@ -434,16 +440,12 @@ def run_m2_test_with_visualization(
                 probs = torch.softmax(cls_outputs, dim=1)
 
                 for i in range(len(images)):
-                    # Get image_id - should already be string from dataloader
-                    if isinstance(image_ids, list):
-                        image_id = str(image_ids[i])
+                    # Get image_id from calculated list
+                    if i < len(batch_image_ids):
+                        image_id = str(batch_image_ids[i])
                     else:
-                        # Tensor case
-                        image_id = (
-                            str(image_ids[i].item())
-                            if image_ids[i].dim() == 0
-                            else str(image_ids[i])
-                        )
+                        print(f"⚠️ Warning: Batch {batch_idx}, index {i} out of range")
+                        continue
 
                     pred_class = predicted[i].item()
                     gt_label = labels[i].item()
@@ -471,12 +473,8 @@ def run_m2_test_with_visualization(
                         original_size = info["original_size"]
                         image_path = info["image_path"]
                     else:
-                        # Fallback: use actual_input_size
                         print(
                             f"⚠️ Warning: image_id '{image_id}' not found in image_info dict"
-                        )
-                        print(
-                            f"   Available keys (first 5): {list(image_info.keys())[:5]}"
                         )
                         original_size = actual_input_size
                         image_path = None
@@ -507,7 +505,9 @@ def run_m2_test_with_visualization(
 
         print(f"✅ Saved visualizations to: {vis_dir}")
 
-    return test_acc, test_iou
+    if not only_viz:
+        return test_acc, test_iou
+    return None, None
 
 
 if __name__ == "__main__":
@@ -522,6 +522,11 @@ if __name__ == "__main__":
     parser.add_argument("--target_column", type=str, default=None)
     parser.add_argument("--lambda_bbox", type=float, default=1.0)
     parser.add_argument("--no_viz", action="store_true", help="Skip visualizations")
+    parser.add_argument(
+        "--only_viz",
+        action="store_true",
+        help="Only run visualization, skip evaluation and model saving",
+    )
 
     args = parser.parse_args()
     config = load_config(args.config)
@@ -551,4 +556,5 @@ if __name__ == "__main__":
         target_column=target_column,
         lambda_bbox=lambda_bbox,
         save_visualizations=not args.no_viz,
+        only_viz=args.only_viz,
     )
