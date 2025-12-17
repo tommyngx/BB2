@@ -182,7 +182,7 @@ if __name__ == "__main__":
         config_path=args.config,
         img_size=img_size,
         patience=pateience,
-        loss_type=args.loss_type,
+        loss_type=loss_type,  # <-- Sửa lại dòng này
         lambda_bbox=args.lambda_bbox,
         lambda_giou=args.lambda_giou,
         lambda_obj=args.lambda_obj,
