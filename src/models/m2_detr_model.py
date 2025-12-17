@@ -8,7 +8,6 @@ from .m2_model import (
     DinoFeatureWrapper,
 )
 from .backbone import get_resnet_backbone, get_timm_backbone, get_dino_backbone
-from .detr_utils import box_iou, hungarian_matching, compute_iou_weighted_obj_loss
 
 
 class MultiScaleSpatialAttention(nn.Module):
