@@ -126,7 +126,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--output", type=str, default="output")
     parser.add_argument("--img_size", type=str, default=None)
-    parser.add_argument("--patience", type=int, default=50)
+    parser.add_argument("--patience", type=int, default=150)
     parser.add_argument(
         "--loss_type", type=str, choices=["ce", "focal", "ldam"], default="ce"
     )
@@ -147,6 +147,7 @@ if __name__ == "__main__":
     model_type = get_arg_or_config(args.model_type, config.get("model_type"), None)
     batch_size = get_arg_or_config(args.batch_size, config.get("batch_size"), 16)
     num_epochs = get_arg_or_config(args.num_epochs, config.get("num_epochs"), 100)
+    pateience = get_arg_or_config(args.patience, config.get("patience"), 150)
     lr = get_arg_or_config(args.lr, config.get("lr"), 1e-4)
     output = get_arg_or_config(args.output, config.get("output"), "output")
     img_size = get_arg_or_config(args.img_size, config.get("image_size"), None)
@@ -163,7 +164,7 @@ if __name__ == "__main__":
         output=output,
         config_path=args.config,
         img_size=img_size,
-        patience=args.patience,
+        patience=pateience,
         loss_type=args.loss_type,
         lambda_bbox=args.lambda_bbox,
         lambda_giou=args.lambda_giou,
