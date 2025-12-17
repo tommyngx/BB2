@@ -610,6 +610,5 @@ def get_m2_detr_model(model_type="resnet50", num_classes=2, num_queries=5):
 
     model = M2DETRModel(
         backbone, feature_dim, num_classes, num_queries, reduced_dim=256
-    )  # ADDED: reduced_dim
+    )
     return model
-        "eva02_small",    ]:        backbone, feature_dim = get_timm_backbone(model_type)        if hasattr(backbone, "forward_features"):            backbone = TimmFeatureWrapper(backbone)    elif model_type in ["dinov2_small", "dinov2_base", "dinov3_vit16small"]:        backbone, feature_dim = get_dino_backbone(model_type)        backbone = DinoFeatureWrapper(backbone)    else:        raise ValueError(f"Unsupported model_type: {model_type}")    model = M2DETRModel(        backbone, feature_dim, num_classes, num_queries, reduced_dim=256    )  # ADDED: reduced_dim    return model
