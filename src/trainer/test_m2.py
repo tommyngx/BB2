@@ -173,7 +173,7 @@ def visualize_m2_result(
     # Create heatmap overlay
     cam_color = plt.cm.jet(attn_resized_np / 255.0)[..., :3]
     blend_img = img_original_np.copy()
-    blend_alpha = 0.6
+    blend_alpha = 0.4
     blend_img[mask] = (1 - blend_alpha) * blend_img[mask] + blend_alpha * cam_color[
         mask
     ]
