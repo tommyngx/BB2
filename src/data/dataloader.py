@@ -162,6 +162,109 @@ def load_metadata(
     return train_df, test_df, class_names
 
 
+def load_metadata_detr(
+    data_folder,
+    config_path="config/config.yaml",
+    print_stats=True,
+    target_column=None,
+):
+    """
+    Load metadata for DETR detection task (supports multi-bbox per image)
+
+    CRITICAL DIFFERENCE from load_metadata():
+    - Does NOT drop duplicates by 'link' to preserve multiple bboxes per image
+    - Each row represents one bbox annotation
+    - Returns DataFrame with ALL rows (not deduplicated)
+    """
+    # Ưu tiên target_column truyền vào, nếu không thì lấy từ config
+    if target_column is None:
+        target_column = get_target_column_from_config(config_path)
+
+    metadata_path = os.path.join(data_folder, "metadata.csv")
+    df = pd.read_csv(metadata_path)
+
+    # ❌ DO NOT drop duplicates for detection tasks
+    # df = df.drop_duplicates(subset=["link"])  # REMOVED
+
+    # Only filter out rows with invalid target labels
+    df = df[df[target_column].notna()]
+
+    # Factorize target labels
+    if not np.issubdtype(df[target_column].dtype, np.number):
+        df["target_label"], class_names = pd.factorize(df[target_column])
+        for idx, name in enumerate(class_names):
+            print(f"Factorize: {idx} -> {name}")
+        label_col = "target_label"
+    else:
+        label_col = target_column
+        unique_vals = df[target_column].unique()
+        if np.all(np.mod(unique_vals, 1) == 0):
+            df[target_column] = df[target_column].astype(int)
+            class_names = sorted([int(x) for x in unique_vals])
+        else:
+            class_names = sorted(unique_vals)
+
+    # Split train/test
+    train_df = df[df["split"] == "train"].copy()
+    test_df = df[df["split"] == "test"].copy()
+
+    # Create 'cancer' column for compatibility
+    train_df["cancer"] = train_df[label_col]
+    test_df["cancer"] = test_df[label_col]
+
+    if print_stats:
+        print(f"\n📊 DETR Detection Dataset Statistics:")
+        print(f"  Total annotations: {len(df)} (rows in CSV)")
+        print(f"  Train annotations: {len(train_df)}")
+        print(f"  Test annotations:  {len(test_df)}")
+
+        # Count unique images
+        if "image_id" in df.columns:
+            n_train_images = train_df["image_id"].nunique()
+            n_test_images = test_df["image_id"].nunique()
+            print(f"\n  Unique images:")
+            print(f"    Train: {n_train_images} images")
+            print(f"    Test:  {n_test_images} images")
+
+            # Count images with multiple bboxes
+            train_bbox_counts = train_df.groupby("image_id").size()
+            test_bbox_counts = test_df.groupby("image_id").size()
+
+            train_multi = (train_bbox_counts > 1).sum()
+            test_multi = (test_bbox_counts > 1).sum()
+
+            print(f"\n  Multi-bbox images:")
+            print(f"    Train: {train_multi} images with >1 bbox")
+            print(f"    Test:  {test_multi} images with >1 bbox")
+
+            # Show distribution of bbox counts
+            if train_multi > 0:
+                max_train_bbox = train_bbox_counts.max()
+                print(f"    Max bboxes per image (train): {max_train_bbox}")
+            if test_multi > 0:
+                max_test_bbox = test_bbox_counts.max()
+                print(f"    Max bboxes per image (test):  {max_test_bbox}")
+
+        # Label distribution
+        print("\n  Label distribution (by annotation):")
+        train_counts = train_df["cancer"].value_counts().sort_index()
+        test_counts = test_df["cancer"].value_counts().sort_index()
+        all_labels = sorted(set(train_counts.index).union(set(test_counts.index)))
+        print("  Label | Train  | Test  | Total")
+        for label in all_labels:
+            n_train = train_counts.get(label, 0)
+            n_test = test_counts.get(label, 0)
+            n_total = n_train + n_test
+            print(f"    {label}   | {n_train:5d}  | {n_test:5d} | {n_total:5d}")
+
+        if len(class_names) > 2:
+            print(f"\n  Multi-class detection: {list(class_names)}")
+
+        print("=" * 60)
+
+    return train_df, test_df, class_names
+
+
 def get_weighted_sampler(train_df, label_col="cancer"):
     class_counts = train_df[label_col].value_counts().sort_index()
     total_samples = len(train_df)

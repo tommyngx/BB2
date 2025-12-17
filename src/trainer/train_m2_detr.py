@@ -12,7 +12,7 @@ import argparse
 import os
 import torch
 from src.data.m2_data_detr import get_m2_detr_dataloaders
-from src.data.dataloader import load_metadata
+from src.data.dataloader import load_metadata_detr  # ← Changed: use DETR version
 from src.models.m2_detr_model import get_m2_detr_model
 from src.trainer.engines_m2_detr import train_m2_detr_model
 from src.utils.common import load_config, get_arg_or_config, clear_cuda_memory
@@ -51,8 +51,8 @@ def run_m2_detr_train(
 ):
     clear_cuda_memory()
 
-    # Load metadata
-    train_df, test_df, class_names = load_metadata(
+    # Use DETR-specific metadata loader (no duplicate filtering)
+    train_df, test_df, class_names = load_metadata_detr(
         data_folder, config_path, target_column=target_column
     )
 
