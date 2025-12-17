@@ -168,7 +168,7 @@ if __name__ == "__main__":
     output = get_arg_or_config(args.output, config.get("output"), "output")
     img_size = get_arg_or_config(args.img_size, config.get("image_size"), None)
     loss_type = get_arg_or_config(args.loss_type, config.get("loss_type"), "focal")
-
+    print(f"Using loss type: {loss_type}")
     if img_size and isinstance(img_size, str):
         img_size = parse_img_size(img_size)
 
