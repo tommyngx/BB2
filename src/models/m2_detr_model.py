@@ -189,7 +189,9 @@ class EfficientDETRDecoder(nn.Module):
     - Reduced layers for efficiency
     """
 
-    def __init__(self, feature_dim, num_queries=5, num_heads=4, num_layers=2):
+    def __init__(
+        self, feature_dim, num_queries=5, num_heads=2, num_layers=1
+    ):  # CHANGED: num_heads=2, num_layers=1
         super().__init__()
         self.num_queries = num_queries
         self.num_layers = num_layers
@@ -379,10 +381,19 @@ class M2DETRModel(nn.Module):
     - IoU-weighted objectness loss
     """
 
-    def __init__(self, backbone, feature_dim, num_classes=2, num_queries=5):
+    def __init__(
+        self, backbone, feature_dim, num_classes=2, num_queries=5, reduced_dim=256
+    ):  # ADDED: reduced_dim
         super().__init__()
         self.backbone = backbone
         self.global_pool = nn.AdaptiveAvgPool2d(1)
+
+        # ADDED: Feature dimension reduction
+        if feature_dim > reduced_dim:
+            self.feature_proj = nn.Conv2d(feature_dim, reduced_dim, kernel_size=1)
+            feature_dim = reduced_dim
+        else:
+            self.feature_proj = None
 
         # Classification head
         self.classifier = nn.Linear(feature_dim, num_classes)
@@ -394,8 +405,8 @@ class M2DETRModel(nn.Module):
         self.detr_decoder = EfficientDETRDecoder(
             feature_dim,
             num_queries=num_queries,
-            num_heads=4,
-            num_layers=2,
+            num_heads=2,  # CHANGED: từ 4 xuống 2
+            num_layers=1,  # CHANGED: từ 2 xuống 1
         )
 
     def forward(self, x, gt_boxes=None):
@@ -412,6 +423,10 @@ class M2DETRModel(nn.Module):
             feat_map = feat_map.unsqueeze(-1).unsqueeze(-1)
         elif feat_map.dim() != 4:
             raise ValueError(f"Unexpected backbone shape: {feat_map.shape}")
+
+        # ADDED: Project to lower dimension
+        if self.feature_proj is not None:
+            feat_map = self.feature_proj(feat_map)
 
         # Classification branch
         cls_feat = self.global_pool(feat_map).flatten(1)
@@ -589,5 +604,7 @@ def get_m2_detr_model(model_type="resnet50", num_classes=2, num_queries=5):
     else:
         raise ValueError(f"Unsupported model_type: {model_type}")
 
-    model = M2DETRModel(backbone, feature_dim, num_classes, num_queries)
+    model = M2DETRModel(
+        backbone, feature_dim, num_classes, num_queries, reduced_dim=256
+    )  # ADDED: reduced_dim
     return model

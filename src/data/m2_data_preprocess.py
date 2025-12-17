@@ -89,6 +89,7 @@ def group_bboxes_by_image_vectorized(
 ):
     """
     Group multiple bbox annotations by image_id using VECTORIZED operations
+    FIXED: Keep ALL images, even those without valid bboxes
 
     Args:
         df: DataFrame with columns [image_id, link, cancer, x, y, width, height, split, ...]
@@ -119,31 +120,42 @@ def group_bboxes_by_image_vectorized(
     # Step 2: Validate bboxes using vectorized operations
     if validate_bbox:
         df = validate_bboxes_vectorized(df, min_area=min_area)
-        # Keep only valid bboxes
-        df_valid = df[df["is_valid_bbox"]].copy()
+        # CHANGED: Don't filter out invalid bboxes yet, keep all rows for aggregation
     else:
-        df_valid = df.copy()
+        df["is_valid_bbox"] = True
 
     # Step 3: Group by image_id and aggregate bboxes into lists
     def aggregate_bboxes(group):
-        """Aggregate all bboxes for one image into a list"""
+        """Aggregate all VALID bboxes for one image into a list"""
         bbox_cols = ["x", "y", "width", "height"]
 
         # Check if bbox columns exist and have valid values
         if all(col in group.columns for col in bbox_cols):
-            bboxes = group[bbox_cols].values.tolist()
-            # Filter out invalid bboxes (all zeros or NaN)
-            bboxes = [
-                bbox for bbox in bboxes if not all(v == 0 or pd.isna(v) for v in bbox)
-            ]
+            # CHANGED: Only take rows with valid bboxes
+            valid_rows = (
+                group[group["is_valid_bbox"]]
+                if "is_valid_bbox" in group.columns
+                else group
+            )
+
+            if len(valid_rows) > 0:
+                bboxes = valid_rows[bbox_cols].values.tolist()
+                # Filter out invalid bboxes (all zeros or NaN)
+                bboxes = [
+                    bbox
+                    for bbox in bboxes
+                    if not all(v == 0 or pd.isna(v) for v in bbox)
+                ]
+            else:
+                bboxes = []
         else:
             bboxes = []
 
         return bboxes
 
-    # Group and aggregate
+    # CHANGED: Group ALL images (not just valid ones)
     grouped = (
-        df_valid.groupby("image_id")
+        df.groupby("image_id")
         .agg(
             {
                 "link": "first",
@@ -157,7 +169,7 @@ def group_bboxes_by_image_vectorized(
     )
 
     # Add bbox_list column
-    grouped["bbox_list"] = df_valid.groupby("image_id").apply(aggregate_bboxes).values
+    grouped["bbox_list"] = df.groupby("image_id").apply(aggregate_bboxes).values
     grouped["num_bboxes"] = grouped["bbox_list"].apply(len)
 
     # Copy other metadata columns if exist

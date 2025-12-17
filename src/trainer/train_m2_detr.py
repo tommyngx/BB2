@@ -43,8 +43,8 @@ def run_m2_detr_train(
     lambda_bbox=5.0,
     lambda_giou=2.0,
     lambda_obj=1.0,
-    num_queries=10,
-    max_objects=10,
+    num_queries=5,  # CHANGED: từ 10 xuống 5
+    max_objects=5,  # CHANGED: từ 10 xuống 5
     pretrained_model_path=None,
     target_column=None,
     sample_viz=False,
@@ -133,8 +133,8 @@ if __name__ == "__main__":
     parser.add_argument("--lambda_bbox", type=float, default=5.0)
     parser.add_argument("--lambda_giou", type=float, default=2.0)
     parser.add_argument("--lambda_obj", type=float, default=1.0)
-    parser.add_argument("--num_queries", type=int, default=10)
-    parser.add_argument("--max_objects", type=int, default=10)
+    parser.add_argument("--num_queries", type=int, default=3)  # CHANGED: từ 10 xuống 3
+    parser.add_argument("--max_objects", type=int, default=3)  # CHANGED: từ 10 xuống 3
     parser.add_argument("--pretrained_model_path", type=str, default=None)
     parser.add_argument("--target_column", type=str, default=None)
     parser.add_argument("--sample_viz", action="store_true")
