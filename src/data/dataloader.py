@@ -169,10 +169,7 @@ def load_metadata_detr(
     target_column=None,
 ):
     """
-    Load DETR metadata with automatic bbox grouping
-
-    Uses m2_data_preprocess.prepare_detr_from_metadata to group bboxes by image_id
-    No need for separate metadata_detr.csv file
+    Load DETR metadata with automatic bbox grouping and validation
     """
     import os
     from .m2_data_preprocess import prepare_detr_from_metadata
@@ -180,33 +177,31 @@ def load_metadata_detr(
     if target_column is None:
         target_column = get_target_column_from_config(config_path)
 
-    # Load and preprocess metadata automatically
+    # Load and preprocess metadata with validation
     metadata_path = os.path.join(data_folder, "metadata.csv")
     if not os.path.exists(metadata_path):
         raise FileNotFoundError(f"Metadata not found: {metadata_path}")
 
-    # Auto-group bboxes using preprocessing module
+    # Auto-group bboxes with image-based validation
     train_df, test_df, _ = prepare_detr_from_metadata(
-        metadata_path, validate_bbox=True, min_area=100, verbose=print_stats
+        metadata_path,
+        data_folder=data_folder,  # ← CRITICAL: Pass data_folder for validation
+        validate_bbox=True,
+        min_area=100,
+        verbose=print_stats,
     )
 
-    # Factorize labels (target_column already exists from raw CSV)
+    # Factorize labels
     if not np.issubdtype(train_df[target_column].dtype, np.number):
-        # Factorize on combined df to ensure consistent mapping
         combined_df = pd.concat([train_df, test_df])
         combined_df["target_label"], class_names = pd.factorize(
             combined_df[target_column]
         )
 
-        # Split back
         train_df["target_label"] = combined_df.loc[train_df.index, "target_label"]
         test_df["target_label"] = combined_df.loc[test_df.index, "target_label"]
 
         label_col = "target_label"
-
-        if print_stats:
-            for idx, name in enumerate(class_names):
-                print(f"  Factorize: {idx} -> {name}")
     else:
         label_col = target_column
         unique_vals = train_df[target_column].unique()
