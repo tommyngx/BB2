@@ -523,7 +523,7 @@ def run_m2_detr_test_with_visualization(
                 cls_logits = outputs["cls_logits"]
                 pred_bboxes = outputs["pred_bboxes"]  # [B, N, 4]
                 pred_obj = torch.sigmoid(outputs["obj_scores"])  # [B, N, 1]
-                attn_maps = outputs.get("attn_maps", None)
+                attn_maps = outputs.get("attn_maps", None)  # FIXED: Use "attn_maps" key
 
                 _, predicted = torch.max(cls_logits, 1)
                 probs = torch.softmax(cls_logits, dim=1)
@@ -555,9 +555,14 @@ def run_m2_detr_test_with_visualization(
                         continue
 
                     # Get attention map
-                    attn_map = attn_maps[i] if attn_maps is not None else None
-                    if attn_map is None:
-                        print(f"⚠️ Warning: No attention map for {image_id}")
+                    if attn_maps is not None:
+                        attn_map = attn_maps[
+                            i
+                        ]  # FIXED: Direct indexing since attn_maps should be [B, H, W]
+                    else:
+                        print(
+                            f"⚠️ Warning: No attention map returned from model for {image_id}"
+                        )
                         continue
 
                     # Get all predicted bboxes and scores for this image

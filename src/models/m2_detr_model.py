@@ -446,7 +446,7 @@ class M2DETRModel(nn.Module):
             "obj_scores": detr_outputs["obj_scores"],
             "aux_outputs": detr_outputs["aux_outputs"],
             "dn_outputs": detr_outputs.get("dn_outputs", []),
-            "attn_map": attn_map,
+            "attn_maps": attn_map,  # FIXED: Changed from "attn_map" to "attn_maps" for consistency
         }
 
 
