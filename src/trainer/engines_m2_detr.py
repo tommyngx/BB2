@@ -34,13 +34,14 @@ class HungarianMatcher(nn.Module):
             target_mask: [B, M] 1 for valid boxes, 0 for padding
         Returns:
             List of (pred_idx, target_idx) tuples for each sample in batch
+            NOTE: target_idx refers to indices in the FILTERED valid_targets, not original targets
         """
         B, N = pred_bboxes.shape[:2]
         M = target_bboxes.shape[1]
 
         indices = []
         for i in range(B):
-            # Get valid targets
+            # Get valid targets FIRST
             valid_mask = target_mask[i] > 0.5
             num_valid = valid_mask.sum().item()
 
@@ -48,9 +49,9 @@ class HungarianMatcher(nn.Module):
                 indices.append(([], []))
                 continue
 
-            # Get predictions and valid targets for this sample
+            # Extract ONLY valid targets
             pred = pred_bboxes[i]  # [N, 4]
-            tgt = target_bboxes[i][valid_mask]  # [num_valid, 4]
+            tgt = target_bboxes[i][valid_mask]  # [num_valid, 4]  ← This is the key fix
 
             # Compute L1 cost: [N, num_valid]
             cost_bbox = torch.cdist(pred, tgt, p=1)
@@ -58,12 +59,15 @@ class HungarianMatcher(nn.Module):
             # Compute GIoU cost: [N, num_valid]
             cost_giou = -compute_iou(pred, tgt)
 
-            # Total cost
+            # Total cost matrix: [N, num_valid]
             C = self.cost_bbox * cost_bbox + self.cost_giou * cost_giou
             C = C.cpu().numpy()
 
-            # Hungarian matching
+            # Hungarian matching on [N, num_valid] matrix
+            # Returns indices into pred (0..N-1) and tgt (0..num_valid-1)
             pred_idx, tgt_idx = linear_sum_assignment(C)
+
+            # tgt_idx is now in range [0, num_valid-1], which is correct!
             indices.append((pred_idx.tolist(), tgt_idx.tolist()))
 
         return indices
@@ -163,7 +167,6 @@ class DETRCriterion(nn.Module):
     ):
         """Compute bbox, GIoU, and objectness losses given matched indices"""
         B, N = pred_bboxes.shape[:2]
-        M = target_bboxes.shape[1]
         device = pred_bboxes.device
 
         bbox_loss = torch.tensor(0.0, device=device)
@@ -176,7 +179,7 @@ class DETRCriterion(nn.Module):
             obj_target = torch.zeros(N, 1, device=device)
 
             if len(pred_idx) == 0:
-                # No valid targets, all queries should predict 0
+                # No valid targets
                 obj_loss += nn.functional.binary_cross_entropy_with_logits(
                     pred_obj[i], obj_target, reduction="sum"
                 )
@@ -187,7 +190,6 @@ class DETRCriterion(nn.Module):
             num_valid = valid_mask.sum().item()
 
             if num_valid == 0:
-                # No valid targets
                 obj_loss += nn.functional.binary_cross_entropy_with_logits(
                     pred_obj[i], obj_target, reduction="sum"
                 )
@@ -196,33 +198,12 @@ class DETRCriterion(nn.Module):
             # Extract valid targets: [num_valid, 4]
             valid_targets = target_bboxes[i][valid_mask]
 
-            # Validate tgt_idx to avoid index out of bounds
-            valid_tgt_idx = [idx for idx in tgt_idx if idx < num_valid]
-
-            if len(valid_tgt_idx) != len(tgt_idx):
-                print(
-                    f"⚠️ Warning: Some target indices out of bounds. "
-                    f"tgt_idx max: {max(tgt_idx) if tgt_idx else -1}, "
-                    f"num_valid: {num_valid}"
-                )
-                # Adjust pred_idx accordingly
-                valid_pairs = [
-                    (p, t) for p, t in zip(pred_idx, tgt_idx) if t < num_valid
-                ]
-                if len(valid_pairs) == 0:
-                    obj_loss += nn.functional.binary_cross_entropy_with_logits(
-                        pred_obj[i], obj_target, reduction="sum"
-                    )
-                    continue
-                pred_idx = [p for p, _ in valid_pairs]
-                tgt_idx = [t for _, t in valid_pairs]
-
             # Get matched predictions and targets
+            # NOTE: tgt_idx is already in range [0, num_valid-1] from HungarianMatcher
             matched_pred = pred_bboxes[i, pred_idx]  # [num_matched, 4]
-            matched_tgt = valid_targets[tgt_idx]  # [num_matched, 4]
+            matched_tgt = valid_targets[tgt_idx]  # [num_matched, 4] - Safe now!
 
-            # Additional validation: ensure bbox format is valid
-            # COCO format: [x, y, w, h], all should be in [0, 1]
+            # Validate bbox format
             invalid_pred = (matched_pred < 0).any() | (matched_pred > 1).any()
             invalid_tgt = (
                 (matched_tgt < 0).any()
@@ -232,16 +213,7 @@ class DETRCriterion(nn.Module):
             )
 
             if invalid_pred or invalid_tgt:
-                print(f"⚠️ Warning: Invalid bbox detected. Skipping this sample.")
-                print(
-                    f"  Pred range: [{matched_pred.min().item():.3f}, {matched_pred.max().item():.3f}]"
-                )
-                print(
-                    f"  Target range: [{matched_tgt.min().item():.3f}, {matched_tgt.max().item():.3f}]"
-                )
-                print(
-                    f"  Target w,h: min_w={matched_tgt[:, 2].min().item():.3f}, min_h={matched_tgt[:, 3].min().item():.3f}"
-                )
+                print(f"⚠️ Warning: Invalid bbox detected. Skipping sample {i}.")
                 obj_loss += nn.functional.binary_cross_entropy_with_logits(
                     pred_obj[i], obj_target, reduction="sum"
                 )
@@ -255,10 +227,8 @@ class DETRCriterion(nn.Module):
                 giou_loss += self.giou_loss(matched_pred, matched_tgt)
             except Exception as e:
                 print(f"⚠️ Warning: GIoU computation failed: {e}")
-                # Fallback: use L1 loss only
-                pass
 
-            # Objectness loss: matched queries = 1, others = 0
+            # Objectness loss
             obj_target[pred_idx] = 1.0
             obj_loss += nn.functional.binary_cross_entropy_with_logits(
                 pred_obj[i], obj_target, reduction="sum"
@@ -266,11 +236,11 @@ class DETRCriterion(nn.Module):
 
             num_boxes += len(pred_idx)
 
-        # Normalize by number of boxes
+        # Normalize
         if num_boxes > 0:
             bbox_loss = bbox_loss / num_boxes
             giou_loss = giou_loss / num_boxes
-            obj_loss = obj_loss / (B * N)  # Normalize by all queries
+            obj_loss = obj_loss / (B * N)
         else:
             obj_loss = obj_loss / (B * N)
 
