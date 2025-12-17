@@ -1,168 +1,204 @@
 """
 Preprocessing utilities for DETR detection
 Handles grouping multiple bboxes per image_id with robust validation
+OPTIMIZED: Vectorized pandas operations, no image loading
 """
 
 import pandas as pd
 import numpy as np
-import cv2
-import os
 
 
-def validate_and_clip_bbox(x, y, w, h, img_w, img_h, min_area=100):
+def validate_bboxes_vectorized(df, min_area=100):
     """
-    Validate and clip bbox to image boundaries
-    Returns: (x, y, w, h, is_valid)
+    Validate and clip bboxes using vectorized pandas operations
+    NO image loading - uses img_width, img_height from CSV
+
+    Args:
+        df: DataFrame with columns [x, y, width, height, img_width, img_height]
+        min_area: Minimum bbox area (pixels)
+
+    Returns:
+        DataFrame with validated bboxes
     """
-    # Ensure non-negative
-    x = max(0, float(x))
-    y = max(0, float(y))
-    w = max(0, float(w))
-    h = max(0, float(h))
+    # Ensure float type
+    df = df.copy()
+    bbox_cols = ["x", "y", "width", "height"]
 
-    # Clip to image boundaries
-    x = min(x, img_w - 1)
-    y = min(y, img_h - 1)
+    # Convert to float and ensure non-negative
+    for col in bbox_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+            df[col] = df[col].clip(lower=0.0)
 
-    # Ensure bbox doesn't exceed boundaries
-    if x + w > img_w:
-        w = img_w - x
-    if y + h > img_h:
-        h = img_h - y
+    # Clip x, y to image boundaries
+    df["x"] = df["x"].clip(upper=df["img_width"] - 1)
+    df["y"] = df["y"].clip(upper=df["img_height"] - 1)
 
-    # Check validity: positive area and min size
-    is_valid = w > 0 and h > 0 and (w * h) >= min_area
+    # Clip width, height to not exceed image boundaries
+    df["width"] = np.minimum(df["width"], df["img_width"] - df["x"])
+    df["height"] = np.minimum(df["height"], df["img_height"] - df["y"])
 
-    return x, y, w, h, is_valid
+    # Calculate area
+    df["bbox_area"] = df["width"] * df["height"]
+
+    # Mark valid bboxes
+    df["is_valid_bbox"] = (
+        (df["width"] > 0) & (df["height"] > 0) & (df["bbox_area"] >= min_area)
+    )
+
+    return df
 
 
-def group_bboxes_by_image(df, data_folder, validate_bbox=True, min_area=100):
+def get_image_dimensions(df, data_folder):
     """
-    Group multiple bbox annotations by image_id with image-based validation
-    OPTIMIZED: Batch process image dimensions, vectorized bbox validation
+    Get image dimensions from CSV or by loading first occurrence of each image
+
+    Args:
+        df: DataFrame with 'link' column
+        data_folder: Root folder
+
+    Returns:
+        dict: {image_id: (img_h, img_w)}
     """
-    # Pre-load image dimensions for all unique images (parallel if needed)
-    print("  Loading image dimensions...")
+    import cv2
+    import os
+
+    # Try to get from CSV first
+    if "img_width" in df.columns and "img_height" in df.columns:
+        # Already have dimensions
+        return {}
+
+    # Load dimensions for unique images
     unique_links = df[["image_id", "link"]].drop_duplicates("image_id")
-
     img_dims = {}
-    skipped_images = 0
 
     for _, row in unique_links.iterrows():
         img_path = os.path.join(data_folder, row["link"])
         try:
             img = cv2.imread(img_path)
             if img is not None:
-                img_dims[row["image_id"]] = (img.shape[0], img.shape[1])  # (h, w)
-            else:
-                skipped_images += 1
+                img_dims[row["image_id"]] = (img.shape[0], img.shape[1])
         except:
-            skipped_images += 1
+            pass
 
-    if skipped_images > 0:
-        print(f"⚠️ Skipped {skipped_images} images due to read errors")
+    return img_dims
 
-    # Vectorized bbox validation
-    def validate_bboxes_batch(group, img_h, img_w):
-        """Validate all bboxes for one image at once"""
-        # Get bbox columns
+
+def group_bboxes_by_image_vectorized(
+    df, data_folder=None, validate_bbox=True, min_area=100
+):
+    """
+    Group multiple bbox annotations by image_id using VECTORIZED operations
+
+    Args:
+        df: DataFrame with columns [image_id, link, cancer, x, y, width, height, split, ...]
+        data_folder: Root folder (optional, only if img_width/img_height not in CSV)
+        validate_bbox: Whether to validate bboxes
+        min_area: Minimum bbox area
+
+    Returns:
+        DataFrame with one row per image_id, with bbox_list column
+    """
+    # Step 1: Get image dimensions
+    if "img_width" not in df.columns or "img_height" not in df.columns:
+        print("  ⚠️ Missing img_width/img_height in CSV, loading from images...")
+        if data_folder is None:
+            raise ValueError(
+                "data_folder required when img_width/img_height not in CSV"
+            )
+
+        img_dims = get_image_dimensions(df, data_folder)
+
+        # Add dimensions to dataframe
+        df["img_height"] = df["image_id"].map(lambda x: img_dims.get(x, (0, 0))[0])
+        df["img_width"] = df["image_id"].map(lambda x: img_dims.get(x, (0, 0))[1])
+
+        # Remove rows with missing dimensions
+        df = df[(df["img_height"] > 0) & (df["img_width"] > 0)].copy()
+
+    # Step 2: Validate bboxes using vectorized operations
+    if validate_bbox:
+        df = validate_bboxes_vectorized(df, min_area=min_area)
+        # Keep only valid bboxes
+        df_valid = df[df["is_valid_bbox"]].copy()
+    else:
+        df_valid = df.copy()
+
+    # Step 3: Group by image_id and aggregate bboxes into lists
+    def aggregate_bboxes(group):
+        """Aggregate all bboxes for one image into a list"""
         bbox_cols = ["x", "y", "width", "height"]
-        if not all(col in group.columns for col in bbox_cols):
-            return []
 
-        # Filter valid rows
-        valid_rows = group[group[bbox_cols].notna().all(axis=1)].copy()
-        if len(valid_rows) == 0:
-            return []
-
-        # Vectorized operations
-        bboxes = valid_rows[bbox_cols].values.astype(float)
-
-        # Clip to boundaries
-        bboxes[:, 0] = np.clip(bboxes[:, 0], 0, img_w - 1)  # x
-        bboxes[:, 1] = np.clip(bboxes[:, 1], 0, img_h - 1)  # y
-        bboxes[:, 2] = np.maximum(0, bboxes[:, 2])  # w
-        bboxes[:, 3] = np.maximum(0, bboxes[:, 3])  # h
-
-        # Ensure bbox doesn't exceed bounds
-        bboxes[:, 2] = np.minimum(bboxes[:, 2], img_w - bboxes[:, 0])
-        bboxes[:, 3] = np.minimum(bboxes[:, 3], img_h - bboxes[:, 1])
-
-        # Filter by area
-        areas = bboxes[:, 2] * bboxes[:, 3]
-        valid_mask = (bboxes[:, 2] > 0) & (bboxes[:, 3] > 0) & (areas >= min_area)
-
-        return bboxes[valid_mask].tolist()
-
-    # Group and process
-    grouped_rows = []
-    for image_id, group in df.groupby("image_id"):
-        first_row = group.iloc[0]
-
-        # Skip if image dimensions not available
-        if image_id not in img_dims:
-            continue
-
-        img_h, img_w = img_dims[image_id]
-
-        # Validate bboxes in batch
-        if validate_bbox:
-            bbox_list = validate_bboxes_batch(group, img_h, img_w)
+        # Check if bbox columns exist and have valid values
+        if all(col in group.columns for col in bbox_cols):
+            bboxes = group[bbox_cols].values.tolist()
+            # Filter out invalid bboxes (all zeros or NaN)
+            bboxes = [
+                bbox for bbox in bboxes if not all(v == 0 or pd.isna(v) for v in bbox)
+            ]
         else:
-            # No validation, just extract
-            bbox_cols = ["x", "y", "width", "height"]
-            valid_rows = group[group[bbox_cols].notna().all(axis=1)]
-            bbox_list = valid_rows[bbox_cols].values.tolist()
+            bboxes = []
 
-        # Create row
-        new_row = {
-            "image_id": image_id,
-            "link": first_row["link"],
-            "cancer": int(first_row["cancer"]),
-            "split": first_row["split"],
-            "bbox_list": bbox_list,
-            "num_bboxes": len(bbox_list),
-            "image_width": img_w,
-            "image_height": img_h,
-        }
+        return bboxes
 
-        # Copy metadata
-        for col in [
-            "original_width",
-            "original_height",
-            "patient_id",
-            "laterality",
-            "view",
-        ]:
-            if col in first_row.index and pd.notna(first_row[col]):
-                new_row[col] = first_row[col]
+    # Group and aggregate
+    grouped = (
+        df_valid.groupby("image_id")
+        .agg(
+            {
+                "link": "first",
+                "cancer": "first",
+                "split": "first",
+                "img_width": "first",
+                "img_height": "first",
+            }
+        )
+        .reset_index()
+    )
 
-        grouped_rows.append(new_row)
+    # Add bbox_list column
+    grouped["bbox_list"] = df_valid.groupby("image_id").apply(aggregate_bboxes).values
+    grouped["num_bboxes"] = grouped["bbox_list"].apply(len)
 
-    return pd.DataFrame(grouped_rows)
+    # Copy other metadata columns if exist
+    metadata_cols = [
+        "original_width",
+        "original_height",
+        "patient_id",
+        "laterality",
+        "view",
+    ]
+    for col in metadata_cols:
+        if col in df.columns:
+            grouped[col] = df.groupby("image_id")[col].first().values
+
+    return grouped
 
 
 def prepare_detr_dataframe(
-    df, data_folder, validate_bbox=True, min_area=100, verbose=True
+    df, data_folder=None, validate_bbox=True, min_area=100, verbose=True
 ):
     """
     Main preprocessing function for DETR detection
-    Converts multi-row bbox annotations to single-row with bbox_list
+    OPTIMIZED: Uses vectorized pandas operations
 
     Args:
-        df: Raw DataFrame from metadata.csv (can have duplicate image_ids)
-        data_folder: Root folder containing images
+        df: Raw DataFrame from metadata.csv
+        data_folder: Root folder (optional if img_width/img_height in CSV)
         validate_bbox: Whether to validate bboxes
-        min_area: Minimum bbox area threshold
+        min_area: Minimum bbox area
         verbose: Print statistics
 
     Returns:
         Tuple of (train_df, test_df) with grouped bboxes
-        Each DataFrame has one row per image with bbox_list column
     """
-    # Group bboxes by image_id with validation
-    df_grouped = group_bboxes_by_image(
-        df, data_folder, validate_bbox=validate_bbox, min_area=min_area
+    if verbose:
+        print(f"\n📊 DETR Preprocessing (Vectorized):")
+        print(f"  Input: {len(df)} annotations")
+
+    # Group bboxes using vectorized operations
+    df_grouped = group_bboxes_by_image_vectorized(
+        df, data_folder=data_folder, validate_bbox=validate_bbox, min_area=min_area
     )
 
     # Split train/test
@@ -170,9 +206,7 @@ def prepare_detr_dataframe(
     test_df = df_grouped[df_grouped["split"] == "test"].copy().reset_index(drop=True)
 
     if verbose:
-        print(f"\n📊 DETR Preprocessing Results:")
-        print(f"  Original annotations: {len(df)} rows")
-        print(f"  Grouped images: {len(df_grouped)} unique images")
+        print(f"  Output: {len(df_grouped)} unique images")
         print(f"    Train: {len(train_df)} images")
         print(f"    Test:  {len(test_df)} images")
 
@@ -209,23 +243,24 @@ def prepare_detr_dataframe(
 
 
 def prepare_detr_from_metadata(
-    metadata_path, data_folder, validate_bbox=True, min_area=100, verbose=True
+    metadata_path, data_folder=None, validate_bbox=True, min_area=100, verbose=True
 ):
     """
     Load metadata.csv and prepare DETR-ready DataFrames
+    OPTIMIZED: No image loading if img_width/img_height in CSV
 
     Args:
         metadata_path: Path to metadata.csv
-        data_folder: Root folder containing images (needed for validation)
+        data_folder: Root folder (optional if dimensions in CSV)
         validate_bbox: Whether to validate bboxes
         min_area: Minimum bbox area
         verbose: Print statistics
 
     Returns:
         Tuple of (train_df, test_df, df_raw)
-        - train_df, test_df: Grouped DataFrames ready for DETR
-        - df_raw: Original raw DataFrame
     """
+    import os
+
     if not os.path.exists(metadata_path):
         raise FileNotFoundError(f"Metadata not found: {metadata_path}")
 
@@ -237,10 +272,17 @@ def prepare_detr_from_metadata(
         print(f"  Raw rows: {len(df_raw)}")
         print(f"  Unique images: {df_raw['image_id'].nunique()}")
 
-    # Prepare DETR dataframes
+        # Check if dimensions are in CSV
+        has_dims = "img_width" in df_raw.columns and "img_height" in df_raw.columns
+        if has_dims:
+            print(f"  ✅ Image dimensions found in CSV (fast mode)")
+        else:
+            print(f"  ⚠️ Image dimensions NOT in CSV, will load images (slow)")
+
+    # Prepare DETR dataframes using vectorized operations
     train_df, test_df = prepare_detr_dataframe(
         df_raw,
-        data_folder,
+        data_folder=data_folder,
         validate_bbox=validate_bbox,
         min_area=min_area,
         verbose=verbose,
@@ -253,18 +295,22 @@ def prepare_detr_from_metadata(
 if __name__ == "__main__":
     import sys
 
-    if len(sys.argv) < 3:
+    if len(sys.argv) < 2:
         print(
-            "Usage: python -m src.data.m2_data_preprocess <metadata.csv> <data_folder>"
+            "Usage: python -m src.data.m2_data_preprocess <metadata.csv> [data_folder]"
         )
         sys.exit(1)
 
     metadata_path = sys.argv[1]
-    data_folder = sys.argv[2]
+    data_folder = sys.argv[2] if len(sys.argv) > 2 else None
 
     # Process metadata
     train_df, test_df, df_raw = prepare_detr_from_metadata(
-        metadata_path, data_folder, validate_bbox=True, min_area=100, verbose=True
+        metadata_path,
+        data_folder=data_folder,
+        validate_bbox=True,
+        min_area=100,
+        verbose=True,
     )
 
     # Show sample
