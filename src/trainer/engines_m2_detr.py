@@ -303,12 +303,17 @@ def train_m2_detr_model(
     lambda_obj=1.0,
 ):
     """Train M2 DETR model with auxiliary losses"""
-    # CHANGED: Use single GPU to avoid DataParallel issues
-    if device != "cpu" and torch.cuda.device_count() > 1:
-        print(f"⚠️ Multi-GPU detected but using single GPU to avoid DataParallel issues")
-        print(f"   Set CUDA_VISIBLE_DEVICES to use specific GPU")
-
+    # Option 1: Single GPU (recommended for now)
     model = model.to(device)
+
+    # Option 2: Multi-GPU with DistributedDataParallel (advanced)
+    # if device != "cpu" and torch.cuda.device_count() > 1:
+    #     import torch.distributed as dist
+    #     from torch.nn.parallel import DistributedDataParallel as DDP
+    #
+    #     # Initialize process group
+    #     dist.init_process_group(backend="nccl")
+    #     model = DDP(model, device_ids=[device])
 
     # Classification loss
     if train_df is not None:
