@@ -36,10 +36,7 @@ def validate_and_clip_bbox(x, y, w, h, img_w, img_h, min_area=100):
 
 
 class M2DETRDataset(Dataset):
-    """
-    Dataset for DETR-style multi-bbox detection
-    Returns: image, label, list of bboxes (variable length)
-    """
+    """Dataset for DETR (reads grouped bbox_list from preprocessed DataFrame)"""
 
     def __init__(
         self,
@@ -49,8 +46,10 @@ class M2DETRDataset(Dataset):
         negative_transform=None,
         mode="train",
         img_size=None,
-        max_objects=5,  # Reduced from 10 to 5 for mammography
+        max_objects=5,
     ):
+        # DataFrame is already grouped by image_id with bbox_list column
+        self.df = df.reset_index(drop=True)
         self.data_folder = data_folder
         self.mode = mode
         self.img_size = img_size
@@ -58,121 +57,52 @@ class M2DETRDataset(Dataset):
         self.positive_transform = positive_transform
         self.negative_transform = negative_transform
 
-        # Group by image_id to get all bboxes per image
-        self.samples = self._prepare_samples(df)
-
-    def _prepare_samples(self, df):
-        """Group bboxes by image_id with proper validation"""
-        samples = []
-        multi_bbox_count = 0
-
-        for image_id in df["image_id"].unique():
-            img_rows = df[df["image_id"] == image_id]
-            first_row = img_rows.iloc[0]
-
-            img_path = os.path.join(self.data_folder, first_row["link"])
-            label = int(first_row["cancer"])
-
-            bboxes = []
-            if label == 1:
-                try:
-                    temp_img = cv2.imread(img_path)
-                    if temp_img is not None:
-                        img_h, img_w = temp_img.shape[:2]
-                    else:
-                        print(f"⚠️ Cannot read image: {img_path}")
-                        continue
-                except Exception as e:
-                    print(f"⚠️ Error reading {img_path}: {e}")
-                    continue
-
-                # CRITICAL FIX: Loop through ALL rows for this image_id
-                for _, row in img_rows.iterrows():
-                    if all(col in row.index for col in ["x", "y", "width", "height"]):
-                        if all(
-                            pd.notna(row[col]) for col in ["x", "y", "width", "height"]
-                        ):
-                            x, y, w, h, is_valid = validate_and_clip_bbox(
-                                row["x"],
-                                row["y"],
-                                row["width"],
-                                row["height"],
-                                img_w,
-                                img_h,
-                                min_area=100,
-                            )
-                            if is_valid:
-                                bboxes.append([x, y, w, h])
-
-                # if len(bboxes) > 1:
-                #    multi_bbox_count += 1
-                #    if multi_bbox_count <= 10:  # Print first 10
-                #        print(
-                #            f"[DEBUG] image_id={image_id} has {len(bboxes)} valid bboxes"
-                #        )
-
-            samples.append(
-                {
-                    "image_path": img_path,
-                    "label": label,
-                    "bboxes": bboxes,
-                    "image_id": image_id,
-                }
-            )
-
-        print(
-            f"[INFO] Found {multi_bbox_count} images with >1 bbox (total: {len(samples)})"
-        )
-        return samples
-
     def __len__(self):
-        return len(self.samples)
+        return len(self.df)
 
     def __getitem__(self, idx):
-        sample = self.samples[idx]
+        row = self.df.iloc[idx]
+        img_path = os.path.join(self.data_folder, row["link"])
 
         # Load image
-        image = cv2.imread(sample["image_path"])
+        image = cv2.imread(img_path)
         if image is None:
-            # Fallback: return dummy data
-            print(f"⚠️ Failed to load image: {sample['image_path']}")
-            dummy_img = np.zeros((448, 448, 3), dtype=np.uint8)
+            print(f"⚠️ Failed to load: {img_path}")
             return {
                 "image": torch.zeros(3, 448, 448),
                 "label": 0,
                 "bboxes": torch.zeros(self.max_objects, 4),
                 "bbox_mask": torch.zeros(self.max_objects),
                 "num_objects": 0,
-                "image_id": sample["image_id"],
+                "image_id": str(row["image_id"]),
             }
 
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         img_h, img_w = image.shape[:2]
 
-        label = sample["label"]
-        bboxes = sample["bboxes"].copy()  # List of [x, y, w, h] already validated
+        label = int(row["cancer"])
+
+        # Get bbox_list from preprocessed DataFrame
+        bbox_list = row.get("bbox_list", [])
+        if not isinstance(bbox_list, list):
+            bbox_list = []
+
+        bboxes = bbox_list.copy()  # [[x, y, w, h], ...]
 
         # Apply augmentation
         if len(bboxes) > 0:
-            # Positive sample: use bbox-aware transform
             if self.positive_transform:
-                # Albumentations expects list of bboxes and labels
                 bbox_labels = [1] * len(bboxes)
-
                 transformed = self.positive_transform(
                     image=image, bboxes=bboxes, labels=bbox_labels
                 )
                 image = transformed["image"]
-                bboxes = list(
-                    transformed["bboxes"]
-                )  # Updated bboxes after augmentation
+                bboxes = list(transformed["bboxes"])
         else:
-            # Negative sample: use aggressive transform without bbox
             if self.negative_transform:
                 transformed = self.negative_transform(image=image)
                 image = transformed["image"]
             else:
-                # Fallback for test mode
                 from .m2_augment import get_m2_test_augmentation_no_bbox
 
                 if self.img_size:
@@ -187,60 +117,45 @@ class M2DETRDataset(Dataset):
                 transformed = simple_transform(image=image)
                 image = transformed["image"]
 
-        # Get target image size after transform
+        # Get target image size
         if self.img_size:
             h_img, w_img = self.img_size
         else:
             h_img, w_img = image.shape[1], image.shape[2]
 
-        # Normalize and validate bboxes to [0, 1], then pad to max_objects
+        # Normalize and pad
         normalized_bboxes = []
-        for bbox in bboxes[: self.max_objects]:  # Limit to max_objects
+        for bbox in bboxes[: self.max_objects]:
             x, y, w, h = bbox
-
-            # Re-validate after augmentation (bbox might be out of bounds)
             x, y, w, h, is_valid = validate_and_clip_bbox(
-                x,
-                y,
-                w,
-                h,
-                w_img,
-                h_img,
-                min_area=1,  # Allow small bboxes after resize
+                x, y, w, h, w_img, h_img, min_area=1
             )
-
             if not is_valid:
                 continue
-
-            # Normalize to [0, 1]
             norm_bbox = [
                 max(0.0, min(1.0, x / w_img)),
                 max(0.0, min(1.0, y / h_img)),
                 max(0.0, min(1.0, w / w_img)),
                 max(0.0, min(1.0, h / h_img)),
             ]
-
-            # Final check: min 1% size
             if norm_bbox[2] > 0.01 and norm_bbox[3] > 0.01:
                 normalized_bboxes.append(norm_bbox)
 
-        # Pad to max_objects
         num_objects = len(normalized_bboxes)
         padded_bboxes = np.zeros((self.max_objects, 4), dtype=np.float32)
         if num_objects > 0:
             padded_bboxes[:num_objects] = np.array(normalized_bboxes, dtype=np.float32)
 
-        # Create mask: 1 for valid bbox, 0 for padding
         bbox_mask = np.zeros(self.max_objects, dtype=np.float32)
         bbox_mask[:num_objects] = 1.0
 
         return {
             "image": image,
             "label": label,
-            "bboxes": torch.from_numpy(padded_bboxes),  # [max_objects, 4]
-            "bbox_mask": torch.from_numpy(bbox_mask),  # [max_objects]
+            "bboxes": torch.from_numpy(padded_bboxes),
+            "bbox_mask": torch.from_numpy(bbox_mask),
             "num_objects": num_objects,
-            "image_id": sample["image_id"],
+            "image_id": str(row["image_id"]),
         }
 
 
