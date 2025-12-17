@@ -51,6 +51,22 @@ def run_m2_detr_train(
 ):
     clear_cuda_memory()
 
+    # Print main DETR hyperparameters
+    print("========== DETR Hyperparameters ==========")
+    print(f"Model type      : {model_type}")
+    print(f"Num queries     : {num_queries}")
+    print(f"Max objects     : {max_objects}")
+    print(f"Lambda bbox     : {lambda_bbox}")
+    print(f"Lambda GIoU     : {lambda_giou}")
+    print(f"Lambda obj      : {lambda_obj}")
+    print(f"Batch size      : {batch_size}")
+    print(f"Num epochs      : {num_epochs}")
+    print(f"Learning rate   : {lr}")
+    print(f"Patience        : {patience}")
+    print(f"Loss type       : {loss_type}")
+    print(f"Image size      : {img_size}")
+    print("==========================================")
+
     # Use DETR-specific metadata loader (no duplicate filtering)
     train_df, test_df, class_names = load_metadata_detr(
         data_folder, config_path, target_column=target_column
