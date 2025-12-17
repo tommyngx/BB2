@@ -485,10 +485,15 @@ def train_m2_detr_model(
         train_losses.append(epoch_loss)
         train_accs.append(epoch_acc)
 
-        # Validation
+        # ✅ ENHANCED VALIDATION WITH DETAILED METRICS (like train_m2.py)
         model.eval()
         val_loss = 0.0
         val_correct, val_total = 0, 0
+
+        # For detailed metrics
+        all_preds = []
+        all_labels = []
+        all_probs = []
 
         with torch.no_grad():
             for batch in test_loader:
@@ -502,23 +507,76 @@ def train_m2_detr_model(
                 loss_dict = criterion(outputs, targets)
 
                 val_loss += loss_dict["total_loss"].item() * images.size(0)
+
+                # Get predictions and probabilities
+                probs = torch.softmax(outputs["cls_logits"], dim=1)
                 _, predicted = torch.max(outputs["cls_logits"], 1)
+
                 val_correct += (predicted == labels).sum().item()
                 val_total += labels.size(0)
+
+                # Store for metrics
+                all_preds.extend(predicted.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
+                all_probs.extend(probs.cpu().numpy())
 
         val_loss = val_loss / val_total
         val_acc = val_correct / val_total
         test_losses.append(val_loss)
         test_accs.append(val_acc)
 
-        print(
-            f"\nEpoch [{epoch + 1}/{num_epochs}] "
-            f"Train Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f} | "
-            f"Val Loss: {val_loss:.4f} Acc: {val_acc:.4f} | "
-            f"LR: {optimizer.param_groups[0]['lr']:.6f}"
+        # ✅ COMPUTE DETAILED METRICS (like train_m2.py)
+        from sklearn.metrics import (
+            classification_report,
+            roc_auc_score,
+            precision_recall_fscore_support,
+        )
+        import numpy as np
+
+        all_preds = np.array(all_preds)
+        all_labels = np.array(all_labels)
+        all_probs = np.array(all_probs)
+
+        # Precision, Recall, F1
+        precision, recall, f1, _ = precision_recall_fscore_support(
+            all_labels, all_preds, average="weighted", zero_division=0
         )
 
-        # Log
+        # AUC (only for binary classification)
+        try:
+            if all_probs.shape[1] == 2:
+                auc = roc_auc_score(all_labels, all_probs[:, 1]) * 100
+            else:
+                auc = 0.0
+        except:
+            auc = 0.0
+
+        # Sensitivity (Recall for positive class)
+        if len(np.unique(all_labels)) > 1:
+            _, recall_per_class, _, _ = precision_recall_fscore_support(
+                all_labels, all_preds, average=None, zero_division=0
+            )
+            sensitivity = (
+                recall_per_class[1] * 100 if len(recall_per_class) > 1 else 0.0
+            )
+        else:
+            sensitivity = 0.0
+
+        # ✅ PRINT LIKE train_m2.py
+        print(
+            f"\nEpoch [{epoch + 1}/{num_epochs}] "
+            f"Train Loss: {epoch_loss:.4f} Train Acc: {epoch_acc:.4f} "
+            f"Learning Rate: {optimizer.param_groups[0]['lr']:.6f}"
+        )
+        print(
+            f"Test Accuracy : {val_acc * 100:.2f}% | Loss: {val_loss:.4f} | AUC: {auc:.2f}%"
+        )
+        print(f"Test Precision: {precision * 100:.2f}% | Sens: {sensitivity:.2f}%")
+
+        # Print classification report
+        print(classification_report(all_labels, all_preds, zero_division=0))
+
+        # Log to CSV
         with open(log_file, "a", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(
