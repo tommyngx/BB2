@@ -324,8 +324,8 @@ def run_m2_detr_test_with_visualization(
     img_size=None,
     pretrained_model_path=None,
     target_column=None,
-    num_queries=5,
-    max_objects=5,
+    num_queries=3,
+    max_objects=3,
     save_visualizations=True,
     only_viz=False,
     sample_viz=False,
@@ -609,7 +609,7 @@ if __name__ == "__main__":
     parser.add_argument("--img_size", type=str, default=None)
     parser.add_argument("--target_column", type=str, default=None)
     parser.add_argument("--num_queries", type=int, default=3)
-    parser.add_argument("--max_objects", type=int, default=5)
+    parser.add_argument("--max_objects", type=int, default=3)
     parser.add_argument("--no_viz", action="store_true", help="Skip visualizations")
     parser.add_argument(
         "--only_viz",
