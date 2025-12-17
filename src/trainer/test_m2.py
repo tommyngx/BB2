@@ -5,6 +5,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 import argparse
 import os
+import time
 import torch
 import torch.nn as nn
 from tqdm import tqdm
@@ -23,6 +24,47 @@ from src.utils.common import load_config, get_arg_or_config
 from src.trainer.train_based import get_gradcam_layer
 
 
+def load_data_bbx3(data_folder):
+    """Load metadata with bounding box information"""
+    metadata_path = os.path.join(data_folder, "metadata2.csv")
+    if not os.path.exists(metadata_path):
+        metadata_path = os.path.join(data_folder, "metadata.csv")
+
+    if not os.path.exists(metadata_path):
+        return None, None, {}
+
+    df = pd.read_csv(metadata_path)
+
+    # Create bbx column from x, y, width, height columns
+    if all(col in df.columns for col in ["x", "y", "width", "height"]):
+        df["bbx"] = df[["x", "y", "width", "height"]].apply(
+            lambda row: [row["x"], row["y"], row["width"], row["height"]], axis=1
+        )
+        # Group all bbx by image_id into a list
+        bbx_grouped = (
+            df.groupby("image_id")["bbx"]
+            .apply(list)
+            .reset_index()
+            .rename(columns={"bbx": "bbx_list"})
+        )
+        df = df.merge(bbx_grouped, on="image_id", how="left")
+
+    # Get original image sizes
+    original_sizes = {}
+    for _, row in df.iterrows():
+        img_id = row.get("image_id", None)
+        if img_id:
+            orig_h = row.get("original_height", None)
+            orig_w = row.get("original_width", None)
+            if orig_h and orig_w:
+                original_sizes[img_id] = (int(orig_h), int(orig_w))
+
+    train_df = df[df["split"] == "train"] if "split" in df.columns else df
+    test_df = df[df["split"] == "test"] if "split" in df.columns else df
+
+    return train_df, test_df, original_sizes
+
+
 def parse_img_size(val):
     if val is None:
         return None
@@ -39,23 +81,14 @@ def denormalize_image(tensor, mean, std):
     mean = torch.tensor(mean).view(3, 1, 1).to(tensor.device)
     std = torch.tensor(std).view(3, 1, 1).to(tensor.device)
     img = tensor * std + mean
-    img = torch.clamp(img, 0, 1)  # Ensure values are in [0, 1]
+    img = torch.clamp(img, 0, 1)
     return img
 
 
 def bbox_to_xyxy(bbox, original_size):
-    """
-    Convert normalized bbox [x, y, w, h] to pixel coordinates [x1, y1, x2, y2]
-    in original image size
-
-    Args:
-        bbox: normalized bbox [x, y, w, h] in range [0, 1]
-        original_size: (height, width) of original image
-    """
+    """Convert normalized bbox [x, y, w, h] to pixel coordinates [x1, y1, x2, y2]"""
     x, y, w, h = bbox
     orig_h, orig_w = original_size
-
-    # Convert from normalized coordinates to original image pixel coordinates
     x1 = int(x * orig_w)
     y1 = int(y * orig_h)
     x2 = int((x + w) * orig_w)
@@ -82,17 +115,10 @@ def visualize_m2_result(
     bbox_conf,
     save_path,
     class_names,
-    original_size,  # (height, width) of original image
+    original_size,
 ):
-    """
-    Create side-by-side visualization:
-    Left: Original image + GT bbox
-    Right: Attention heatmap with Otsu + Predicted bbox
-
-    Args:
-        original_size: (height, width) of the original image before resizing
-    """
-    # Denormalize image using m2_data normalization: mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]
+    """Create side-by-side visualization with original image size"""
+    # Denormalize image using m2_data normalization
     mean = [0.5, 0.5, 0.5]
     std = [0.5, 0.5, 0.5]
     img_denorm = denormalize_image(image_tensor.cpu(), mean, std)
@@ -117,7 +143,7 @@ def visualize_m2_result(
     otsu_thresh = threshold_otsu(attn_resized_np)
     mask = attn_resized_np > otsu_thresh
 
-    # Create heatmap overlay on original size image
+    # Create heatmap overlay
     cam_color = plt.cm.jet(attn_resized_np / 255.0)[..., :3]
     blend_img = img_original_np.copy()
     blend_alpha = 0.6
@@ -128,10 +154,9 @@ def visualize_m2_result(
     # Create figure with 2 subplots
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
 
-    # Left: Original image + GT bbox (in original size)
+    # Left: Original image + GT bbox
     ax1.imshow(img_original_np)
     if gt_bbox is not None and not torch.isnan(gt_bbox).any():
-        # Convert bbox to original image coordinates
         x1, y1, x2, y2 = bbox_to_xyxy(gt_bbox.cpu().numpy(), original_size)
         rect = mpatches.Rectangle(
             (x1, y1), x2 - x1, y2 - y1, linewidth=2, edgecolor="lime", facecolor="none"
@@ -145,10 +170,9 @@ def visualize_m2_result(
     ax1.set_title(title_left, fontsize=12, fontweight="bold")
     ax1.axis("off")
 
-    # Right: Heatmap + Predicted bbox (in original size)
+    # Right: Heatmap + Predicted bbox
     ax2.imshow(blend_img)
     if pred_bbox is not None:
-        # Convert bbox to original image coordinates
         x1, y1, x2, y2 = bbox_to_xyxy(pred_bbox.cpu().numpy(), original_size)
         rect = mpatches.Rectangle(
             (x1, y1), x2 - x1, y2 - y1, linewidth=2, edgecolor="red", facecolor="none"
@@ -179,14 +203,15 @@ def run_m2_test_with_visualization(
     lambda_bbox=1.0,
     save_visualizations=True,
 ):
-    """
-    Test M2Model with visualization of results
-    """
+    """Test M2Model with visualization of results"""
     # Load config and data
     config = load_config(config_path)
     train_df, test_df, class_names = load_metadata(
         data_folder, config_path, target_column=target_column
     )
+
+    # Load metadata with bbox info
+    _, test_df_bbx, original_sizes = load_data_bbx3(data_folder)
 
     _, test_loader = get_m2_dataloaders(
         train_df,
@@ -218,20 +243,50 @@ def run_m2_test_with_visualization(
         model = nn.DataParallel(model)
     model = model.to(device)
 
-    # Task 1: Evaluate on test set
+    # Task 1: Evaluate on test set with tqdm
     print("\n" + "=" * 50)
     print("Task 1: Evaluation on Test Set")
     print("=" * 50)
-    test_loss, test_acc, test_iou = evaluate_m2_model(
-        model,
-        test_loader,
-        device=device,
-        mode="Test",
-        return_loss=True,
-        lambda_bbox=lambda_bbox,
-    )
 
-    # Task 2: Save full model
+    # Run evaluation with tqdm progress bar
+    model.eval()
+    correct, total = 0, 0
+    total_loss = 0.0
+    total_iou = 0.0
+    num_bbox_samples = 0
+
+    with torch.no_grad():
+        for batch in tqdm(test_loader, desc="Evaluating"):
+            images = batch["image"].to(device)
+            labels = batch["label"].to(device)
+            bboxes = batch["bbox"].to(device)
+            has_bbox = batch["has_bbox"].to(device)
+
+            outputs = model(images)
+            if len(outputs) == 3:
+                cls_outputs, bbox_outputs, _ = outputs
+            else:
+                cls_outputs, bbox_outputs = outputs
+
+            # Classification
+            _, predicted = torch.max(cls_outputs, 1)
+            correct += (predicted == labels).sum().item()
+            total += labels.size(0)
+
+            # IoU for bbox
+            if has_bbox.sum() > 0:
+                pos_mask = has_bbox.bool()
+                from src.utils.m2_utils import compute_iou
+
+                iou = compute_iou(bbox_outputs[pos_mask], bboxes[pos_mask])
+                total_iou += iou.sum().item()
+                num_bbox_samples += has_bbox.sum().item()
+
+    test_acc = correct / total
+    test_iou = total_iou / max(num_bbox_samples, 1)
+    print(f"Test Accuracy: {test_acc * 100:.2f}% | IoU: {test_iou:.4f}")
+
+    # Task 2: Save full model (like run_gradcam in train_based)
     print("\n" + "=" * 50)
     print("Task 2: Save Full Model")
     print("=" * 50)
@@ -242,7 +297,7 @@ def run_m2_test_with_visualization(
     # Get normalize params - use m2_data default
     normalize_params = {"mean": [0.5, 0.5, 0.5], "std": [0.5, 0.5, 0.5]}
 
-    # Use get_gradcam_layer function to determine the correct layer
+    # Use get_gradcam_layer function
     model_name = model_type.lower()
     if isinstance(model, nn.DataParallel):
         gradcam_layer = get_gradcam_layer(model.module, model_name)
@@ -261,15 +316,27 @@ def run_m2_test_with_visualization(
     except Exception:
         actual_input_size = img_size if img_size else (448, 448)
 
-    # Save state_dict + metadata instead of full model to avoid pickling issues
-    checkpoint = {
-        "state_dict": model_to_save.state_dict(),
-        "model_type": model_type,
-        "num_classes": len(class_names),
+    # Calculate real inference time
+    if isinstance(actual_input_size, int):
+        actual_input_size = (actual_input_size, actual_input_size)
+    dummy_input = torch.randn(1, 3, actual_input_size[0], actual_input_size[1]).to(
+        device
+    )
+    model_to_save.eval()
+    with torch.no_grad():
+        start = time.time()
+        _ = model_to_save(dummy_input)
+        end = time.time()
+        inference_time = end - start
+
+    # Save complete model info (like run_gradcam)
+    model_info = {
+        "model": model_to_save,
         "input_size": actual_input_size,
-        "model_name": model_type,
         "gradcam_layer": gradcam_layer,
+        "model_name": model_type,
         "normalize": normalize_params,
+        "inference_time": inference_time,
         "num_patches": None,
         "arch_type": "m2",
         "class_names": class_names,
@@ -280,11 +347,12 @@ def run_m2_test_with_visualization(
     full_model_path = os.path.join(full_model_dir, f"{model_filename}_full.pth")
 
     try:
-        torch.save(checkpoint, full_model_path)
+        torch.save(model_info, full_model_path)
         print(f"✅ Saved full model to: {full_model_path}")
-        print(f"   GradCAM layer: {gradcam_layer}")
-        print(f"   Model type: {model_type}")
+        print(f"   Model name: {model_type}")
         print(f"   Input size: {actual_input_size}")
+        print(f"   GradCAM layer: {gradcam_layer}")
+        print(f"   Inference time: {inference_time:.4f}s")
     except Exception as e:
         print(f"⚠️ Error saving full model: {e}")
 
@@ -297,23 +365,6 @@ def run_m2_test_with_visualization(
         # Create output directory
         vis_dir = os.path.join(output, "test", model_filename)
         os.makedirs(vis_dir, exist_ok=True)
-
-        # Load original image sizes from metadata
-        metadata_path = os.path.join(data_folder, "metadata.csv")
-        if not os.path.exists(metadata_path):
-            metadata_path = os.path.join(data_folder, "metadata2.csv")
-
-        original_sizes = {}
-        if os.path.exists(metadata_path):
-            meta_df = pd.read_csv(metadata_path)
-            for _, row in meta_df.iterrows():
-                img_id = row.get("image_id", None)
-                if img_id:
-                    # Try to get original dimensions
-                    orig_h = row.get("original_height", None)
-                    orig_w = row.get("original_width", None)
-                    if orig_h and orig_w:
-                        original_sizes[img_id] = (int(orig_h), int(orig_w))
 
         model.eval()
         with torch.no_grad():
@@ -373,21 +424,27 @@ def run_m2_test_with_visualization(
                     if image_id in original_sizes:
                         original_size = original_sizes[image_id]
                     else:
-                        # Fallback: try to load original image to get size
-                        test_row = test_df[test_df["image_id"] == image_id]
-                        if not test_row.empty:
-                            img_path = os.path.join(
-                                data_folder, test_row.iloc[0]["link"]
-                            )
-                            if os.path.exists(img_path):
-                                with Image.open(img_path) as img_orig:
-                                    original_size = (img_orig.height, img_orig.width)
+                        # Fallback: try to load from test_df_bbx or load image
+                        if test_df_bbx is not None:
+                            test_row = test_df_bbx[test_df_bbx["image_id"] == image_id]
+                            if not test_row.empty:
+                                img_path = os.path.join(
+                                    data_folder, test_row.iloc[0]["link"]
+                                )
+                                if os.path.exists(img_path):
+                                    with Image.open(img_path) as img_orig:
+                                        original_size = (
+                                            img_orig.height,
+                                            img_orig.width,
+                                        )
+                                else:
+                                    original_size = actual_input_size
                             else:
                                 original_size = actual_input_size
                         else:
                             original_size = actual_input_size
 
-                    # Save visualization
+                    # Save visualization with proper image_id
                     save_path = os.path.join(vis_dir, f"{image_id}.png")
                     visualize_m2_result(
                         images[i],
@@ -405,7 +462,7 @@ def run_m2_test_with_visualization(
 
         print(f"✅ Saved visualizations to: {vis_dir}")
 
-    return test_loss, test_acc, test_iou
+    return test_acc, test_iou
 
 
 if __name__ == "__main__":
