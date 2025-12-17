@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+from scipy.optimize import linear_sum_assignment
 from .m2_model import (
     ResNetFeatureWrapper,
     TimmFeatureWrapper,
@@ -182,10 +183,10 @@ class EfficientDeformableAttention(nn.Module):
 
 class EfficientDETRDecoder(nn.Module):
     """
-    Efficient DETR Decoder:
-    - Reduced layers (2 instead of 6)
-    - Auxiliary losses for faster convergence
-    - Iterative bbox refinement
+    Efficient DETR Decoder with Denoising Queries:
+    - Simple denoising queries from GT boxes
+    - IoU-weighted objectness loss
+    - Reduced layers for efficiency
     """
 
     def __init__(self, feature_dim, num_queries=5, num_heads=4, num_layers=2):
@@ -198,10 +199,15 @@ class EfficientDETRDecoder(nn.Module):
         self.query_embed = nn.Embedding(num_queries, feature_dim)
         self.ref_point_head = nn.Linear(feature_dim, 2)
 
+        # Box embedding for denoising queries
+        self.box_embed = nn.Sequential(
+            nn.Linear(4, feature_dim), nn.ReLU(), nn.Linear(feature_dim, feature_dim)
+        )
+
         # Positional encoding
         self.pos_encoder = PositionEmbeddingSine(feature_dim // 2)
 
-        # Decoder layers
+        # Decoder layers (reduced complexity)
         self.decoder_layers = nn.ModuleList(
             [
                 nn.ModuleDict(
@@ -227,7 +233,7 @@ class EfficientDETRDecoder(nn.Module):
             ]
         )
 
-        # Prediction heads (shared across layers for auxiliary losses)
+        # Prediction heads (shared for efficiency)
         self.bbox_head = nn.ModuleList(
             [
                 nn.Sequential(
@@ -244,29 +250,60 @@ class EfficientDETRDecoder(nn.Module):
             [nn.Linear(feature_dim, 1) for _ in range(num_layers)]
         )
 
-    def forward(self, feat_map):
+    def generate_noisy_boxes(self, gt_boxes, noise_scale=0.2):
+        """
+        Generate noisy boxes from GT for denoising queries
+        Args:
+            gt_boxes: [B, N_gt, 4] normalized boxes
+            noise_scale: noise level (default 0.2)
+        Returns:
+            noisy_boxes: [B, N_gt, 4]
+        """
+        noise = torch.randn_like(gt_boxes) * noise_scale
+        noisy_boxes = (gt_boxes + noise).clamp(0, 1)
+        return noisy_boxes
+
+    def forward(self, feat_map, gt_boxes=None):
         """
         Args:
             feat_map: [B, C, H, W]
+            gt_boxes: [B, N_gt, 4] during training, None during inference
         Returns:
-            outputs: dict with intermediate predictions for auxiliary losses
+            outputs: dict with predictions and denoising outputs
         """
         B, C, H, W = feat_map.shape
 
         # Add positional encoding
         pos_embed = self.pos_encoder(feat_map)
         feat_map_with_pos = feat_map + pos_embed
-
-        # Flatten: [B, H*W, C]
         feat_seq = feat_map_with_pos.flatten(2).permute(0, 2, 1)
 
-        # Initialize queries
+        # Initialize learnable queries
         queries = self.query_embed.weight.unsqueeze(0).repeat(B, 1, 1)  # [B, N_q, C]
-
-        # Initialize reference points from queries
         reference_points = self.ref_point_head(queries).sigmoid()  # [B, N_q, 2]
 
-        # Store intermediate outputs for auxiliary losses
+        # Generate denoising queries if training
+        dn_queries = None
+        dn_ref_points = None
+        num_dn = 0
+
+        if self.training and gt_boxes is not None:
+            # Generate noisy boxes
+            noisy_boxes = self.generate_noisy_boxes(gt_boxes)
+            num_dn = noisy_boxes.shape[1]
+
+            # Encode noisy boxes to queries
+            dn_queries = self.box_embed(noisy_boxes)  # [B, N_gt, C]
+
+            # Reference points from noisy box centers
+            dn_ref_x = (noisy_boxes[..., 0] + noisy_boxes[..., 2]) / 2
+            dn_ref_y = (noisy_boxes[..., 1] + noisy_boxes[..., 3]) / 2
+            dn_ref_points = torch.stack([dn_ref_x, dn_ref_y], dim=-1)  # [B, N_gt, 2]
+
+            # Concatenate denoising queries with learnable queries
+            queries = torch.cat([dn_queries, queries], dim=1)  # [B, N_dn+N_q, C]
+            reference_points = torch.cat([dn_ref_points, reference_points], dim=1)
+
         all_bbox_preds = []
         all_obj_scores = []
 
@@ -277,7 +314,7 @@ class EfficientDETRDecoder(nn.Module):
             queries2, _ = layer["self_attn"](queries_norm, queries_norm, queries_norm)
             queries = queries + queries2
 
-            # Cross-attention with deformable sampling
+            # Cross-attention
             queries_norm = layer["norm2"](queries)
             queries2 = layer["cross_attn"](
                 queries_norm, reference_points, feat_seq, (H, W)
@@ -293,9 +330,8 @@ class EfficientDETRDecoder(nn.Module):
             bbox_pred = self.bbox_head[layer_idx](queries)
             obj_score = self.obj_score_head[layer_idx](queries)
 
-            # Iterative refinement: update reference points
+            # Iterative refinement
             if layer_idx < self.num_layers - 1:
-                # Use predicted bbox center to update reference points
                 new_ref_x = (bbox_pred[..., 0] + bbox_pred[..., 2]) / 2
                 new_ref_y = (bbox_pred[..., 1] + bbox_pred[..., 3]) / 2
                 reference_points = torch.stack([new_ref_x, new_ref_y], dim=-1).detach()
@@ -303,21 +339,44 @@ class EfficientDETRDecoder(nn.Module):
             all_bbox_preds.append(bbox_pred)
             all_obj_scores.append(obj_score)
 
-        return {
-            "pred_bboxes": all_bbox_preds[-1],  # Final prediction
-            "obj_scores": all_obj_scores[-1],
-            "aux_outputs": [  # Auxiliary outputs for training
-                {"pred_bboxes": bbox, "obj_scores": score}
-                for bbox, score in zip(all_bbox_preds[:-1], all_obj_scores[:-1])
-            ],
-        }
+        # Split denoising and matching outputs
+        if num_dn > 0:
+            dn_bbox_preds = [pred[:, :num_dn] for pred in all_bbox_preds]
+            dn_obj_scores = [score[:, :num_dn] for score in all_obj_scores]
+
+            match_bbox_preds = [pred[:, num_dn:] for pred in all_bbox_preds]
+            match_obj_scores = [score[:, num_dn:] for score in all_obj_scores]
+
+            return {
+                "pred_bboxes": match_bbox_preds[-1],
+                "obj_scores": match_obj_scores[-1],
+                "aux_outputs": [
+                    {"pred_bboxes": bbox, "obj_scores": score}
+                    for bbox, score in zip(match_bbox_preds[:-1], match_obj_scores[:-1])
+                ],
+                "dn_outputs": [
+                    {"pred_bboxes": bbox, "obj_scores": score, "gt_boxes": gt_boxes}
+                    for bbox, score in zip(dn_bbox_preds, dn_obj_scores)
+                ],
+            }
+        else:
+            return {
+                "pred_bboxes": all_bbox_preds[-1],
+                "obj_scores": all_obj_scores[-1],
+                "aux_outputs": [
+                    {"pred_bboxes": bbox, "obj_scores": score}
+                    for bbox, score in zip(all_bbox_preds[:-1], all_obj_scores[:-1])
+                ],
+                "dn_outputs": [],
+            }
 
 
 class M2DETRModel(nn.Module):
     """
     Efficient Multi-task DETR for Mammography
     - Classification + Detection
-    - Optimized for few objects (max 3 lesions)
+    - Denoising queries for faster convergence
+    - IoU-weighted objectness loss
     """
 
     def __init__(self, backbone, feature_dim, num_classes=2, num_queries=5):
@@ -331,17 +390,22 @@ class M2DETRModel(nn.Module):
         # Spatial attention
         self.spatial_attention = SpatialAttention(feature_dim)
 
-        # Efficient DETR decoder
+        # Efficient DETR decoder with denoising
         self.detr_decoder = EfficientDETRDecoder(
             feature_dim,
             num_queries=num_queries,
             num_heads=4,
-            num_layers=2,  # Reduced from 3 to 2
+            num_layers=2,
         )
 
-    def forward(self, x):
+    def forward(self, x, gt_boxes=None):
+        """
+        Args:
+            x: input images
+            gt_boxes: [B, N_gt, 4] ground truth boxes (training only)
+        """
         # Backbone
-        feat_map = self.backbone(x)  # [B, C, H, W]
+        feat_map = self.backbone(x)
 
         # Ensure 4D
         if feat_map.dim() == 2:
@@ -355,39 +419,148 @@ class M2DETRModel(nn.Module):
 
         # Detection branch with attention
         attn_feat, attn_map = self.spatial_attention(feat_map)
-        detr_outputs = self.detr_decoder(attn_feat)
+        detr_outputs = self.detr_decoder(attn_feat, gt_boxes)
 
         return {
             "cls_logits": cls_output,
             "pred_bboxes": detr_outputs["pred_bboxes"],
             "obj_scores": detr_outputs["obj_scores"],
-            "aux_outputs": detr_outputs["aux_outputs"],  # For auxiliary losses
+            "aux_outputs": detr_outputs["aux_outputs"],
+            "dn_outputs": detr_outputs.get("dn_outputs", []),
             "attn_map": attn_map,
         }
 
 
-def get_m2_detr_model(model_type="resnet50", num_classes=2, num_queries=5):
-    """Get efficient M2 DETR model (num_queries=5 for mammography)"""
-    # Get backbone (reuse from m2_model.py)
-    if model_type in ["resnet34", "resnet50", "resnet101", "resnext50", "resnet152"]:
-        backbone, feature_dim = get_resnet_backbone(model_type)
-        backbone = ResNetFeatureWrapper(backbone)
-    elif model_type in [
-        "resnest50",
-        "convnextv2_tiny",
-        "efficientnetv2s",
-        "maxvit_tiny",
-        "swinv2_tiny",
-        "eva02_small",
-    ]:
-        backbone, feature_dim = get_timm_backbone(model_type)
-        if hasattr(backbone, "forward_features"):
-            backbone = TimmFeatureWrapper(backbone)
-    elif model_type in ["dinov2_small", "dinov2_base", "dinov3_vit16small"]:
-        backbone, feature_dim = get_dino_backbone(model_type)
-        backbone = DinoFeatureWrapper(backbone)
-    else:
-        raise ValueError(f"Unsupported model_type: {model_type}")
+def box_iou(boxes1, boxes2):
+    """
+    Calculate IoU between two sets of boxes
+    Args:
+        boxes1: [N, 4] in format [x1, y1, x2, y2]
+        boxes2: [M, 4] in format [x1, y1, x2, y2]
+    Returns:
+        iou: [N, M]
+    """
+    area1 = (boxes1[:, 2] - boxes1[:, 0]) * (boxes1[:, 3] - boxes1[:, 1])
+    area2 = (boxes2[:, 2] - boxes2[:, 0]) * (boxes2[:, 3] - boxes2[:, 1])
 
-    model = M2DETRModel(backbone, feature_dim, num_classes, num_queries)
-    return model
+    lt = torch.max(boxes1[:, None, :2], boxes2[:, :2])
+    rb = torch.min(boxes1[:, None, 2:], boxes2[:, 2:])
+
+    wh = (rb - lt).clamp(min=0)
+    inter = wh[:, :, 0] * wh[:, :, 1]
+
+    union = area1[:, None] + area2 - inter
+    iou = inter / (union + 1e-6)
+    return iou
+
+
+def hungarian_matching(pred_boxes, pred_scores, gt_boxes, cost_bbox=5.0, cost_giou=2.0):
+    """
+    Hungarian matching between predictions and ground truths
+    Args:
+        pred_boxes: [N_q, 4]
+        pred_scores: [N_q, 1]
+        gt_boxes: [N_gt, 4]
+    Returns:
+        indices: (pred_idx, gt_idx) matched pairs
+    """
+    N_q = pred_boxes.shape[0]
+    N_gt = gt_boxes.shape[0]
+
+    if N_gt == 0:
+        return [], []
+
+    # L1 cost
+    cost_bbox = torch.cdist(pred_boxes, gt_boxes, p=1)
+
+    # IoU cost (negative for maximization)
+    iou = box_iou(pred_boxes, gt_boxes)
+    cost_giou = -iou
+
+    # Total cost
+    C = cost_bbox * cost_bbox + cost_giou * cost_giou
+    C = C.cpu().detach().numpy()
+
+    # Hungarian algorithm
+    pred_idx, gt_idx = linear_sum_assignment(C)
+
+    return pred_idx.tolist(), gt_idx.tolist()
+
+
+def compute_iou_weighted_obj_loss(pred_boxes, pred_scores, gt_boxes, dn_outputs=None):
+    """
+    Compute IoU-weighted objectness loss
+    Args:
+        pred_boxes: [B, N_q, 4]
+        pred_scores: [B, N_q, 1]
+        gt_boxes: [B, N_gt, 4]
+        dn_outputs: list of denoising outputs
+    Returns:
+        loss: scalar
+    """
+    B = pred_boxes.shape[0]
+    total_loss = 0.0
+
+    for b in range(B):
+        pred_b = pred_boxes[b]  # [N_q, 4]
+        score_b = pred_scores[b]  # [N_q, 1]
+        gt_b = gt_boxes[b]  # [N_gt, 4]
+
+        # Remove padding (boxes with all zeros)
+        valid_gt = gt_b.sum(dim=-1) > 0
+        gt_b = gt_b[valid_gt]
+
+        if gt_b.shape[0] == 0:
+            # No GT, all negative
+            target = torch.zeros_like(score_b)
+            weight = torch.ones_like(score_b)
+            loss_b = F.binary_cross_entropy_with_logits(score_b, target, weight=weight)
+            total_loss += loss_b
+            continue
+
+        # Hungarian matching
+        pred_idx, gt_idx = hungarian_matching(pred_b, score_b, gt_b)
+
+        # Compute IoU for matched pairs
+        target = torch.zeros_like(score_b)
+        weight = torch.ones_like(score_b)
+
+        for p_idx, g_idx in zip(pred_idx, gt_idx):
+            iou = box_iou(pred_b[p_idx : p_idx + 1], gt_b[g_idx : g_idx + 1])[0, 0]
+            target[p_idx] = 1.0
+            weight[p_idx] = iou.clamp(min=0.01)  # Avoid zero weight
+
+        loss_b = F.binary_cross_entropy_with_logits(score_b, target, weight=weight)
+        total_loss += loss_b
+
+    # Add denoising loss
+    if dn_outputs is not None and len(dn_outputs) > 0:
+        for dn_output in dn_outputs:
+            dn_pred_boxes = dn_output["pred_bboxes"]  # [B, N_gt, 4]
+            dn_pred_scores = dn_output["obj_scores"]  # [B, N_gt, 1]
+            dn_gt_boxes = dn_output["gt_boxes"]  # [B, N_gt, 4]
+
+            for b in range(B):
+                dn_pred_b = dn_pred_boxes[b]
+                dn_score_b = dn_pred_scores[b]
+                dn_gt_b = dn_gt_boxes[b]
+
+                valid_gt = dn_gt_b.sum(dim=-1) > 0
+                dn_gt_b = dn_gt_b[valid_gt]
+                dn_pred_b = dn_pred_b[valid_gt]
+                dn_score_b = dn_score_b[valid_gt]
+
+                if dn_gt_b.shape[0] == 0:
+                    continue
+
+                # All denoising queries are positive
+                iou = box_iou(dn_pred_b, dn_gt_b).diagonal()
+                target = torch.ones_like(dn_score_b)
+                weight = iou.unsqueeze(1).clamp(min=0.01)
+
+                loss_dn = F.binary_cross_entropy_with_logits(
+                    dn_score_b, target, weight=weight
+                )
+                total_loss += loss_dn
+
+    return total_loss / B
