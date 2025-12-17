@@ -133,8 +133,8 @@ if __name__ == "__main__":
     parser.add_argument("--lambda_bbox", type=float, default=5.0)
     parser.add_argument("--lambda_giou", type=float, default=2.0)
     parser.add_argument("--lambda_obj", type=float, default=1.0)
-    parser.add_argument("--num_queries", type=int, default=3)  # CHANGED: từ 10 xuống 3
-    parser.add_argument("--max_objects", type=int, default=3)  # CHANGED: từ 10 xuống 3
+    parser.add_argument("--num_queries", type=int, default=5)  # CHANGED: từ 10 xuống 3
+    parser.add_argument("--max_objects", type=int, default=5)  # CHANGED: từ 10 xuống 3
     parser.add_argument("--pretrained_model_path", type=str, default=None)
     parser.add_argument("--target_column", type=str, default=None)
     parser.add_argument("--sample_viz", action="store_true")
