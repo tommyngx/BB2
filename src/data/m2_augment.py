@@ -214,10 +214,10 @@ def get_m2_train_augmentation(height, width, enable_rotate90=True):
     positive_transform = A.Compose(
         positive_aug_list,
         bbox_params=A.BboxParams(
-            format="pascal_voc",
+            format="coco",  # [x, y, width, height] - giữ nguyên format gốc
             label_fields=["labels"],
-            min_area=100.0,  # Giảm xuống 1 pixel
-            min_visibility=0.3,  # Giữ bbox nếu ít nhất 10% còn visible
+            min_area=100.0,  # Tối thiểu 100 pixel^2
+            min_visibility=0.3,  # Tối thiểu 30% visible
         ),
     )
 
@@ -247,7 +247,7 @@ def get_m2_test_augmentation(height, width):
     return A.Compose(
         aug_list,
         bbox_params=A.BboxParams(
-            format="pascal_voc",
+            format="coco",  # [x, y, width, height]
             label_fields=["labels"],
             min_area=0.0,
             min_visibility=0.0,  # Test mode: giữ tất cả bbox

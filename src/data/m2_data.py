@@ -67,12 +67,10 @@ class M2Dataset(Dataset):
                 if y + h > img_h:
                     h = img_h - y
 
-                # Final check: bbox must have positive area
-                if w > 0 and h > 0:
-                    # Convert to x1, y1, x2, y2 format (pascal_voc)
-                    x1, y1 = x, y
-                    x2, y2 = x + w, y + h
-                    bbox = [x1, y1, x2, y2]
+                # Final check: bbox must have positive area (min 100 pixels)
+                if w > 0 and h > 0 and (w * h) >= 100:
+                    # Keep COCO format [x, y, width, height]
+                    bbox = [x, y, w, h]
                     has_bbox = True
                 else:
                     bbox = [0.0, 0.0, 0.0, 0.0]
@@ -94,42 +92,31 @@ class M2Dataset(Dataset):
                 )
                 image = transformed["image"]
 
-                # Get the TRANSFORMED bbox from Albumentations
+                # Get the TRANSFORMED bbox from Albumentations (still in COCO format)
                 if len(transformed["bboxes"]) > 0:
-                    # Albumentations returns transformed bbox coordinates
+                    # Albumentations returns transformed bbox in COCO format [x, y, w, h]
                     transformed_bbox = list(transformed["bboxes"][0])
+                    x, y, w, h = transformed_bbox
 
                     # Validate transformed bbox
-                    # After resize to img_size, bbox should be in pixel coordinates
-                    # relative to the resized image
                     if self.img_size is not None:
                         h_img, w_img = self.img_size
 
-                        # Check format: x2 > x1 and y2 > y1
-                        if (
-                            transformed_bbox[2] > transformed_bbox[0]
-                            and transformed_bbox[3] > transformed_bbox[1]
-                        ):
-                            # Clip to image bounds (just to be safe)
-                            transformed_bbox[0] = max(
-                                0.0, min(float(w_img), transformed_bbox[0])
-                            )
-                            transformed_bbox[1] = max(
-                                0.0, min(float(h_img), transformed_bbox[1])
-                            )
-                            transformed_bbox[2] = max(
-                                0.0, min(float(w_img), transformed_bbox[2])
-                            )
-                            transformed_bbox[3] = max(
-                                0.0, min(float(h_img), transformed_bbox[3])
-                            )
+                        # Check bbox is valid
+                        if w > 0 and h > 0:
+                            # Clip to image bounds
+                            x = max(0.0, min(float(w_img - w), x))
+                            y = max(0.0, min(float(h_img - h), y))
 
-                            # Recheck after clipping
-                            if (
-                                transformed_bbox[2] > transformed_bbox[0]
-                                and transformed_bbox[3] > transformed_bbox[1]
-                            ):
-                                bbox = transformed_bbox
+                            # Ensure bbox doesn't exceed bounds
+                            if x + w > w_img:
+                                w = w_img - x
+                            if y + h > h_img:
+                                h = h_img - y
+
+                            # Recheck validity
+                            if w > 0 and h > 0 and (w * h) >= 100:
+                                bbox = [x, y, w, h]
                             else:
                                 bbox = [0.0, 0.0, 0.0, 0.0]
                                 has_bbox = False
@@ -137,11 +124,8 @@ class M2Dataset(Dataset):
                             bbox = [0.0, 0.0, 0.0, 0.0]
                             has_bbox = False
                     else:
-                        # No img_size specified, just validate format
-                        if (
-                            transformed_bbox[2] > transformed_bbox[0]
-                            and transformed_bbox[3] > transformed_bbox[1]
-                        ):
+                        # No img_size specified, just validate
+                        if w > 0 and h > 0 and (w * h) >= 100:
                             bbox = transformed_bbox
                         else:
                             bbox = [0.0, 0.0, 0.0, 0.0]
@@ -171,41 +155,38 @@ class M2Dataset(Dataset):
                 transformed = simple_transform(image=image)
                 image = transformed["image"]
 
-        # Normalize bbox to [0, 1] range based on TRANSFORMED image size
+        # Normalize bbox to [0, 1] range - COCO format [x, y, w, h]
         if has_bbox and bbox != [0.0, 0.0, 0.0, 0.0]:
-            # Image after ToTensorV2 is [C, H, W]
-            # bbox is in pixel coordinates relative to transformed image
+            # bbox is in COCO format [x, y, width, height] in pixel coordinates
             if self.img_size is not None:
                 h_img, w_img = self.img_size
             else:
                 # Fallback: get from tensor shape
                 h_img, w_img = image.shape[1], image.shape[2]
 
+            x, y, w, h = bbox
             # Normalize to [0, 1]
             bbox_normalized = [
-                bbox[0] / w_img,  # x1
-                bbox[1] / h_img,  # y1
-                bbox[2] / w_img,  # x2
-                bbox[3] / h_img,  # y2
+                x / w_img,  # x
+                y / h_img,  # y
+                w / w_img,  # width
+                h / h_img,  # height
             ]
 
             # Clip to [0, 1] range
             bbox_normalized = [max(0.0, min(1.0, coord)) for coord in bbox_normalized]
 
             # Final validation
-            if (
-                bbox_normalized[2] <= bbox_normalized[0]
-                or bbox_normalized[3] <= bbox_normalized[1]
-            ):
+            if bbox_normalized[2] <= 0 or bbox_normalized[3] <= 0:
                 bbox = [0.0, 0.0, 0.0, 0.0]
                 has_bbox = False
             else:
-                # Check minimum size (1% of image)
+                # Check minimum size (1% of image for both w and h)
                 min_bbox_size = 0.01
-                bbox_width = bbox_normalized[2] - bbox_normalized[0]
-                bbox_height = bbox_normalized[3] - bbox_normalized[1]
-
-                if bbox_width < min_bbox_size or bbox_height < min_bbox_size:
+                if (
+                    bbox_normalized[2] < min_bbox_size
+                    or bbox_normalized[3] < min_bbox_size
+                ):
                     bbox = [0.0, 0.0, 0.0, 0.0]
                     has_bbox = False
                 else:
@@ -214,7 +195,7 @@ class M2Dataset(Dataset):
         return {
             "image": image,
             "label": label,
-            "bbox": np.array(bbox, dtype=np.float32),
+            "bbox": np.array(bbox, dtype=np.float32),  # [x, y, w, h] normalized
             "has_bbox": int(has_bbox),
         }
 
