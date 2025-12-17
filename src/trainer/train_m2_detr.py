@@ -43,8 +43,8 @@ def run_m2_detr_train(
     lambda_bbox=5.0,
     lambda_giou=2.0,
     lambda_obj=1.0,
-    num_queries=5,  # CHANGED: từ 10 xuống 5
-    max_objects=5,  # CHANGED: từ 10 xuống 5
+    num_queries=3,  # CHANGED: từ 10 xuống 3
+    max_objects=3,  # CHANGED: từ 10 xuống 3
     pretrained_model_path=None,
     target_column=None,
     sample_viz=False,
@@ -149,8 +149,8 @@ if __name__ == "__main__":
     parser.add_argument("--lambda_bbox", type=float, default=5.0)
     parser.add_argument("--lambda_giou", type=float, default=2.0)
     parser.add_argument("--lambda_obj", type=float, default=1.0)
-    parser.add_argument("--num_queries", type=int, default=5)  # CHANGED: từ 10 xuống 3
-    parser.add_argument("--max_objects", type=int, default=5)  # CHANGED: từ 10 xuống 3
+    parser.add_argument("--num_queries", type=int, default=3)  # CHANGED: từ 10 xuống 3
+    parser.add_argument("--max_objects", type=int, default=3)  # CHANGED: từ 10 xuống 3
     parser.add_argument("--pretrained_model_path", type=str, default=None)
     parser.add_argument("--target_column", type=str, default=None)
     parser.add_argument("--sample_viz", action="store_true")
@@ -172,7 +172,7 @@ if __name__ == "__main__":
         if args.loss_type is not None
         else config.get("loss_type", "focal")
     )
-    print(f"Using loss type: {loss_type}")
+
     if img_size and isinstance(img_size, str):
         img_size = parse_img_size(img_size)
 
