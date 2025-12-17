@@ -326,13 +326,21 @@ def train_m2_detr_model(
 
     if loss_type == "focal":
         cls_criterion = FocalLoss(alpha=weights)
+        print("Using Focal Loss")
     elif loss_type == "ldam":
         cls_criterion = LDAMLoss(
             cls_num_list=train_df["cancer"].value_counts().sort_index().tolist(),
             weight=weights,
         ).to(device)
+        print("Using LDAM Loss")
+    elif loss_type == "focal2":
+        cls_criterion = FocalLoss2(alpha=weights)
+        print("Using Focal Loss v2")
     else:
         cls_criterion = nn.CrossEntropyLoss(weight=weights)
+        print(
+            "Using CrossEntropyLoss" + (" (with weight)" if weights is not None else "")
+        )
 
     # DETR criterion
     criterion = DETRCriterion(
@@ -356,6 +364,7 @@ def train_m2_detr_model(
     ]
     optimizer = optim.AdamW(param_dicts, weight_decay=1e-4)
     scaler = GradScaler() if device != "cpu" else None
+    print(f"Using AMP: {scaler is not None}")
 
     # LR schedulers
     warmup_epochs = 5
@@ -365,7 +374,10 @@ def train_m2_detr_model(
             return (epoch + 1) / warmup_epochs
         return 0.95 ** (epoch - warmup_epochs)
 
-    scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
+    warmup_scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
+    plateau_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.5, patience=20, min_lr=1e-5
+    )
 
     # Setup directories
     model_dir = os.path.join(output, "models")
@@ -385,10 +397,31 @@ def train_m2_detr_model(
     model_key = f"{dataset}_{img_size[0]}x{img_size[1]}_detr_{model_name}"
     print(f"Model key: {model_key}")
 
+    # Check for existing weights
+    print(f"Checking for existing weights in {model_dir} with model_key: {model_key}")
+    existing_weights = []
+    for fname in os.listdir(model_dir):
+        if fname.startswith(model_key) and fname.endswith(".pth"):
+            try:
+                acc_part = fname.replace(".pth", "").split("_")[-1]
+                acc_val = float(acc_part) / 10000
+                existing_weights.append((fname, acc_val))
+            except Exception:
+                print(f"Skipping invalid model file: {fname}")
+    if existing_weights:
+        print("Found existing weights:")
+        for fname, acc_val in existing_weights:
+            print(f"  - {fname} (accuracy: {acc_val:.4f})")
+    else:
+        print("No existing weights found.")
+
     # Training history
     train_losses, train_accs, test_losses, test_accs = [], [], [], []
+    train_ious, test_ious = [], []
     best_acc = 0.0
     patience_counter = 0
+    last_lr = lr
+    skip_save_epochs = 10  # Skip saving for first 10 epochs
 
     log_file = os.path.join(log_dir, f"{model_key}.csv")
     if not os.path.exists(log_file):
@@ -400,8 +433,11 @@ def train_m2_detr_model(
                     "epoch",
                     "train_loss",
                     "train_acc",
+                    "train_iou",
                     "test_loss",
                     "test_acc",
+                    "test_iou",
+                    "test_map",
                     "lr",
                     "patience",
                     "best_acc",
@@ -413,6 +449,8 @@ def train_m2_detr_model(
         model.train()
         running_loss = 0.0
         correct, total = 0, 0
+        epoch_iou = 0.0
+        num_bbox_samples = 0
 
         loop = tqdm(train_loader, desc=f"Epoch [{epoch + 1}/{num_epochs}]", leave=False)
 
@@ -421,31 +459,6 @@ def train_m2_detr_model(
             labels = batch["label"].to(device)
             bboxes = batch["bboxes"].to(device)  # [B, M, 4]
             bbox_mask = batch["bbox_mask"].to(device)  # [B, M]
-
-            # Debug: validate batch data
-            if epoch == 0 and loop.n == 0:  # First batch of first epoch
-                print(f"\n🔍 Debug first batch:")
-                print(f"  Images shape: {images.shape}")
-                print(f"  Labels: {labels.tolist()}")
-                print(f"  BBoxes shape: {bboxes.shape}")
-                print(f"  BBox mask shape: {bbox_mask.shape}")
-                print(f"  Num valid bboxes per sample: {bbox_mask.sum(dim=1).tolist()}")
-
-                # Check bbox validity
-                for i in range(min(3, images.shape[0])):
-                    valid_mask = bbox_mask[i] > 0.5
-                    if valid_mask.sum() > 0:
-                        valid_bboxes = bboxes[i][valid_mask]
-                        print(f"  Sample {i}: {valid_mask.sum().item()} bbox(es)")
-                        print(
-                            f"    BBox values (COCO [x,y,w,h]): {valid_bboxes.tolist()}"
-                        )
-                        print(
-                            f"    BBox range: x=[{valid_bboxes[:, 0].min():.3f}, {valid_bboxes[:, 0].max():.3f}], "
-                            f"y=[{valid_bboxes[:, 1].min():.3f}, {valid_bboxes[:, 1].max():.3f}], "
-                            f"w=[{valid_bboxes[:, 2].min():.3f}, {valid_bboxes[:, 2].max():.3f}], "
-                            f"h=[{valid_bboxes[:, 3].min():.3f}, {valid_bboxes[:, 3].max():.3f}]"
-                        )
 
             optimizer.zero_grad()
 
@@ -478,22 +491,50 @@ def train_m2_detr_model(
             correct += (predicted == labels).sum().item()
             total += labels.size(0)
 
+            # Compute IoU for training
+            if bbox_mask.sum() > 0:
+                with torch.no_grad():
+                    pred_bboxes = outputs["pred_bboxes"]
+                    for i in range(images.size(0)):
+                        valid_mask = bbox_mask[i] > 0.5
+                        if valid_mask.sum() > 0:
+                            # Use first valid bbox for simplicity
+                            pred = pred_bboxes[i, 0:1]  # [1, 4]
+                            tgt = bboxes[i][valid_mask][:1]  # [1, 4]
+                            iou = compute_iou(pred, tgt)
+                            epoch_iou += iou.item()
+                            num_bbox_samples += 1
+
             loop.set_postfix(loss=loss.item())
 
         epoch_loss = running_loss / total
         epoch_acc = correct / total
+        avg_train_iou = epoch_iou / max(num_bbox_samples, 1)
         train_losses.append(epoch_loss)
         train_accs.append(epoch_acc)
+        train_ious.append(avg_train_iou)
 
-        # ✅ ENHANCED VALIDATION WITH DETAILED METRICS (like train_m2.py)
+        print(
+            f"\nEpoch [{epoch + 1}/{num_epochs}] Train Loss: {epoch_loss:.4f} Train Acc: {epoch_acc:.4f} "
+            f"IoU: {avg_train_iou:.4f} Learning Rate: {optimizer.param_groups[0]['lr']:.6f}"
+        )
+
+        # ✅ ENHANCED VALIDATION WITH IoU AND mAP
         model.eval()
         val_loss = 0.0
         val_correct, val_total = 0, 0
+        val_iou = 0.0
+        num_val_bbox = 0
 
         # For detailed metrics
         all_preds = []
         all_labels = []
         all_probs = []
+
+        # For mAP computation
+        all_pred_boxes = []
+        all_pred_scores = []
+        all_gt_boxes = []
 
         with torch.no_grad():
             for batch in test_loader:
@@ -520,12 +561,48 @@ def train_m2_detr_model(
                 all_labels.extend(labels.cpu().numpy())
                 all_probs.extend(probs.cpu().numpy())
 
+                # Compute IoU and collect boxes for mAP
+                pred_bboxes = outputs["pred_bboxes"]
+                pred_obj = torch.sigmoid(outputs["obj_scores"])  # [B, N, 1]
+
+                for i in range(images.size(0)):
+                    valid_mask = bbox_mask[i] > 0.5
+                    if valid_mask.sum() > 0:
+                        # Get top prediction by objectness score
+                        top_idx = pred_obj[i].squeeze(-1).argmax()
+                        pred_box = pred_bboxes[i, top_idx : top_idx + 1]  # [1, 4]
+                        pred_score = pred_obj[i, top_idx].item()
+
+                        gt_boxes = bboxes[i][valid_mask]  # [K, 4]
+
+                        # Compute IoU
+                        iou = compute_iou(pred_box, gt_boxes[:1])  # Use first GT
+                        val_iou += iou.item()
+                        num_val_bbox += 1
+
+                        # Store for mAP
+                        all_pred_boxes.append(pred_box.cpu())
+                        all_pred_scores.append(pred_score)
+                        all_gt_boxes.append(gt_boxes.cpu())
+
         val_loss = val_loss / val_total
         val_acc = val_correct / val_total
+        avg_val_iou = val_iou / max(num_val_bbox, 1)
         test_losses.append(val_loss)
         test_accs.append(val_acc)
+        test_ious.append(avg_val_iou)
 
-        # ✅ COMPUTE DETAILED METRICS (like train_m2.py)
+        # Compute mAP@0.5
+        val_map = 0.0
+        if len(all_pred_boxes) > 0:
+            num_correct = 0
+            for pred_box, gt_box in zip(all_pred_boxes, all_gt_boxes):
+                iou = compute_iou(pred_box, gt_box[:1])
+                if iou.item() >= 0.5:
+                    num_correct += 1
+            val_map = num_correct / len(all_pred_boxes)
+
+        # ✅ COMPUTE DETAILED METRICS
         from sklearn.metrics import (
             classification_report,
             roc_auc_score,
@@ -562,16 +639,14 @@ def train_m2_detr_model(
         else:
             sensitivity = 0.0
 
-        # ✅ PRINT LIKE train_m2.py
-        print(
-            f"\nEpoch [{epoch + 1}/{num_epochs}] "
-            f"Train Loss: {epoch_loss:.4f} Train Acc: {epoch_acc:.4f} "
-            f"Learning Rate: {optimizer.param_groups[0]['lr']:.6f}"
-        )
+        # ✅ PRINT METRICS
         print(
             f"Test Accuracy : {val_acc * 100:.2f}% | Loss: {val_loss:.4f} | AUC: {auc:.2f}%"
         )
         print(f"Test Precision: {precision * 100:.2f}% | Sens: {sensitivity:.2f}%")
+        print(
+            f"Test IoU      : {avg_val_iou * 100:.2f}% | mAP@0.5: {val_map * 100:.2f}%"
+        )
 
         # Print classification report
         print(classification_report(all_labels, all_preds, zero_division=0))
@@ -585,8 +660,11 @@ def train_m2_detr_model(
                     epoch + 1,
                     round(epoch_loss, 6),
                     round(epoch_acc, 6),
+                    round(avg_train_iou, 6),
                     round(val_loss, 6),
                     round(val_acc, 6),
+                    round(avg_val_iou, 6),
+                    round(val_map, 6),
                     optimizer.param_groups[0]["lr"],
                     patience_counter,
                     round(best_acc, 6),
@@ -594,32 +672,121 @@ def train_m2_detr_model(
             )
 
         # LR scheduling
-        scheduler.step()
-
-        # Early stopping and model saving
-        if val_acc > best_acc:
-            best_acc = val_acc
-            patience_counter = 0
-
-            # Save best model
-            acc4 = int(round(val_acc * 10000))
-            weight_name = f"{model_key}_{acc4}.pth"
-            weight_path = os.path.join(model_dir, weight_name)
-
-            if isinstance(model, nn.DataParallel):
-                torch.save(model.module.state_dict(), weight_path)
-            else:
-                torch.save(model.state_dict(), weight_path)
-            print(f"✅ Saved best model: {weight_name}")
+        if epoch < warmup_epochs:
+            warmup_scheduler.step()
         else:
-            patience_counter += 1
-            if patience_counter >= patience:
-                print(f"Early stopping at epoch {epoch + 1}")
-                break
+            plateau_scheduler.step(val_loss)
+
+        current_lr = optimizer.param_groups[0]["lr"]
+        if current_lr < last_lr:
+            print(
+                f"Learning rate reduced to {current_lr:.6f}, resetting patience counter"
+            )
+            patience_counter = 0
+            last_lr = current_lr
+        else:
+            if val_acc > best_acc:
+                best_acc = val_acc
+                patience_counter = 0
+            else:
+                patience_counter += 1
+                if patience_counter >= patience:
+                    print(f"Early stopping at epoch {epoch + 1}")
+                    with open(log_file, "a", newline="") as f:
+                        writer = csv.writer(f)
+                        writer.writerow(
+                            [
+                                datetime.now().isoformat(),
+                                f"early_stop_epoch_{epoch + 1}",
+                                "",
+                                "",
+                                "",
+                                "",
+                                "",
+                                "",
+                                "",
+                                "",
+                                "",
+                                "",
+                            ]
+                        )
+                    break
+
+        # ✅ TOP-2 MODEL SAVING (SKIP FIRST 10 EPOCHS)
+        if epoch < skip_save_epochs:
+            print(
+                f"⏸️ Skipping model save (warmup period, epoch {epoch + 1}/{skip_save_epochs})"
+            )
+            plot_path = os.path.join(plot_dir, f"{model_key}.png")
+            plot_metrics(train_losses, train_accs, test_losses, test_accs, plot_path)
+            continue
+
+        acc4 = int(round(val_acc * 10000))
+        weight_name = f"{model_key}_{acc4}.pth"
+        weight_path = os.path.join(model_dir, weight_name)
+
+        # Get all related weights
+        related_weights = []
+        for fname in os.listdir(model_dir):
+            if fname.startswith(model_key) and fname.endswith(".pth"):
+                try:
+                    acc_part = fname.replace(".pth", "").split("_")[-1]
+                    acc_val = float(acc_part) / 10000
+                    related_weights.append((acc_val, os.path.join(model_dir, fname)))
+                except Exception:
+                    print(f"Skipping invalid model file: {fname}")
+                    continue
+
+        related_weights = sorted(related_weights, key=lambda x: x[0], reverse=True)
+        top2_accs = set(acc for acc, _ in related_weights[:2])
+
+        if val_acc in top2_accs:
+            print(
+                f"⏩ Skipped saving {weight_name} (accuracy {val_acc:.6f} already in top 2)"
+            )
+        else:
+            related_weights.append((val_acc, weight_path))
+            related_weights = sorted(related_weights, key=lambda x: x[0], reverse=True)
+            top2_paths = set(path for _, path in related_weights[:2])
+
+            if weight_path in top2_paths:
+                if isinstance(model, nn.DataParallel):
+                    torch.save(model.module.state_dict(), weight_path)
+                else:
+                    torch.save(model.state_dict(), weight_path)
+                print(f"✅ Saved new model: {weight_name} (acc = {val_acc:.6f})")
+
+            for _, fname_path in related_weights:
+                if fname_path not in top2_paths and os.path.exists(fname_path):
+                    try:
+                        os.remove(fname_path)
+                        print(f"🗑️ Deleted model: {os.path.basename(fname_path)}")
+                    except Exception as e:
+                        print(f"⚠️ Could not delete {fname_path}: {e}")
 
         # Plot metrics
         plot_path = os.path.join(plot_dir, f"{model_key}.png")
         plot_metrics(train_losses, train_accs, test_losses, test_accs, plot_path)
 
+    with open(log_file, "a", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(
+            [
+                datetime.now().isoformat(),
+                "finished",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            ]
+        )
+
     print(f"\nTraining finished. Best accuracy: {best_acc:.4f}")
+    print(f"Training log saved to {log_file}")
     return model
