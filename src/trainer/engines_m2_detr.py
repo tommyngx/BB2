@@ -163,6 +163,7 @@ class DETRCriterion(nn.Module):
     ):
         """Compute bbox, GIoU, and objectness losses given matched indices"""
         B, N = pred_bboxes.shape[:2]
+        M = target_bboxes.shape[1]
         device = pred_bboxes.device
 
         bbox_loss = torch.tensor(0.0, device=device)
@@ -171,30 +172,93 @@ class DETRCriterion(nn.Module):
         num_boxes = 0
 
         for i, (pred_idx, tgt_idx) in enumerate(indices):
+            # Objectness loss for all queries
+            obj_target = torch.zeros(N, 1, device=device)
+
             if len(pred_idx) == 0:
-                # No valid targets, only objectness loss
-                obj_target = torch.zeros(N, 1, device=device)
+                # No valid targets, all queries should predict 0
                 obj_loss += nn.functional.binary_cross_entropy_with_logits(
                     pred_obj[i], obj_target, reduction="sum"
                 )
                 continue
 
-            # Get matched predictions and targets
-            matched_pred = pred_bboxes[i, pred_idx]
-
-            # Get valid targets
+            # Get valid targets for this sample
             valid_mask = target_mask[i] > 0.5
+            num_valid = valid_mask.sum().item()
+
+            if num_valid == 0:
+                # No valid targets
+                obj_loss += nn.functional.binary_cross_entropy_with_logits(
+                    pred_obj[i], obj_target, reduction="sum"
+                )
+                continue
+
+            # Extract valid targets: [num_valid, 4]
             valid_targets = target_bboxes[i][valid_mask]
-            matched_tgt = valid_targets[tgt_idx]
+
+            # Validate tgt_idx to avoid index out of bounds
+            valid_tgt_idx = [idx for idx in tgt_idx if idx < num_valid]
+
+            if len(valid_tgt_idx) != len(tgt_idx):
+                print(
+                    f"⚠️ Warning: Some target indices out of bounds. "
+                    f"tgt_idx max: {max(tgt_idx) if tgt_idx else -1}, "
+                    f"num_valid: {num_valid}"
+                )
+                # Adjust pred_idx accordingly
+                valid_pairs = [
+                    (p, t) for p, t in zip(pred_idx, tgt_idx) if t < num_valid
+                ]
+                if len(valid_pairs) == 0:
+                    obj_loss += nn.functional.binary_cross_entropy_with_logits(
+                        pred_obj[i], obj_target, reduction="sum"
+                    )
+                    continue
+                pred_idx = [p for p, _ in valid_pairs]
+                tgt_idx = [t for _, t in valid_pairs]
+
+            # Get matched predictions and targets
+            matched_pred = pred_bboxes[i, pred_idx]  # [num_matched, 4]
+            matched_tgt = valid_targets[tgt_idx]  # [num_matched, 4]
+
+            # Additional validation: ensure bbox format is valid
+            # COCO format: [x, y, w, h], all should be in [0, 1]
+            invalid_pred = (matched_pred < 0).any() | (matched_pred > 1).any()
+            invalid_tgt = (
+                (matched_tgt < 0).any()
+                | (matched_tgt > 1).any()
+                | (matched_tgt[:, 2] <= 0).any()
+                | (matched_tgt[:, 3] <= 0).any()
+            )
+
+            if invalid_pred or invalid_tgt:
+                print(f"⚠️ Warning: Invalid bbox detected. Skipping this sample.")
+                print(
+                    f"  Pred range: [{matched_pred.min().item():.3f}, {matched_pred.max().item():.3f}]"
+                )
+                print(
+                    f"  Target range: [{matched_tgt.min().item():.3f}, {matched_tgt.max().item():.3f}]"
+                )
+                print(
+                    f"  Target w,h: min_w={matched_tgt[:, 2].min().item():.3f}, min_h={matched_tgt[:, 3].min().item():.3f}"
+                )
+                obj_loss += nn.functional.binary_cross_entropy_with_logits(
+                    pred_obj[i], obj_target, reduction="sum"
+                )
+                continue
 
             # L1 loss
             bbox_loss += self.bbox_l1_loss(matched_pred, matched_tgt).sum()
 
             # GIoU loss
-            giou_loss += self.giou_loss(matched_pred, matched_tgt)
+            try:
+                giou_loss += self.giou_loss(matched_pred, matched_tgt)
+            except Exception as e:
+                print(f"⚠️ Warning: GIoU computation failed: {e}")
+                # Fallback: use L1 loss only
+                pass
 
             # Objectness loss: matched queries = 1, others = 0
-            obj_target = torch.zeros(N, 1, device=device)
             obj_target[pred_idx] = 1.0
             obj_loss += nn.functional.binary_cross_entropy_with_logits(
                 pred_obj[i], obj_target, reduction="sum"
@@ -349,6 +413,31 @@ def train_m2_detr_model(
             labels = batch["label"].to(device)
             bboxes = batch["bboxes"].to(device)  # [B, M, 4]
             bbox_mask = batch["bbox_mask"].to(device)  # [B, M]
+
+            # Debug: validate batch data
+            if epoch == 0 and loop.n == 0:  # First batch of first epoch
+                print(f"\n🔍 Debug first batch:")
+                print(f"  Images shape: {images.shape}")
+                print(f"  Labels: {labels.tolist()}")
+                print(f"  BBoxes shape: {bboxes.shape}")
+                print(f"  BBox mask shape: {bbox_mask.shape}")
+                print(f"  Num valid bboxes per sample: {bbox_mask.sum(dim=1).tolist()}")
+
+                # Check bbox validity
+                for i in range(min(3, images.shape[0])):
+                    valid_mask = bbox_mask[i] > 0.5
+                    if valid_mask.sum() > 0:
+                        valid_bboxes = bboxes[i][valid_mask]
+                        print(f"  Sample {i}: {valid_mask.sum().item()} bbox(es)")
+                        print(
+                            f"    BBox values (COCO [x,y,w,h]): {valid_bboxes.tolist()}"
+                        )
+                        print(
+                            f"    BBox range: x=[{valid_bboxes[:, 0].min():.3f}, {valid_bboxes[:, 0].max():.3f}], "
+                            f"y=[{valid_bboxes[:, 1].min():.3f}, {valid_bboxes[:, 1].max():.3f}], "
+                            f"w=[{valid_bboxes[:, 2].min():.3f}, {valid_bboxes[:, 2].max():.3f}], "
+                            f"h=[{valid_bboxes[:, 3].min():.3f}, {valid_bboxes[:, 3].max():.3f}]"
+                        )
 
             optimizer.zero_grad()
 
