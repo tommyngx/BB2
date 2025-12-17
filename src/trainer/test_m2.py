@@ -232,6 +232,7 @@ def run_m2_test_with_visualization(
     lambda_bbox=1.0,
     save_visualizations=True,
     only_viz=False,  # New parameter
+    sample_viz=False,  # New parameter
 ):
     """Test M2Model with visualization of results"""
     # Load config
@@ -299,6 +300,16 @@ def run_m2_test_with_visualization(
     # Extract model name from pretrained path
     model_filename = os.path.basename(pretrained_model_path).replace(".pth", "")
 
+    # Sample visualization for test data
+    if sample_viz:
+        from src.trainer.train_m2 import sample_viz_batches
+
+        viz_dir = os.path.join(output, "test_sample", model_filename)
+        print(
+            f"\n🔍 Visualizing {min(5, len(test_loader))} random test batches to {viz_dir} ..."
+        )
+        sample_viz_batches(test_loader, viz_dir, class_names, num_batches=5)
+
     # Skip Task 1 and Task 2 if only_viz is True
     if not only_viz:
         # Task 1: Evaluate on test set with tqdm
@@ -344,7 +355,7 @@ def run_m2_test_with_visualization(
         test_iou = total_iou / max(num_bbox_samples, 1)
         print(f"Test Accuracy: {test_acc * 100:.2f}% | IoU: {test_iou:.4f}")
 
-        # Task 2: Save full model
+        # Task 2: Save full model (complete model, not just state_dict)
         print("\n" + "=" * 50)
         print("Task 2: Save Full Model")
         print("=" * 50)
@@ -374,26 +385,14 @@ def run_m2_test_with_visualization(
             end = time.time()
             inference_time = end - start
 
-        # Save model info
-        model_info = {
-            "state_dict": model_to_save.state_dict(),
-            "input_size": actual_input_size,
-            "gradcam_layer": gradcam_layer,
-            "model_name": model_type,
-            "normalize": normalize_params,
-            "inference_time": inference_time,
-            "num_patches": None,
-            "arch_type": "m2",
-            "class_names": class_names,
-        }
-
+        # Save COMPLETE model (not just state_dict)
         full_model_dir = os.path.join(output, "models")
         os.makedirs(full_model_dir, exist_ok=True)
         full_model_path = os.path.join(full_model_dir, f"{model_filename}_full.pth")
 
         try:
-            torch.save(model_info, full_model_path)
-            print(f"✅ Saved full model info (state_dict + meta) to: {full_model_path}")
+            torch.save(model_to_save, full_model_path)
+            print(f"✅ Saved full model (torch.save(model)) to: {full_model_path}")
             print(f"   Model name: {model_type}")
             print(f"   Input size: {actual_input_size}")
             print(f"   GradCAM layer: {gradcam_layer}")
@@ -527,6 +526,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Only run visualization, skip evaluation and model saving",
     )
+    parser.add_argument(
+        "--sample_viz",
+        action="store_true",
+        help="Visualize test batches before running inference",
+    )
 
     args = parser.parse_args()
     config = load_config(args.config)
@@ -557,4 +561,5 @@ if __name__ == "__main__":
         lambda_bbox=lambda_bbox,
         save_visualizations=not args.no_viz,
         only_viz=args.only_viz,
+        sample_viz=args.sample_viz,
     )

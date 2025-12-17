@@ -76,54 +76,92 @@ def sample_viz_batches(
     seed=42,
 ):
     """
-    Visualize a few batches of input images and their GT bbox for sanity check.
+    Visualize a few batches as grid images with GT bbox.
+    Each batch is saved as one grid image (max 16 samples per batch).
     """
+    import math
+
     os.makedirs(output_dir, exist_ok=True)
     random.seed(seed)
+
+    total_batches = len(data_loader)
     batch_indices = set(
-        random.sample(range(len(data_loader)), min(num_batches, len(data_loader)))
+        random.sample(range(total_batches), min(num_batches, total_batches))
     )
+
     for batch_idx, batch in enumerate(data_loader):
         if batch_idx not in batch_indices:
             continue
+
         images = batch["image"]
         labels = batch["label"]
         bboxes = batch["bbox"]
         has_bbox = batch["has_bbox"]
-        image_ids = batch.get(
-            "image_id", [f"img_{batch_idx}_{i}" for i in range(len(images))]
-        )
-        bs = images.shape[0]
-        for i in range(bs):
+
+        batch_size = images.shape[0]
+        num_samples = min(batch_size, 16)  # Max 16 samples per grid
+
+        # Calculate grid size
+        ncols = min(4, num_samples)
+        nrows = math.ceil(num_samples / ncols)
+
+        fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 4, nrows * 4))
+        if nrows == 1 and ncols == 1:
+            axes = [[axes]]
+        elif nrows == 1:
+            axes = [axes]
+        elif ncols == 1:
+            axes = [[ax] for ax in axes]
+
+        for i in range(num_samples):
+            row = i // ncols
+            col = i % ncols
+            ax = axes[row][col]
+
+            # Denormalize image
             img = images[i].cpu()
-            # Denormalize for visualization
             img_np = (img.permute(1, 2, 0).numpy() * 0.5 + 0.5).clip(0, 1)
-            fig, ax = plt.subplots(figsize=(5, 5))
+
             ax.imshow(img_np)
+
             label = labels[i].item()
-            title = f"Batch {batch_idx} | {image_ids[i]} | Label: {class_names[label]}"
+            title = f"{class_names[label]}"
+
+            # Draw bbox if exists (COCO format: [x, y, w, h] normalized)
             if has_bbox[i].item() > 0 and not torch.isnan(bboxes[i]).any():
                 x, y, w, h = bboxes[i].cpu().numpy()
-                x1 = int(x * img_np.shape[1])
-                y1 = int(y * img_np.shape[0])
-                x2 = int((x + w) * img_np.shape[1])
-                y2 = int((y + h) * img_np.shape[0])
+                # Convert normalized to pixel
+                h_img, w_img = img_np.shape[:2]
+                x_pix = int(x * w_img)
+                y_pix = int(y * h_img)
+                w_pix = int(w * w_img)
+                h_pix = int(h * h_img)
+
                 rect = mpatches.Rectangle(
-                    (x1, y1),
-                    x2 - x1,
-                    y2 - y1,
+                    (x_pix, y_pix),
+                    w_pix,
+                    h_pix,
                     linewidth=2,
                     edgecolor="lime",
                     facecolor="none",
                 )
                 ax.add_patch(rect)
-                title += f" | BBox: [{x1},{y1},{x2},{y2}]"
+                title += f"\nBBox: {w_pix}x{h_pix}"
+
             ax.set_title(title, fontsize=10)
             ax.axis("off")
-            save_path = os.path.join(output_dir, f"batch{batch_idx}_{image_ids[i]}.png")
-            plt.tight_layout()
-            plt.savefig(save_path, dpi=120, bbox_inches="tight")
-            plt.close(fig)
+
+        # Hide empty subplots
+        for i in range(num_samples, nrows * ncols):
+            row = i // ncols
+            col = i % ncols
+            axes[row][col].axis("off")
+
+        plt.tight_layout()
+        save_path = os.path.join(output_dir, f"batch_{batch_idx:03d}.png")
+        plt.savefig(save_path, dpi=120, bbox_inches="tight")
+        plt.close(fig)
+        print(f"  Saved batch {batch_idx} ({num_samples} samples) -> {save_path}")
 
 
 def run_m2_train(

@@ -23,6 +23,82 @@ class SpatialAttention(nn.Module):
         return x * attn_map, attn_map
 
 
+# ============= Feature Wrappers (moved outside M2Model) =============
+
+
+class ResNetFeatureWrapper(nn.Module):
+    """Wrapper for ResNet to extract feature map before avgpool"""
+
+    def __init__(self, base_model):
+        super().__init__()
+        self.conv1 = base_model.conv1
+        self.bn1 = base_model.bn1
+        self.relu = base_model.relu
+        self.maxpool = base_model.maxpool
+        self.layer1 = base_model.layer1
+        self.layer2 = base_model.layer2
+        self.layer3 = base_model.layer3
+        self.layer4 = base_model.layer4
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        return x  # [B, C, H, W]
+
+
+class TimmFeatureWrapper(nn.Module):
+    """Wrapper for timm models to extract spatial features"""
+
+    def __init__(self, base_model):
+        super().__init__()
+        self.base_model = base_model
+
+    def forward(self, x):
+        feat = self.base_model.forward_features(x)
+        # Handle different output formats
+        if feat.ndim == 4 and feat.shape[-1] < feat.shape[1]:
+            return feat  # Already [B, C, H, W]
+        elif feat.ndim == 4:
+            return feat.permute(0, 3, 1, 2)  # [B, H, W, C] -> [B, C, H, W]
+        elif feat.ndim == 3:
+            # ViT: [B, N, C] -> [B, C, H, W]
+            B, N, C = feat.shape
+            H = W = int(N**0.5)
+            return feat.transpose(1, 2).reshape(B, C, H, W)
+        return feat
+
+
+class DinoFeatureWrapper(nn.Module):
+    """Wrapper for Dino/ViT models to extract spatial features"""
+
+    def __init__(self, base_model):
+        super().__init__()
+        self.base_model = base_model
+
+    def forward(self, x):
+        if hasattr(self.base_model, "forward_features"):
+            feat = self.base_model.forward_features(x)
+        else:
+            feat = self.base_model(x)
+
+        # [B, N+1, C] -> [B, C, H, W] (remove CLS token)
+        if feat.ndim == 3:
+            B, N, C = feat.shape
+            feat = feat[:, 1:, :]  # Remove CLS
+            H = W = int((N - 1) ** 0.5)
+            return feat.transpose(1, 2).reshape(B, C, H, W)
+        return feat
+
+
+# ============= M2Model (simplified, no nested wrappers) =============
+
+
 class M2Model(nn.Module):
     """Multi-task model: classification + bbox regression"""
 
@@ -51,7 +127,6 @@ class M2Model(nn.Module):
 
         # Ensure feature map is 4D
         if feat_map.dim() == 2:
-            # If backbone returns [B, C], unsqueeze to [B, C, 1, 1]
             feat_map = feat_map.unsqueeze(-1).unsqueeze(-1)
         elif feat_map.dim() != 4:
             raise ValueError(
@@ -75,31 +150,6 @@ def get_m2_model(model_type="resnet50", num_classes=2):
     # Get backbone
     if model_type in ["resnet34", "resnet50", "resnet101", "resnext50", "resnet152"]:
         backbone, feature_dim = get_resnet_backbone(model_type)
-
-        # Wrap ResNet to return feature map before avgpool
-        class ResNetFeatureWrapper(nn.Module):
-            def __init__(self, base_model):
-                super().__init__()
-                self.conv1 = base_model.conv1
-                self.bn1 = base_model.bn1
-                self.relu = base_model.relu
-                self.maxpool = base_model.maxpool
-                self.layer1 = base_model.layer1
-                self.layer2 = base_model.layer2
-                self.layer3 = base_model.layer3
-                self.layer4 = base_model.layer4
-
-            def forward(self, x):
-                x = self.conv1(x)
-                x = self.bn1(x)
-                x = self.relu(x)
-                x = self.maxpool(x)
-                x = self.layer1(x)
-                x = self.layer2(x)
-                x = self.layer3(x)
-                x = self.layer4(x)
-                return x  # [B, C, H, W]
-
         backbone = ResNetFeatureWrapper(backbone)
 
     elif model_type in ["mamba_t", "mamba_s"]:
@@ -129,28 +179,7 @@ def get_m2_model(model_type="resnet50", num_classes=2):
     ]:
         backbone, feature_dim = get_timm_backbone(model_type)
 
-        # Wrap to get feature map
         if hasattr(backbone, "forward_features"):
-
-            class TimmFeatureWrapper(nn.Module):
-                def __init__(self, base_model):
-                    super().__init__()
-                    self.base_model = base_model
-
-                def forward(self, x):
-                    feat = self.base_model.forward_features(x)
-                    # Handle different output formats
-                    if feat.ndim == 4 and feat.shape[-1] < feat.shape[1]:
-                        return feat  # Already [B, C, H, W]
-                    elif feat.ndim == 4:
-                        return feat.permute(0, 3, 1, 2)  # [B, H, W, C] -> [B, C, H, W]
-                    elif feat.ndim == 3:
-                        # ViT: [B, N, C] -> [B, C, H, W]
-                        B, N, C = feat.shape
-                        H = W = int(N**0.5)
-                        return feat.transpose(1, 2).reshape(B, C, H, W)
-                    return feat
-
             backbone = TimmFeatureWrapper(backbone)
         else:
             # Fallback: remove heads
@@ -180,27 +209,6 @@ def get_m2_model(model_type="resnet50", num_classes=2):
         "dinov2uni_base",
     ]:
         backbone, feature_dim = get_dino_backbone(model_type)
-
-        # Wrap Dino/ViT to get spatial features
-        class DinoFeatureWrapper(nn.Module):
-            def __init__(self, base_model):
-                super().__init__()
-                self.base_model = base_model
-
-            def forward(self, x):
-                if hasattr(self.base_model, "forward_features"):
-                    feat = self.base_model.forward_features(x)
-                else:
-                    feat = self.base_model(x)
-
-                # [B, N+1, C] -> [B, C, H, W] (remove CLS token)
-                if feat.ndim == 3:
-                    B, N, C = feat.shape
-                    feat = feat[:, 1:, :]  # Remove CLS
-                    H = W = int((N - 1) ** 0.5)
-                    return feat.transpose(1, 2).reshape(B, C, H, W)
-                return feat
-
         backbone = DinoFeatureWrapper(backbone)
 
     else:
