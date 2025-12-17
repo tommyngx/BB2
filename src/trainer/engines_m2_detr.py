@@ -16,9 +16,7 @@ from src.utils.m2_utils import compute_iou
 
 
 class HungarianMatcher(nn.Module):
-    """
-    Hungarian algorithm for bipartite matching between predictions and targets
-    """
+    """Hungarian algorithm for bipartite matching between predictions and targets"""
 
     def __init__(self, cost_bbox=5.0, cost_giou=2.0):
         super().__init__()
@@ -34,14 +32,13 @@ class HungarianMatcher(nn.Module):
             target_mask: [B, M] 1 for valid boxes, 0 for padding
         Returns:
             List of (pred_idx, target_idx) tuples for each sample in batch
-            NOTE: target_idx refers to indices in the FILTERED valid_targets, not original targets
         """
         B, N = pred_bboxes.shape[:2]
         M = target_bboxes.shape[1]
 
         indices = []
         for i in range(B):
-            # Get valid targets FIRST
+            # Filter valid targets FIRST
             valid_mask = target_mask[i] > 0.5
             num_valid = valid_mask.sum().item()
 
@@ -51,24 +48,32 @@ class HungarianMatcher(nn.Module):
 
             # Extract ONLY valid targets
             pred = pred_bboxes[i]  # [N, 4]
-            tgt = target_bboxes[i][valid_mask]  # [num_valid, 4]  ← This is the key fix
+            tgt = target_bboxes[i][valid_mask]  # [num_valid, 4]
 
-            # Compute L1 cost: [N, num_valid]
-            cost_bbox = torch.cdist(pred, tgt, p=1)
+            # Compute costs on [N, num_valid] matrix
+            try:
+                cost_bbox = torch.cdist(pred, tgt, p=1)
+                cost_giou = -compute_iou(pred, tgt)
 
-            # Compute GIoU cost: [N, num_valid]
-            cost_giou = -compute_iou(pred, tgt)
+                C = self.cost_bbox * cost_bbox + self.cost_giou * cost_giou
+                C = C.cpu().numpy()
 
-            # Total cost matrix: [N, num_valid]
-            C = self.cost_bbox * cost_bbox + self.cost_giou * cost_giou
-            C = C.cpu().numpy()
+                # Hungarian matching: returns indices in range [0, N-1] and [0, num_valid-1]
+                pred_idx, tgt_idx = linear_sum_assignment(C)
 
-            # Hungarian matching on [N, num_valid] matrix
-            # Returns indices into pred (0..N-1) and tgt (0..num_valid-1)
-            pred_idx, tgt_idx = linear_sum_assignment(C)
+                # Sanity check
+                if len(pred_idx) > 0:
+                    assert max(pred_idx) < N, f"pred_idx {max(pred_idx)} >= N {N}"
+                    assert max(tgt_idx) < num_valid, (
+                        f"tgt_idx {max(tgt_idx)} >= num_valid {num_valid}"
+                    )
 
-            # tgt_idx is now in range [0, num_valid-1], which is correct!
-            indices.append((pred_idx.tolist(), tgt_idx.tolist()))
+                indices.append((pred_idx.tolist(), tgt_idx.tolist()))
+            except Exception as e:
+                print(f"⚠️ Error in Hungarian matching for sample {i}: {e}")
+                print(f"  pred shape: {pred.shape}, tgt shape: {tgt.shape}")
+                print(f"  num_valid: {num_valid}, N: {N}")
+                indices.append(([], []))
 
         return indices
 
@@ -175,17 +180,15 @@ class DETRCriterion(nn.Module):
         num_boxes = 0
 
         for i, (pred_idx, tgt_idx) in enumerate(indices):
-            # Objectness loss for all queries
             obj_target = torch.zeros(N, 1, device=device)
 
             if len(pred_idx) == 0:
-                # No valid targets
                 obj_loss += nn.functional.binary_cross_entropy_with_logits(
                     pred_obj[i], obj_target, reduction="sum"
                 )
                 continue
 
-            # Get valid targets for this sample
+            # Get valid targets
             valid_mask = target_mask[i] > 0.5
             num_valid = valid_mask.sum().item()
 
@@ -195,15 +198,36 @@ class DETRCriterion(nn.Module):
                 )
                 continue
 
-            # Extract valid targets: [num_valid, 4]
-            valid_targets = target_bboxes[i][valid_mask]
+            valid_targets = target_bboxes[i][valid_mask]  # [num_valid, 4]
 
-            # Get matched predictions and targets
-            # NOTE: tgt_idx is already in range [0, num_valid-1] from HungarianMatcher
-            matched_pred = pred_bboxes[i, pred_idx]  # [num_matched, 4]
-            matched_tgt = valid_targets[tgt_idx]  # [num_matched, 4] - Safe now!
+            # Sanity checks before indexing
+            try:
+                assert len(pred_idx) <= N, f"pred_idx length {len(pred_idx)} > N {N}"
+                assert len(tgt_idx) <= num_valid, (
+                    f"tgt_idx length {len(tgt_idx)} > num_valid {num_valid}"
+                )
+                assert max(pred_idx) < N, f"max(pred_idx)={max(pred_idx)} >= N={N}"
+                assert max(tgt_idx) < num_valid, (
+                    f"max(tgt_idx)={max(tgt_idx)} >= num_valid={num_valid}"
+                )
 
-            # Validate bbox format
+                matched_pred = pred_bboxes[i, pred_idx]
+                matched_tgt = valid_targets[tgt_idx]
+            except Exception as e:
+                print(f"⚠️ Indexing error at sample {i}: {e}")
+                print(
+                    f"  pred_idx: {pred_idx}, max: {max(pred_idx) if pred_idx else 'N/A'}"
+                )
+                print(
+                    f"  tgt_idx: {tgt_idx}, max: {max(tgt_idx) if tgt_idx else 'N/A'}"
+                )
+                print(f"  N={N}, num_valid={num_valid}")
+                obj_loss += nn.functional.binary_cross_entropy_with_logits(
+                    pred_obj[i], obj_target, reduction="sum"
+                )
+                continue
+
+            # Validate bbox values
             invalid_pred = (matched_pred < 0).any() | (matched_pred > 1).any()
             invalid_tgt = (
                 (matched_tgt < 0).any()
@@ -213,7 +237,7 @@ class DETRCriterion(nn.Module):
             )
 
             if invalid_pred or invalid_tgt:
-                print(f"⚠️ Warning: Invalid bbox detected. Skipping sample {i}.")
+                print(f"⚠️ Invalid bbox at sample {i}, skipping")
                 obj_loss += nn.functional.binary_cross_entropy_with_logits(
                     pred_obj[i], obj_target, reduction="sum"
                 )
@@ -226,9 +250,9 @@ class DETRCriterion(nn.Module):
             try:
                 giou_loss += self.giou_loss(matched_pred, matched_tgt)
             except Exception as e:
-                print(f"⚠️ Warning: GIoU computation failed: {e}")
+                print(f"⚠️ GIoU error: {e}")
 
-            # Objectness loss
+            # Objectness
             obj_target[pred_idx] = 1.0
             obj_loss += nn.functional.binary_cross_entropy_with_logits(
                 pred_obj[i], obj_target, reduction="sum"
