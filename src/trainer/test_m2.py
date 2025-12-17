@@ -17,9 +17,7 @@ from skimage.filters import threshold_otsu
 import pandas as pd
 
 from src.data.m2_data import get_m2_dataloaders
-from src.data.dataloader import load_metadata
 from src.models.m2_model import get_m2_model
-from src.trainer.m2_evaluate import evaluate_m2_model
 from src.utils.common import load_config, get_arg_or_config
 from src.trainer.train_based import get_gradcam_layer
 
@@ -235,18 +233,31 @@ def run_m2_test_with_visualization(
     save_visualizations=True,
 ):
     """Test M2Model with visualization of results"""
-    # Load config and data
+    # Load config
     config = load_config(config_path)
-    train_df, test_df, class_names = load_metadata(
-        data_folder, config_path, target_column=target_column
-    )
 
-    # Load metadata with bbox info and image paths
-    _, test_df_bbx, image_info = load_data_bbx3(data_folder)
+    # Load metadata with bbox info ONLY from load_data_bbx3
+    train_df_bbx, test_df_bbx, image_info = load_data_bbx3(data_folder)
+
+    if train_df_bbx is None or test_df_bbx is None:
+        print("❌ Error: Could not load metadata from data folder")
+        return
+
+    # Get class names from train_df
+    if target_column and target_column in train_df_bbx.columns:
+        class_names = sorted(train_df_bbx[target_column].unique())
+    elif "cancer" in train_df_bbx.columns:
+        class_names = sorted(train_df_bbx["cancer"].unique())
+    else:
+        print("❌ Error: Could not find target column in metadata")
+        return
+
+    print(f"Found {len(class_names)} classes: {class_names}")
+    print(f"Train samples: {len(train_df_bbx)}, Test samples: {len(test_df_bbx)}")
 
     _, test_loader = get_m2_dataloaders(
-        train_df,
-        test_df,
+        train_df_bbx,
+        test_df_bbx,
         data_folder,
         batch_size=batch_size,
         config_path=config_path,
@@ -403,9 +414,14 @@ def run_m2_test_with_visualization(
                 labels = batch["label"].to(device)
                 bboxes = batch["bbox"].to(device)
                 has_bbox = batch["has_bbox"].to(device)
-                image_ids = batch.get(
-                    "image_id", [f"img_{batch_idx}_{i}" for i in range(len(images))]
-                )
+                image_ids = batch.get("image_id", None)
+
+                # Debug: check if image_ids are loaded correctly
+                if image_ids is None:
+                    print(
+                        f"⚠️ Warning: No image_id in batch {batch_idx}, skipping visualization"
+                    )
+                    continue
 
                 outputs = model(images)
                 if len(outputs) == 3:
@@ -418,12 +434,16 @@ def run_m2_test_with_visualization(
                 probs = torch.softmax(cls_outputs, dim=1)
 
                 for i in range(len(images)):
-                    # Get image_id (convert to string if needed)
-                    image_id = (
-                        image_ids[i]
-                        if isinstance(image_ids, list)
-                        else str(image_ids[i].item())
-                    )
+                    # Get image_id - should already be string from dataloader
+                    if isinstance(image_ids, list):
+                        image_id = str(image_ids[i])
+                    else:
+                        # Tensor case
+                        image_id = (
+                            str(image_ids[i].item())
+                            if image_ids[i].dim() == 0
+                            else str(image_ids[i])
+                        )
 
                     pred_class = predicted[i].item()
                     gt_label = labels[i].item()
@@ -452,9 +472,14 @@ def run_m2_test_with_visualization(
                         image_path = info["image_path"]
                     else:
                         # Fallback: use actual_input_size
+                        print(
+                            f"⚠️ Warning: image_id '{image_id}' not found in image_info dict"
+                        )
+                        print(
+                            f"   Available keys (first 5): {list(image_info.keys())[:5]}"
+                        )
                         original_size = actual_input_size
                         image_path = None
-                        print(f"⚠️ Warning: image_id '{image_id}' not found in metadata")
 
                     # Skip if no original size
                     if original_size is None:
