@@ -329,9 +329,9 @@ def run_m2_test_with_visualization(
         end = time.time()
         inference_time = end - start
 
-    # Save complete model info (like run_gradcam)
+    # Save only state_dict and all metadata (avoid pickling local classes)
     model_info = {
-        "model": model_to_save,
+        "state_dict": model_to_save.state_dict(),
         "input_size": actual_input_size,
         "gradcam_layer": gradcam_layer,
         "model_name": model_type,
@@ -348,7 +348,7 @@ def run_m2_test_with_visualization(
 
     try:
         torch.save(model_info, full_model_path)
-        print(f"✅ Saved full model to: {full_model_path}")
+        print(f"✅ Saved full model info (state_dict + meta) to: {full_model_path}")
         print(f"   Model name: {model_type}")
         print(f"   Input size: {actual_input_size}")
         print(f"   GradCAM layer: {gradcam_layer}")
