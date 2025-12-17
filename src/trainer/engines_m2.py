@@ -212,10 +212,11 @@ def train_m2_model(
                             pred_bbox = bbox_outputs[confident_pos_mask]
                             true_bbox = bboxes[confident_pos_mask]
 
-                            # Check for invalid bbox (all zeros or NaN)
+                            # Check for invalid bbox (COCO format: [x, y, w, h])
+                            # Valid if: w > 0 and h > 0 and no NaN
                             valid_bbox = (
-                                (true_bbox[:, 2] > true_bbox[:, 0])
-                                & (true_bbox[:, 3] > true_bbox[:, 1])
+                                (true_bbox[:, 2] > 0)  # width > 0
+                                & (true_bbox[:, 3] > 0)  # height > 0
                                 & ~torch.isnan(true_bbox).any(dim=1)
                             )
 
@@ -270,9 +271,10 @@ def train_m2_model(
                         pred_bbox = bbox_outputs[confident_pos_mask]
                         true_bbox = bboxes[confident_pos_mask]
 
+                        # Check for invalid bbox (COCO format: [x, y, w, h])
                         valid_bbox = (
-                            (true_bbox[:, 2] > true_bbox[:, 0])
-                            & (true_bbox[:, 3] > true_bbox[:, 1])
+                            (true_bbox[:, 2] > 0)  # width > 0
+                            & (true_bbox[:, 3] > 0)  # height > 0
                             & ~torch.isnan(true_bbox).any(dim=1)
                         )
 

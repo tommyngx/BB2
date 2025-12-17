@@ -115,6 +115,21 @@ def bbox_to_xyxy(bbox, original_size):
     return x1, y1, x2, y2
 
 
+def bbox_to_pixel(bbox, original_size):
+    """
+    Convert normalized bbox [x, y, w, h] to pixel coordinates [x, y, w, h]
+    Input: bbox in normalized [0, 1] range, COCO format
+    Output: bbox in pixel coordinates, COCO format
+    """
+    x, y, w, h = bbox
+    orig_h, orig_w = original_size
+    x_pix = x * orig_w
+    y_pix = y * orig_h
+    w_pix = w * orig_w
+    h_pix = h * orig_h
+    return x_pix, y_pix, w_pix, h_pix
+
+
 def compute_bbox_confidence(pred_bbox, gt_bbox):
     """Compute IoU as bbox confidence"""
     from src.utils.m2_utils import compute_iou
@@ -184,13 +199,30 @@ def visualize_m2_result(
     # Left: Original image + GT bbox
     ax1.imshow(img_original_np)
     if gt_bbox is not None and not torch.isnan(gt_bbox).any():
-        # Scale bbox to original image size
-        x1, y1, x2, y2 = bbox_to_xyxy(gt_bbox.cpu().numpy(), original_size)
-        rect = mpatches.Rectangle(
-            (x1, y1), x2 - x1, y2 - y1, linewidth=2, edgecolor="lime", facecolor="none"
-        )
-        ax1.add_patch(rect)
-        title_left = f"Original ({orig_w}x{orig_h}) | GT: {class_names[gt_label]}"
+        # Convert normalized COCO [x, y, w, h] to pixel coordinates
+        x_pix, y_pix, w_pix, h_pix = bbox_to_pixel(gt_bbox.cpu().numpy(), original_size)
+
+        # Validate bbox is within image bounds
+        if (
+            x_pix >= 0
+            and y_pix >= 0
+            and x_pix + w_pix <= orig_w
+            and y_pix + h_pix <= orig_h
+            and w_pix > 0
+            and h_pix > 0
+        ):
+            rect = mpatches.Rectangle(
+                (x_pix, y_pix),
+                w_pix,
+                h_pix,
+                linewidth=2,
+                edgecolor="lime",
+                facecolor="none",
+            )
+            ax1.add_patch(rect)
+            title_left = f"Original ({orig_w}x{orig_h}) | GT: {class_names[gt_label]} | BBox: {int(w_pix)}x{int(h_pix)}"
+        else:
+            title_left = f"Original ({orig_w}x{orig_h}) | GT: {class_names[gt_label]} (Invalid bbox)"
     else:
         title_left = (
             f"Original ({orig_w}x{orig_h}) | GT: {class_names[gt_label]} (No bbox)"
@@ -200,18 +232,35 @@ def visualize_m2_result(
 
     # Right: Heatmap + Predicted bbox
     ax2.imshow(blend_img)
-    if pred_bbox is not None:
-        # Scale bbox to original image size
-        x1, y1, x2, y2 = bbox_to_xyxy(pred_bbox.cpu().numpy(), original_size)
-        rect = mpatches.Rectangle(
-            (x1, y1), x2 - x1, y2 - y1, linewidth=2, edgecolor="red", facecolor="none"
+    if pred_bbox is not None and not torch.isnan(pred_bbox).any():
+        # Convert normalized COCO [x, y, w, h] to pixel coordinates
+        x_pix, y_pix, w_pix, h_pix = bbox_to_pixel(
+            pred_bbox.cpu().numpy(), original_size
         )
-        ax2.add_patch(rect)
+
+        # Validate bbox is within image bounds
+        if (
+            x_pix >= 0
+            and y_pix >= 0
+            and x_pix + w_pix <= orig_w
+            and y_pix + h_pix <= orig_h
+            and w_pix > 0
+            and h_pix > 0
+        ):
+            rect = mpatches.Rectangle(
+                (x_pix, y_pix),
+                w_pix,
+                h_pix,
+                linewidth=2,
+                edgecolor="red",
+                facecolor="none",
+            )
+            ax2.add_patch(rect)
 
     pred_label_str = class_names[pred_class]
     title_right = f"Pred: {pred_label_str} | Prob: {pred_prob:.3f}"
     if bbox_conf is not None:
-        title_right += f" | BBox Conf: {bbox_conf:.3f}"
+        title_right += f" | IoU: {bbox_conf:.3f}"
     ax2.set_title(title_right, fontsize=12, fontweight="bold")
     ax2.axis("off")
 
@@ -409,7 +458,7 @@ def run_m2_test_with_visualization(
         vis_dir = os.path.join(output, "test", model_filename)
         os.makedirs(vis_dir, exist_ok=True)
 
-        # Create image_id index from test_df_bbx (similar to gradcam_run)
+        # Create image_id index from test_df_bbx
         test_image_ids = test_df_bbx["image_id"].unique().tolist()
         print(f"Total test images: {len(test_image_ids)}")
 
@@ -420,7 +469,9 @@ def run_m2_test_with_visualization(
             for batch_idx, batch in enumerate(tqdm(test_loader, desc="Visualizing")):
                 images = batch["image"].to(device)
                 labels = batch["label"].to(device)
-                bboxes = batch["bbox"].to(device)
+                bboxes = batch["bbox"].to(
+                    device
+                )  # [B, 4] in COCO format [x, y, w, h], normalized
                 has_bbox = batch["has_bbox"].to(device)
 
                 # Calculate image_ids from batch_idx and batch_size
@@ -430,7 +481,9 @@ def run_m2_test_with_visualization(
 
                 outputs = model(images)
                 if len(outputs) == 3:
-                    cls_outputs, bbox_outputs, attn_maps = outputs
+                    cls_outputs, bbox_outputs, attn_maps = (
+                        outputs  # bbox_outputs: [B, 4] COCO format, normalized
+                    )
                 else:
                     cls_outputs, bbox_outputs = outputs
                     attn_maps = None
@@ -449,21 +502,41 @@ def run_m2_test_with_visualization(
                     pred_class = predicted[i].item()
                     gt_label = labels[i].item()
                     pred_prob = probs[i, pred_class].item()
+
+                    # Get predicted bbox (COCO format, normalized)
                     pred_bbox = bbox_outputs[i] if bbox_outputs is not None else None
+
+                    # Get GT bbox (COCO format, normalized)
                     gt_bbox = bboxes[i] if has_bbox[i].item() > 0 else None
 
-                    # Compute bbox confidence
+                    # Validate GT bbox
+                    if gt_bbox is not None:
+                        # Check if bbox is valid (not all zeros, not NaN)
+                        if (
+                            torch.isnan(gt_bbox).any()
+                            or (gt_bbox[2] <= 0)
+                            or (gt_bbox[3] <= 0)
+                        ):  # w or h <= 0
+                            gt_bbox = None
+
+                    # Compute bbox confidence (IoU)
                     bbox_conf = None
                     if (
                         pred_bbox is not None
                         and gt_bbox is not None
+                        and not torch.isnan(pred_bbox).any()
                         and not torch.isnan(gt_bbox).any()
                     ):
-                        bbox_conf = compute_bbox_confidence(pred_bbox, gt_bbox)
+                        try:
+                            bbox_conf = compute_bbox_confidence(pred_bbox, gt_bbox)
+                        except Exception as e:
+                            print(f"⚠️ Warning: Error computing IoU for {image_id}: {e}")
+                            bbox_conf = None
 
                     # Get attention map
                     attn_map = attn_maps[i] if attn_maps is not None else None
                     if attn_map is None:
+                        print(f"⚠️ Warning: No attention map for {image_id}")
                         continue
 
                     # Get original image info from image_info dict
@@ -487,20 +560,24 @@ def run_m2_test_with_visualization(
 
                     # Save visualization with image_id as filename
                     save_path = os.path.join(vis_dir, f"{image_id}.png")
-                    visualize_m2_result(
-                        images[i],
-                        attn_map,
-                        pred_bbox,
-                        gt_bbox,
-                        pred_class,
-                        gt_label,
-                        pred_prob,
-                        bbox_conf,
-                        save_path,
-                        class_names,
-                        original_size,
-                        image_path=image_path,
-                    )
+                    try:
+                        visualize_m2_result(
+                            images[i],
+                            attn_map,
+                            pred_bbox,
+                            gt_bbox,
+                            pred_class,
+                            gt_label,
+                            pred_prob,
+                            bbox_conf,
+                            save_path,
+                            class_names,
+                            original_size,
+                            image_path=image_path,
+                        )
+                    except Exception as e:
+                        print(f"⚠️ Warning: Error visualizing {image_id}: {e}")
+                        continue
 
         print(f"✅ Saved visualizations to: {vis_dir}")
 
