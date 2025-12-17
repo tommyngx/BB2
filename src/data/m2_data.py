@@ -69,13 +69,12 @@ class M2Dataset(Dataset):
 
                 # Final check: bbox must have positive area
                 if w > 0 and h > 0:
-                    # Convert to x1, y1, x2, y2 format
+                    # Convert to x1, y1, x2, y2 format (pascal_voc)
                     x1, y1 = x, y
                     x2, y2 = x + w, y + h
                     bbox = [x1, y1, x2, y2]
                     has_bbox = True
                 else:
-                    # Invalid bbox (zero or negative area)
                     bbox = [0.0, 0.0, 0.0, 0.0]
                     has_bbox = False
             else:
@@ -89,101 +88,128 @@ class M2Dataset(Dataset):
         if has_bbox:
             # Positive sample with valid bbox - use bbox-safe transform
             if self.positive_transform:
+                # Pass bbox to transform - Albumentations will update it
                 transformed = self.positive_transform(
                     image=image, bboxes=[bbox], labels=[label]
                 )
                 image = transformed["image"]
 
-                # Validate transformed bbox
+                # Get the TRANSFORMED bbox from Albumentations
                 if len(transformed["bboxes"]) > 0:
-                    bbox = list(transformed["bboxes"][0])
+                    # Albumentations returns transformed bbox coordinates
+                    transformed_bbox = list(transformed["bboxes"][0])
 
-                    # Check bbox validity after transform
-                    # 1. Check format: x2 > x1 and y2 > y1
-                    if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
-                        bbox = [0.0, 0.0, 0.0, 0.0]
-                        has_bbox = False
-                    # 2. Check bbox is within image bounds (after resize to img_size)
-                    elif self.img_size is not None:
+                    # Validate transformed bbox
+                    # After resize to img_size, bbox should be in pixel coordinates
+                    # relative to the resized image
+                    if self.img_size is not None:
                         h_img, w_img = self.img_size
-                        # Bbox should be in pixel coords [x1, y1, x2, y2]
-                        # After ToTensorV2, image is [C, H, W]
-                        # But bbox is still in original coords before normalize
-                        # So we need to check against img_size
-                        if (
-                            bbox[0] < 0
-                            or bbox[1] < 0
-                            or bbox[2] > w_img
-                            or bbox[3] > h_img
-                        ):
-                            # Clip bbox to image bounds
-                            bbox[0] = max(0.0, bbox[0])
-                            bbox[1] = max(0.0, bbox[1])
-                            bbox[2] = min(float(w_img), bbox[2])
-                            bbox[3] = min(float(h_img), bbox[3])
 
-                            # Recheck validity after clipping
-                            if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+                        # Check format: x2 > x1 and y2 > y1
+                        if (
+                            transformed_bbox[2] > transformed_bbox[0]
+                            and transformed_bbox[3] > transformed_bbox[1]
+                        ):
+                            # Clip to image bounds (just to be safe)
+                            transformed_bbox[0] = max(
+                                0.0, min(float(w_img), transformed_bbox[0])
+                            )
+                            transformed_bbox[1] = max(
+                                0.0, min(float(h_img), transformed_bbox[1])
+                            )
+                            transformed_bbox[2] = max(
+                                0.0, min(float(w_img), transformed_bbox[2])
+                            )
+                            transformed_bbox[3] = max(
+                                0.0, min(float(h_img), transformed_bbox[3])
+                            )
+
+                            # Recheck after clipping
+                            if (
+                                transformed_bbox[2] > transformed_bbox[0]
+                                and transformed_bbox[3] > transformed_bbox[1]
+                            ):
+                                bbox = transformed_bbox
+                            else:
                                 bbox = [0.0, 0.0, 0.0, 0.0]
                                 has_bbox = False
-                    # 3. Check bbox area (must be > 0)
-                    if has_bbox:
-                        area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
-                        if area <= 0:
+                        else:
+                            bbox = [0.0, 0.0, 0.0, 0.0]
+                            has_bbox = False
+                    else:
+                        # No img_size specified, just validate format
+                        if (
+                            transformed_bbox[2] > transformed_bbox[0]
+                            and transformed_bbox[3] > transformed_bbox[1]
+                        ):
+                            bbox = transformed_bbox
+                        else:
                             bbox = [0.0, 0.0, 0.0, 0.0]
                             has_bbox = False
                 else:
-                    # Transform removed bbox (due to min_visibility or out of bounds)
+                    # Transform removed bbox (min_visibility or out of bounds)
                     bbox = [0.0, 0.0, 0.0, 0.0]
                     has_bbox = False
         else:
             # Negative sample - do NOT pass bbox to transform
             if self.negative_transform is not None:
-                # Use aggressive transform without bbox
                 transformed = self.negative_transform(image=image)
                 image = transformed["image"]
             else:
-                # Test mode fallback: use simple resize + normalize without bbox_params
+                # Test mode fallback
                 from .m2_augment import get_m2_test_augmentation_no_bbox
 
-                # Get target size from img_size or default
                 if self.img_size is not None:
                     if isinstance(self.img_size, (list, tuple)):
                         h_target, w_target = self.img_size
                     else:
                         h_target = w_target = self.img_size
                 else:
-                    # Fallback to 448 if not specified
                     h_target = w_target = 448
 
                 simple_transform = get_m2_test_augmentation_no_bbox(h_target, w_target)
                 transformed = simple_transform(image=image)
                 image = transformed["image"]
 
-        # Normalize bbox to [0, 1] range based on image size
+        # Normalize bbox to [0, 1] range based on TRANSFORMED image size
         if has_bbox and bbox != [0.0, 0.0, 0.0, 0.0]:
             # Image after ToTensorV2 is [C, H, W]
-            h_img, w_img = image.shape[1], image.shape[2]
-            bbox = [
-                max(0.0, min(1.0, bbox[0] / w_img)),
-                max(0.0, min(1.0, bbox[1] / h_img)),
-                max(0.0, min(1.0, bbox[2] / w_img)),
-                max(0.0, min(1.0, bbox[3] / h_img)),
+            # bbox is in pixel coordinates relative to transformed image
+            if self.img_size is not None:
+                h_img, w_img = self.img_size
+            else:
+                # Fallback: get from tensor shape
+                h_img, w_img = image.shape[1], image.shape[2]
+
+            # Normalize to [0, 1]
+            bbox_normalized = [
+                bbox[0] / w_img,  # x1
+                bbox[1] / h_img,  # y1
+                bbox[2] / w_img,  # x2
+                bbox[3] / h_img,  # y2
             ]
 
-            # Final validation: ensure x2 > x1 and y2 > y1 after normalization
-            if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+            # Clip to [0, 1] range
+            bbox_normalized = [max(0.0, min(1.0, coord)) for coord in bbox_normalized]
+
+            # Final validation
+            if (
+                bbox_normalized[2] <= bbox_normalized[0]
+                or bbox_normalized[3] <= bbox_normalized[1]
+            ):
                 bbox = [0.0, 0.0, 0.0, 0.0]
                 has_bbox = False
+            else:
+                # Check minimum size (1% of image)
+                min_bbox_size = 0.01
+                bbox_width = bbox_normalized[2] - bbox_normalized[0]
+                bbox_height = bbox_normalized[3] - bbox_normalized[1]
 
-            # Check minimum bbox size (avoid too small bbox)
-            min_bbox_size = 0.01  # 1% of image
-            if has_bbox:
-                bbox_width = bbox[2] - bbox[0]
-                bbox_height = bbox[3] - bbox[1]
                 if bbox_width < min_bbox_size or bbox_height < min_bbox_size:
                     bbox = [0.0, 0.0, 0.0, 0.0]
                     has_bbox = False
+                else:
+                    bbox = bbox_normalized
 
         return {
             "image": image,
