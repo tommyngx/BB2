@@ -104,12 +104,12 @@ class M2DETRDataset(Dataset):
                             if is_valid:
                                 bboxes.append([x, y, w, h])
 
-                if len(bboxes) > 1:
-                    multi_bbox_count += 1
-                    if multi_bbox_count <= 10:  # Print first 10
-                        print(
-                            f"[DEBUG] image_id={image_id} has {len(bboxes)} valid bboxes"
-                        )
+                # if len(bboxes) > 1:
+                #    multi_bbox_count += 1
+                #    if multi_bbox_count <= 10:  # Print first 10
+                #        print(
+                #            f"[DEBUG] image_id={image_id} has {len(bboxes)} valid bboxes"
+                #        )
 
             samples.append(
                 {
@@ -252,10 +252,10 @@ def get_m2_detr_dataloaders(
     config_path="config/config.yaml",
     img_size=None,
     mode="train",
-    max_objects=5,  # Default 5 for mammography
+    max_objects=5,
 ):
     """Get DETR-style dataloaders"""
-    from .dataloader import get_image_size_from_config
+    from .dataloader import get_image_size_from_config, get_weighted_sampler_detr
 
     if img_size is None:
         img_size = get_image_size_from_config(config_path)
@@ -294,7 +294,13 @@ def get_m2_detr_dataloaders(
 
     # Dataloaders
     num_workers = 0 if mode == "test" else 4
-    sampler = get_weighted_sampler(train_df, label_col="cancer")
+
+    # CRITICAL FIX: Use DETR-specific sampler (based on unique images)
+    sampler = get_weighted_sampler_detr(train_df, label_col="cancer")
+
+    print(
+        f"[INFO] Dataset size: {len(train_dataset)} unique images, Sampler size: {len(sampler)}"
+    )
 
     train_loader = DataLoader(
         train_dataset,
