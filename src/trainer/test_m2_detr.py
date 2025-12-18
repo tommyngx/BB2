@@ -341,6 +341,10 @@ def run_m2_detr_test_with_visualization(
 
     _, _, image_info = load_data_bbx3(data_folder)
 
+    # FIXED: Ensure class_names is a list of strings
+    if class_names and isinstance(class_names[0], int):
+        class_names = [str(c) for c in class_names]
+
     print(f"Found {len(class_names)} classes: {class_names}")
     print(f"Train samples: {len(train_df)}, Test samples: {len(test_df)}")
 
@@ -527,9 +531,11 @@ def run_m2_detr_test_with_visualization(
         print(f"Test F1-Score : {f1 * 100:.2f}%")
         print(f"Test IoU      : {test_iou * 100:.2f}% | mAP@0.5: {test_map * 100:.2f}%")
         print("\nClassification Report:")
+        # FIXED: Ensure class_names are strings for sklearn
+        class_names_str = [str(c) for c in class_names] if class_names else None
         print(
             classification_report(
-                all_labels, all_preds, target_names=class_names, zero_division=0
+                all_labels, all_preds, target_names=class_names_str, zero_division=0
             )
         )
         print("=" * 50)
