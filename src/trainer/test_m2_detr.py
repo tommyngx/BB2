@@ -335,12 +335,10 @@ def run_m2_detr_test_with_visualization(
     # Load config
     config = load_config(config_path)
 
-    # Load metadata with DETR version (no duplicate filtering)
     train_df, test_df, class_names = load_metadata_detr(
         data_folder, config_path, target_column=target_column
     )
 
-    # Also load bbox info for visualization
     _, _, image_info = load_data_bbx3(data_folder)
 
     print(f"Found {len(class_names)} classes: {class_names}")
@@ -404,7 +402,7 @@ def run_m2_detr_test_with_visualization(
 
     # Skip Task 1 and Task 2 if only_viz is True
     if not only_viz:
-        # Task 1: Evaluate on test set
+        # Task 1: Evaluate on test set with FULL METRICS
         print("\n" + "=" * 50)
         print("Task 1: Evaluation on Test Set (DETR)")
         print("=" * 50)
@@ -413,6 +411,16 @@ def run_m2_detr_test_with_visualization(
         correct, total = 0, 0
         total_iou = 0.0
         num_bbox_samples = 0
+
+        # For detailed metrics
+        all_preds = []
+        all_labels = []
+        all_probs = []
+
+        # For mAP computation
+        all_pred_boxes = []
+        all_pred_scores = []
+        all_gt_boxes = []
 
         with torch.no_grad():
             for batch in tqdm(test_loader, desc="Evaluating"):
@@ -424,9 +432,15 @@ def run_m2_detr_test_with_visualization(
                 outputs = model(images)
 
                 # Classification
+                probs = torch.softmax(outputs["cls_logits"], dim=1)
                 _, predicted = torch.max(outputs["cls_logits"], 1)
                 correct += (predicted == labels).sum().item()
                 total += labels.size(0)
+
+                # Store for metrics
+                all_preds.extend(predicted.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
+                all_probs.extend(probs.cpu().numpy())
 
                 # IoU for bbox (use top prediction by objectness)
                 pred_bboxes = outputs["pred_bboxes"]  # [B, N, 4]
@@ -438,6 +452,7 @@ def run_m2_detr_test_with_visualization(
                         # Get top prediction
                         top_idx = pred_obj[i].squeeze(-1).argmax()
                         pred_box = pred_bboxes[i, top_idx : top_idx + 1]
+                        pred_score = pred_obj[i, top_idx].item()
                         gt_boxes = bboxes[i][valid_mask]
 
                         from src.utils.m2_utils import compute_iou
@@ -446,9 +461,78 @@ def run_m2_detr_test_with_visualization(
                         total_iou += iou.item()
                         num_bbox_samples += 1
 
+                        # Store for mAP
+                        all_pred_boxes.append(pred_box.cpu())
+                        all_pred_scores.append(pred_score)
+                        all_gt_boxes.append(gt_boxes.cpu())
+
         test_acc = correct / total
         test_iou = total_iou / max(num_bbox_samples, 1)
-        print(f"Test Accuracy: {test_acc * 100:.2f}% | IoU: {test_iou:.4f}")
+
+        # Compute mAP@0.5
+        test_map = 0.0
+        if len(all_pred_boxes) > 0:
+            num_correct = 0
+            for pred_box, gt_box in zip(all_pred_boxes, all_gt_boxes):
+                from src.utils.m2_utils import compute_iou
+
+                iou = compute_iou(pred_box, gt_box[:1])
+                if iou.item() >= 0.5:
+                    num_correct += 1
+            test_map = num_correct / len(all_pred_boxes)
+
+        # ✅ COMPUTE DETAILED METRICS (same as train)
+        from sklearn.metrics import (
+            classification_report,
+            roc_auc_score,
+            precision_recall_fscore_support,
+        )
+        import numpy as np
+
+        all_preds = np.array(all_preds)
+        all_labels = np.array(all_labels)
+        all_probs = np.array(all_probs)
+
+        # Precision, Recall, F1
+        precision, recall, f1, _ = precision_recall_fscore_support(
+            all_labels, all_preds, average="weighted", zero_division=0
+        )
+
+        # AUC (only for binary classification)
+        try:
+            if all_probs.shape[1] == 2:
+                auc = roc_auc_score(all_labels, all_probs[:, 1]) * 100
+            else:
+                auc = 0.0
+        except:
+            auc = 0.0
+
+        # Sensitivity (Recall for positive class)
+        if len(np.unique(all_labels)) > 1:
+            _, recall_per_class, _, _ = precision_recall_fscore_support(
+                all_labels, all_preds, average=None, zero_division=0
+            )
+            sensitivity = (
+                recall_per_class[1] * 100 if len(recall_per_class) > 1 else 0.0
+            )
+        else:
+            sensitivity = 0.0
+
+        # ✅ PRINT METRICS (same format as train)
+        print("\n" + "=" * 50)
+        print("Test Results:")
+        print("=" * 50)
+        print(f"Test Accuracy : {test_acc * 100:.2f}% | AUC: {auc:.2f}%")
+        print(f"Test Precision: {precision * 100:.2f}% | Sens: {sensitivity:.2f}%")
+        print(f"Test F1-Score : {f1 * 100:.2f}%")
+        print(f"Test IoU      : {test_iou * 100:.2f}% | mAP@0.5: {test_map * 100:.2f}%")
+        print("\nClassification Report:")
+        print(
+            classification_report(
+                all_labels, all_preds, target_names=class_names, zero_division=0
+            )
+        )
+        print("=" * 50)
 
         # Task 2: Save full model
         print("\n" + "=" * 50)
@@ -490,6 +574,9 @@ def run_m2_detr_test_with_visualization(
             print(f"   Num queries: {num_queries}")
             print(f"   GradCAM layer: {gradcam_layer}")
             print(f"   Inference time: {inference_time:.4f}s")
+            print(f"   Test Accuracy: {test_acc * 100:.2f}%")
+            print(f"   Test IoU: {test_iou * 100:.2f}%")
+            print(f"   Test mAP@0.5: {test_map * 100:.2f}%")
         except Exception as e:
             print(f"⚠️ Error saving full model: {e}")
 
@@ -519,11 +606,12 @@ def run_m2_detr_test_with_visualization(
                 end_idx = min(start_idx + len(images), len(test_image_ids))
                 batch_image_ids = test_image_ids[start_idx:end_idx]
 
-                outputs = model(images)
+                # FIXED: Request attention maps explicitly
+                outputs = model(images, return_attention_maps=True)
                 cls_logits = outputs["cls_logits"]
                 pred_bboxes = outputs["pred_bboxes"]  # [B, N, 4]
                 pred_obj = torch.sigmoid(outputs["obj_scores"])  # [B, N, 1]
-                attn_maps = outputs.get("attn_maps", None)  # FIXED: Use "attn_maps" key
+                attn_maps = outputs.get("attn_maps", None)  # [B, H, W] global heatmap
 
                 _, predicted = torch.max(cls_logits, 1)
                 probs = torch.softmax(cls_logits, dim=1)
@@ -554,15 +642,15 @@ def run_m2_detr_test_with_visualization(
                     if original_size is None:
                         continue
 
-                    # Get attention map
-                    if attn_maps is not None:
-                        attn_map = attn_maps[
-                            i
-                        ]  # FIXED: Direct indexing since attn_maps should be [B, H, W]
+                    # Get attention map - FIXED: should be [B, H, W]
+                    if attn_maps is not None and len(attn_maps.shape) == 3:
+                        attn_map = attn_maps[i]  # [H, W]
                     else:
                         print(
-                            f"⚠️ Warning: No attention map returned from model for {image_id}"
+                            f"⚠️ Warning: No attention map or wrong shape for {image_id}"
                         )
+                        if attn_maps is not None:
+                            print(f"   attn_maps shape: {attn_maps.shape}")
                         continue
 
                     # Get all predicted bboxes and scores for this image
@@ -589,6 +677,9 @@ def run_m2_detr_test_with_visualization(
                         )
                     except Exception as e:
                         print(f"⚠️ Warning: Error visualizing {image_id}: {e}")
+                        import traceback
+
+                        traceback.print_exc()
                         continue
 
         print(f"✅ Saved DETR visualizations to: {vis_dir}")
