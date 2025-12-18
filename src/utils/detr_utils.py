@@ -3,6 +3,7 @@ Utility functions for DETR model
 - Box operations (IoU, matching, etc.)
 - Loss computation
 - Visualization helpers
+- GradCAM layer detection
 """
 
 import torch
@@ -182,3 +183,61 @@ def compute_bbox_confidence(pred_bbox, gt_bbox):
     """Compute IoU as bbox confidence"""
     iou = box_iou(pred_bbox.unsqueeze(0), gt_bbox.unsqueeze(0))
     return iou.item()
+
+
+def get_gradcam_layer(model, model_name):
+    """
+    Return the name of the appropriate layer for GradCAM based on model_name.
+    Automatically detects if model has backbone wrapper and adds prefix.
+
+    Args:
+        model: The model instance
+        model_name: Model architecture name (e.g., 'resnet50', 'dinov2_small')
+
+    Returns:
+        str: Layer name for GradCAM (e.g., 'backbone.layer4' for DETR models)
+    """
+    # Check if model has backbone (DETR models)
+    has_backbone = hasattr(model, "backbone")
+    prefix = "backbone." if has_backbone else ""
+
+    # ResNet, ResNeXt, ResNeSt
+    if "resnet" in model_name or "resnext" in model_name or "resnest" in model_name:
+        return f"{prefix}layer4"
+    # ConvNeXtV2 Tiny
+    elif "convnextv2_tiny" in model_name:
+        return f"{prefix}stages.3.blocks.2.conv_dw"
+    # ConvNeXt, ConvNeXtV2
+    elif "convnext" in model_name:
+        return f"{prefix}stages.3.blocks.2.conv_dw"
+    # MaxViT Tiny
+    elif "maxvit_tiny" in model_name:
+        return f"{prefix}stages.-1.blocks.-1.conv.norm2"
+    # RegNetY
+    elif "regnety" in model_name:
+        return f"{prefix}s4.b1.conv3.conv"
+    # EfficientNet, EfficientNetV2
+    elif "efficientnet" in model_name:
+        return f"{prefix}blocks.5.-1.conv_pwl"
+    # DINOv2
+    elif "dinov2" in model_name or "dinov3" in model_name:
+        return f"{prefix}transformer.blocks.23.norm1"
+    # SwinV2
+    elif "swin" in model_name:
+        return f"{prefix}layers.-1.blocks.-1.norm1"
+    # EVA02
+    elif "eva02" in model_name:
+        return f"{prefix}blocks.-1.norm1"
+    # If not matched, try to get the last layer's name
+    else:
+        children = list(model.named_children())
+        if children:
+            last_child_name = children[-1][0]
+            # If it's a backbone, try to get its last layer
+            if last_child_name == "backbone" and has_backbone:
+                backbone = children[-1][1]
+                backbone_children = list(backbone.named_children())
+                if backbone_children:
+                    return f"backbone.{backbone_children[-1][0]}"
+            return last_child_name
+        return None

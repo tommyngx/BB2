@@ -20,8 +20,11 @@ from src.data.m2_data_detr import get_m2_detr_dataloaders
 from src.data.dataloader import load_metadata_detr
 from src.models.m2_detr_model import get_m2_detr_model
 from src.utils.common import load_config, get_arg_or_config
-from src.trainer.train_based import get_gradcam_layer
-from src.utils.detr_utils import bbox_to_pixel, compute_bbox_confidence
+from src.utils.detr_utils import (
+    bbox_to_pixel,
+    compute_bbox_confidence,
+    get_gradcam_layer,
+)  # UPDATED: Import from detr_utils
 
 # ADDED: Import for GradCAM
 from src.gradcam.gradcam_utils_based import gradcam
@@ -417,7 +420,7 @@ def run_m2_detr_test_with_visualization(
         else:
             test_model = model
 
-        # Get GradCAM layer using the helper function
+        # UPDATED: Get GradCAM layer using detr_utils function
         gradcam_layer = get_gradcam_layer(test_model, model_name)
 
         if gradcam_layer is None:
@@ -577,13 +580,13 @@ def run_m2_detr_test_with_visualization(
         print("Task 2: Save Full Model (DETR)")
         print("=" * 50)
 
-        # Get gradcam layer
+        # UPDATED: Get gradcam layer using detr_utils
         model_name = model_type.lower()
         if isinstance(model, nn.DataParallel):
-            gradcam_layer = get_gradcam_layer(model.module, model_name)
+            gradcam_layer_save = get_gradcam_layer(model.module, model_name)
             model_to_save = model.module
         else:
-            gradcam_layer = get_gradcam_layer(model, model_name)
+            gradcam_layer_save = get_gradcam_layer(model, model_name)
             model_to_save = model
 
         # Calculate inference time
@@ -610,7 +613,7 @@ def run_m2_detr_test_with_visualization(
             print(f"   Model name: {model_type}")
             print(f"   Input size: {actual_input_size}")
             print(f"   Num queries: {num_queries}")
-            print(f"   GradCAM layer: {gradcam_layer}")
+            print(f"   GradCAM layer: {gradcam_layer_save}")
             print(f"   Inference time: {inference_time:.4f}s")
             print(f"   Test Accuracy: {test_acc * 100:.2f}%")
             print(f"   Test IoU: {test_iou * 100:.2f}%")
