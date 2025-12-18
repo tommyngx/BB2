@@ -13,6 +13,7 @@ from src.utils.loss import FocalLoss, LDAMLoss, FocalLoss2
 from src.utils.plot import plot_metrics
 from src.utils.bbox_loss import GIoULoss
 from src.utils.m2_utils import compute_iou
+from src.utils.detr_utils import box_iou  # UPDATED: Import from detr_utils
 
 
 class HungarianMatcher(nn.Module):
@@ -56,7 +57,7 @@ class HungarianMatcher(nn.Module):
                 cost_bbox = torch.cdist(pred, tgt, p=1)
 
                 # GIoU cost: [N, num_valid]
-                cost_giou = -compute_iou(pred, tgt)
+                cost_giou = -box_iou(pred, tgt)
 
                 # Total cost: [N, num_valid]
                 C = self.cost_bbox * cost_bbox + self.cost_giou * cost_giou

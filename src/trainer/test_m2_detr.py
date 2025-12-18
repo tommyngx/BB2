@@ -21,6 +21,7 @@ from src.data.dataloader import load_metadata_detr
 from src.models.m2_detr_model import get_m2_detr_model
 from src.utils.common import load_config, get_arg_or_config
 from src.trainer.train_based import get_gradcam_layer
+from src.utils.detr_utils import bbox_to_pixel, compute_bbox_confidence
 
 
 def load_data_bbx3(data_folder):
@@ -105,29 +106,6 @@ def denormalize_image(tensor, mean, std):
     return img
 
 
-def bbox_to_pixel(bbox, original_size):
-    """
-    Convert normalized bbox [x, y, w, h] to pixel coordinates [x, y, w, h]
-    Input: bbox in normalized [0, 1] range, COCO format
-    Output: bbox in pixel coordinates, COCO format
-    """
-    x, y, w, h = bbox
-    orig_h, orig_w = original_size
-    x_pix = x * orig_w
-    y_pix = y * orig_h
-    w_pix = w * orig_w
-    h_pix = h * orig_h
-    return x_pix, y_pix, w_pix, h_pix
-
-
-def compute_bbox_confidence(pred_bbox, gt_bbox):
-    """Compute IoU as bbox confidence"""
-    from src.utils.m2_utils import compute_iou
-
-    iou = compute_iou(pred_bbox.unsqueeze(0), gt_bbox.unsqueeze(0))
-    return iou.item()
-
-
 def visualize_m2_detr_result(
     image_tensor,
     attn_map,
@@ -142,6 +120,7 @@ def visualize_m2_detr_result(
     original_size,
     image_path=None,
     obj_threshold=0.5,
+    use_otsu=False,  # ADDED: Parameter to control Otsu thresholding
 ):
     """Create side-by-side visualization with multiple predicted bboxes from DETR queries"""
     orig_h, orig_w = original_size
@@ -170,17 +149,26 @@ def visualize_m2_detr_result(
     )
     attn_resized_np = np.array(attn_resized)
 
-    # Apply Otsu threshold
-    otsu_thresh = threshold_otsu(attn_resized_np)
-    mask = attn_resized_np > otsu_thresh
+    # UPDATED: Conditional Otsu thresholding
+    if use_otsu:
+        # Apply Otsu threshold
+        otsu_thresh = threshold_otsu(attn_resized_np)
+        mask = attn_resized_np > otsu_thresh
 
-    # Create heatmap overlay
-    cam_color = plt.cm.jet(attn_resized_np / 255.0)[..., :3]
-    blend_img = img_original_np.copy()
-    blend_alpha = 0.4
-    blend_img[mask] = (1 - blend_alpha) * blend_img[mask] + blend_alpha * cam_color[
-        mask
-    ]
+        # Create heatmap overlay with masking
+        cam_color = plt.cm.jet(attn_resized_np / 255.0)[..., :3]
+        blend_img = img_original_np.copy()
+        blend_alpha = 0.4
+        blend_img[mask] = (1 - blend_alpha) * blend_img[mask] + blend_alpha * cam_color[
+            mask
+        ]
+    else:
+        # No Otsu, blend entire heatmap
+        attn_normalized = attn_resized_np / 255.0
+        cam_color = plt.cm.jet(attn_normalized)[..., :3]
+        blend_img = img_original_np.copy()
+        blend_alpha = 0.4
+        blend_img = (1 - blend_alpha) * blend_img + blend_alpha * cam_color
 
     # Create figure with 2 subplots
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
@@ -330,6 +318,7 @@ def run_m2_detr_test_with_visualization(
     only_viz=False,
     sample_viz=False,
     obj_threshold=0.5,
+    use_otsu=False,  # ADDED: Parameter to control Otsu
 ):
     """Test M2 DETR model with visualization of multiple queries"""
     # Load config
@@ -680,6 +669,7 @@ def run_m2_detr_test_with_visualization(
                             original_size,
                             image_path=image_path,
                             obj_threshold=obj_threshold,
+                            use_otsu=use_otsu,  # ADDED: Pass parameter
                         )
                     except Exception as e:
                         print(f"⚠️ Warning: Error visualizing {image_id}: {e}")
@@ -724,6 +714,11 @@ if __name__ == "__main__":
         default=0.5,
         help="Objectness threshold for displaying predictions",
     )
+    parser.add_argument(
+        "--use_otsu",
+        action="store_true",
+        help="Use Otsu thresholding for attention map visualization",
+    )
 
     args = parser.parse_args()
     config = load_config(args.config)
@@ -756,4 +751,5 @@ if __name__ == "__main__":
         only_viz=args.only_viz,
         sample_viz=args.sample_viz,
         obj_threshold=args.obj_threshold,
+        use_otsu=args.use_otsu,  # ADDED: Pass argument
     )
