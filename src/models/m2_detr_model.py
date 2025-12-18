@@ -179,15 +179,24 @@ class EfficientDeformableAttention(nn.Module):
         nn.init.xavier_uniform_(self.value_proj.weight)
         nn.init.xavier_uniform_(self.output_proj.weight)
 
-    def forward(self, query, reference_points, value, spatial_shapes):
+    def forward(
+        self,
+        query,
+        reference_points,
+        value,
+        spatial_shapes,
+        return_attention_weights=False,
+    ):
         """
         Args:
             query: [B, N_q, C]
             reference_points: [B, N_q, 2] in [0, 1]
             value: [B, H*W, C]
             spatial_shapes: (H, W)
+            return_attention_weights: bool, whether to return attention maps
         Returns:
             output: [B, N_q, C]
+            attn_maps: [B, H, W] global attention map (averaged over queries) if return_attention_weights else None
         """
         B, N_q, C = query.shape
         H, W = spatial_shapes
@@ -218,6 +227,11 @@ class EfficientDeformableAttention(nn.Module):
             0, 3, 1, 2, 4
         )  # [B, num_heads, H, W, head_dim]
 
+        # UPDATED: Create global attention map (averaged over all queries)
+        attn_maps_global = None
+        if return_attention_weights:
+            attn_maps_global = torch.zeros(B, H, W, device=query.device)
+
         # Sample features using grid_sample
         sampled_features = []
         for head in range(self.num_heads):
@@ -241,11 +255,34 @@ class EfficientDeformableAttention(nn.Module):
             )  # [B, N_q, head_dim]
             sampled_features.append(weighted)
 
-        # Concatenate heads
+            # UPDATED: Accumulate to global map (all queries combined)
+            if return_attention_weights:
+                for b in range(B):
+                    for q in range(N_q):
+                        # Get sampling locations for this query
+                        locs = sampling_locations[b, q, head]  # [num_points, 2]
+                        weights = attn_weights[b, q, head]  # [num_points]
+
+                        # Convert normalized coords to pixel coords
+                        x_coords = (locs[:, 0] * (W - 1)).long().clamp(0, W - 1)
+                        y_coords = (locs[:, 1] * (H - 1)).long().clamp(0, H - 1)
+
+                        # Accumulate weights at sampling locations
+                        for i in range(self.num_points):
+                            attn_maps_global[b, y_coords[i], x_coords[i]] += weights[i]
+
         output = torch.cat(sampled_features, dim=-1)  # [B, N_q, C]
         output = self.output_proj(output)
 
-        return output
+        if return_attention_weights:
+            # UPDATED: Normalize by total number of accumulations
+            # Average over all queries and heads
+            attn_maps_global = attn_maps_global / (
+                N_q * self.num_heads * self.num_points + 1e-6
+            )
+            return output, attn_maps_global  # [B, H, W]
+        else:
+            return output
 
 
 class EfficientDETRDecoder(nn.Module):
@@ -330,13 +367,14 @@ class EfficientDETRDecoder(nn.Module):
         noisy_boxes = (gt_boxes + noise).clamp(0, 1)
         return noisy_boxes
 
-    def forward(self, feat_map, gt_boxes=None):
+    def forward(self, feat_map, gt_boxes=None, return_attention_maps=False):
         """
         Args:
             feat_map: [B, C, H, W]
             gt_boxes: [B, N_gt, 4] during training, None during inference
+            return_attention_maps: bool, whether to return cross-attention maps
         Returns:
-            outputs: dict with predictions and denoising outputs
+            outputs: dict with predictions and global attention map
         """
         B, C, H, W = feat_map.shape
 
@@ -373,6 +411,7 @@ class EfficientDETRDecoder(nn.Module):
 
         all_bbox_preds = []
         all_obj_scores = []
+        cross_attn_maps = None
 
         # Decoder layers
         for layer_idx, layer in enumerate(self.decoder_layers):
@@ -381,11 +420,26 @@ class EfficientDETRDecoder(nn.Module):
             queries2, _ = layer["self_attn"](queries_norm, queries_norm, queries_norm)
             queries = queries + queries2
 
-            # Cross-attention
+            # Cross-attention with attention map extraction
             queries_norm = layer["norm2"](queries)
-            queries2 = layer["cross_attn"](
-                queries_norm, reference_points, feat_seq, (H, W)
-            )
+
+            # Get attention maps from last layer only
+            return_attn = return_attention_maps and (layer_idx == self.num_layers - 1)
+
+            if return_attn:
+                queries2, attn_maps = layer["cross_attn"](
+                    queries_norm,
+                    reference_points,
+                    feat_seq,
+                    (H, W),
+                    return_attention_weights=True,
+                )
+                cross_attn_maps = attn_maps  # [B, H, W] global map
+            else:
+                queries2 = layer["cross_attn"](
+                    queries_norm, reference_points, feat_seq, (H, W)
+                )
+
             queries = queries + queries2
 
             # FFN
@@ -425,6 +479,7 @@ class EfficientDETRDecoder(nn.Module):
                     {"pred_bboxes": bbox, "obj_scores": score, "gt_boxes": gt_boxes}
                     for bbox, score in zip(dn_bbox_preds, dn_obj_scores)
                 ],
+                "cross_attn_maps": cross_attn_maps,  # [B, H, W]
             }
         else:
             return {
@@ -435,6 +490,7 @@ class EfficientDETRDecoder(nn.Module):
                     for bbox, score in zip(all_bbox_preds[:-1], all_obj_scores[:-1])
                 ],
                 "dn_outputs": [],
+                "cross_attn_maps": cross_attn_maps,  # [B, H, W]
             }
 
 
@@ -468,11 +524,14 @@ class M2DETRModel(nn.Module):
             num_layers=1,
         )
 
-    def forward(self, x, gt_boxes=None):
+    def forward(self, x, gt_boxes=None, return_attention_maps=False):
         """
         Args:
             x: input images
             gt_boxes: [B, N_gt, 4] ground truth boxes (training only)
+            return_attention_maps: bool, whether to return decoder attention maps
+        Returns:
+            dict with cls_logits, pred_bboxes, obj_scores, attn_maps [B, H, W]
         """
         # Backbone
         feat_map = self.backbone(x)
@@ -490,9 +549,11 @@ class M2DETRModel(nn.Module):
         cls_feat = self.global_pool(feat_map).flatten(1)
         cls_output = self.classifier(cls_feat)
 
-        # UPDATED: Use improved attention
-        attn_feat, attn_map = self.spatial_attention(feat_map)
-        detr_outputs = self.detr_decoder(attn_feat, gt_boxes)
+        # Get spatial attention (keep for feature enhancement)
+        attn_feat, spatial_attn_map = self.spatial_attention(feat_map)
+
+        # Get decoder outputs with optional cross-attention maps
+        detr_outputs = self.detr_decoder(attn_feat, gt_boxes, return_attention_maps)
 
         return {
             "cls_logits": cls_output,
@@ -500,7 +561,10 @@ class M2DETRModel(nn.Module):
             "obj_scores": detr_outputs["obj_scores"],
             "aux_outputs": detr_outputs["aux_outputs"],
             "dn_outputs": detr_outputs.get("dn_outputs", []),
-            "attn_maps": attn_map,
+            "attn_maps": detr_outputs.get(
+                "cross_attn_maps"
+            ),  # UPDATED: [B, H, W] global attention map
+            "spatial_attn": spatial_attn_map,  # [B, 1, H, W]
         }
 
 
