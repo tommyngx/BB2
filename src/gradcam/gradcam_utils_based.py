@@ -219,6 +219,18 @@ def gradcam(
     # Enable gradient computation cho forward pass
     with torch.set_grad_enabled(True):
         output = model(input_tensor)
+        
+        # ADDED: Handle DETR model output (returns dict instead of tensor)
+        if isinstance(output, dict):
+            # DETR models return dict with 'cls_logits' key
+            if 'cls_logits' in output:
+                output = output['cls_logits']  # Extract classification logits [B, num_classes]
+            else:
+                raise ValueError(
+                    f"Model returned dict but no 'cls_logits' key found. "
+                    f"Available keys: {list(output.keys())}"
+                )
+        
         if class_idx is None:
             class_idx = output.argmax(dim=1).item()
 
