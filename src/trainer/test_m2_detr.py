@@ -168,6 +168,8 @@ def visualize_m2_detr_result(
         blend_img[mask] = (1 - blend_alpha) * blend_img[mask] + blend_alpha * cam_color[
             mask
         ]
+        # FIXED: Clip to [0, 1] to avoid warning
+        blend_img = np.clip(blend_img, 0, 1)
     else:
         # No Otsu, blend entire heatmap
         attn_normalized = attn_resized_np / 255.0
@@ -175,6 +177,8 @@ def visualize_m2_detr_result(
         blend_img = img_original_np.copy()
         blend_alpha = 0.4
         blend_img = (1 - blend_alpha) * blend_img + blend_alpha * cam_color
+        # FIXED: Clip to [0, 1] to avoid warning
+        blend_img = np.clip(blend_img, 0, 1)
 
     # ADDED: Prepare GradCAM panel if provided
     if gradcam_map is not None:
@@ -187,6 +191,8 @@ def visualize_m2_detr_result(
         gradcam_blend = (
             1 - blend_alpha
         ) * img_original_np + blend_alpha * gradcam_color
+        # FIXED: Clip to [0, 1] to avoid warning
+        gradcam_blend = np.clip(gradcam_blend, 0, 1)
 
     # UPDATED: Create figure with 2 or 3 subplots based on gradcam_map
     num_plots = 3 if gradcam_map is not None else 2
