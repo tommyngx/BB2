@@ -23,6 +23,9 @@ from src.utils.common import load_config, get_arg_or_config
 from src.trainer.train_based import get_gradcam_layer
 from src.utils.detr_utils import bbox_to_pixel, compute_bbox_confidence
 
+# ADDED: Import for GradCAM
+from src.gradcam.gradcam_utils_based import gradcam
+
 
 def load_data_bbx3(data_folder):
     """Load metadata with bounding box information grouped by image_id"""
@@ -109,8 +112,8 @@ def denormalize_image(tensor, mean, std):
 def visualize_m2_detr_result(
     image_tensor,
     attn_map,
-    pred_bboxes,  # [N, 4] - multiple queries
-    pred_obj_scores,  # [N] - objectness scores
+    pred_bboxes,
+    pred_obj_scores,
     gt_bbox_list,
     pred_class,
     gt_label,
@@ -120,9 +123,10 @@ def visualize_m2_detr_result(
     original_size,
     image_path=None,
     obj_threshold=0.5,
-    use_otsu=False,  # ADDED: Parameter to control Otsu thresholding
+    use_otsu=False,
+    gradcam_map=None,  # ADDED: Optional GradCAM heatmap
 ):
-    """Create side-by-side visualization with multiple predicted bboxes from DETR queries"""
+    """Create visualization with original, DETR prediction, and optional GradCAM"""
     orig_h, orig_w = original_size
 
     # Load original image
@@ -149,7 +153,6 @@ def visualize_m2_detr_result(
     )
     attn_resized_np = np.array(attn_resized)
 
-    # UPDATED: Conditional Otsu thresholding
     if use_otsu:
         # Apply Otsu threshold
         otsu_thresh = threshold_otsu(attn_resized_np)
@@ -170,10 +173,28 @@ def visualize_m2_detr_result(
         blend_alpha = 0.4
         blend_img = (1 - blend_alpha) * blend_img + blend_alpha * cam_color
 
-    # Create figure with 2 subplots
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
+    # ADDED: Prepare GradCAM panel if provided
+    if gradcam_map is not None:
+        gradcam_resized = Image.fromarray(gradcam_map).resize(
+            (orig_w, orig_h), Image.Resampling.BILINEAR
+        )
+        gradcam_np = np.array(gradcam_resized)
+        gradcam_normalized = gradcam_np / 255.0
+        gradcam_color = plt.cm.jet(gradcam_normalized)[..., :3]
+        gradcam_blend = (
+            1 - blend_alpha
+        ) * img_original_np + blend_alpha * gradcam_color
 
-    # Left: Original image + ALL GT bboxes
+    # UPDATED: Create figure with 2 or 3 subplots based on gradcam_map
+    num_plots = 3 if gradcam_map is not None else 2
+    fig, axs = plt.subplots(1, num_plots, figsize=(8 * num_plots, 8))
+
+    if num_plots == 2:
+        ax1, ax2 = axs
+    else:
+        ax1, ax2, ax3 = axs
+
+    # Panel 1: Original image + ALL GT bboxes
     ax1.imshow(img_original_np)
     num_valid_bboxes = 0
 
@@ -200,18 +221,16 @@ def visualize_m2_detr_result(
                     num_valid_bboxes += 1
 
         if num_valid_bboxes > 0:
-            title_left = f"Original ({orig_w}x{orig_h}) | GT: {class_names[gt_label]} | {num_valid_bboxes} bbox(es)"
+            title_left = f"GT: {class_names[gt_label]} | {num_valid_bboxes} bbox(es)"
         else:
-            title_left = f"Original ({orig_w}x{orig_h}) | GT: {class_names[gt_label]} (Invalid bboxes)"
+            title_left = f"GT: {class_names[gt_label]} (Invalid bboxes)"
     else:
-        title_left = (
-            f"Original ({orig_w}x{orig_h}) | GT: {class_names[gt_label]} (No bbox)"
-        )
+        title_left = f"GT: {class_names[gt_label]} (No bbox)"
 
     ax1.set_title(title_left, fontsize=12, fontweight="bold")
     ax1.axis("off")
 
-    # Right: Heatmap + ALL predicted bboxes above threshold
+    # Panel 2: DETR Heatmap + Predicted bboxes
     ax2.imshow(blend_img)
     num_pred_boxes = 0
     max_iou = 0.0
@@ -290,13 +309,17 @@ def visualize_m2_detr_result(
                             pass
 
     pred_label_str = class_names[pred_class]
-    title_right = (
-        f"Pred: {pred_label_str} | Prob: {pred_prob:.3f} | Boxes: {num_pred_boxes}"
-    )
+    title_right = f"DETR: {pred_label_str} | {pred_prob:.3f} | Boxes: {num_pred_boxes}"
     if max_iou > 0:
-        title_right += f" | Max IoU: {max_iou:.3f}"
+        title_right += f" | IoU: {max_iou:.3f}"
     ax2.set_title(title_right, fontsize=12, fontweight="bold")
     ax2.axis("off")
+
+    # ADDED: Panel 3: GradCAM (if available)
+    if gradcam_map is not None:
+        ax3.imshow(gradcam_blend)
+        ax3.set_title(f"GradCAM: {pred_label_str}", fontsize=12, fontweight="bold")
+        ax3.axis("off")
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
@@ -318,7 +341,8 @@ def run_m2_detr_test_with_visualization(
     only_viz=False,
     sample_viz=False,
     obj_threshold=0.5,
-    use_otsu=False,  # ADDED: Parameter to control Otsu
+    use_otsu=False,
+    use_gradcam=False,  # ADDED: Parameter to enable GradCAM
 ):
     """Test M2 DETR model with visualization of multiple queries"""
     # Load config
@@ -579,6 +603,8 @@ def run_m2_detr_test_with_visualization(
     if save_visualizations:
         print("\n" + "=" * 50)
         print("Task 3: Generate Visualizations (DETR Multiple Queries)")
+        if use_gradcam:
+            print("✓ GradCAM visualization enabled")
         print("=" * 50)
 
         vis_dir = os.path.join(output, "test_detr", model_filename)
@@ -604,9 +630,9 @@ def run_m2_detr_test_with_visualization(
                 # FIXED: Request attention maps explicitly
                 outputs = model(images, return_attention_maps=True)
                 cls_logits = outputs["cls_logits"]
-                pred_bboxes = outputs["pred_bboxes"]  # [B, N, 4]
-                pred_obj = torch.sigmoid(outputs["obj_scores"])  # [B, N, 1]
-                attn_maps = outputs.get("attn_maps", None)  # [B, H, W] global heatmap
+                pred_bboxes = outputs["pred_bboxes"]
+                pred_obj = torch.sigmoid(outputs["obj_scores"])
+                attn_maps = outputs.get("attn_maps", None)
 
                 _, predicted = torch.max(cls_logits, 1)
                 probs = torch.softmax(cls_logits, dim=1)
@@ -652,6 +678,32 @@ def run_m2_detr_test_with_visualization(
                     img_pred_bboxes = pred_bboxes[i]  # [N, 4]
                     img_pred_scores = pred_obj[i].squeeze(-1)  # [N]
 
+                    # ADDED: Generate GradCAM if enabled
+                    gradcam_map = None
+                    if use_gradcam and gradcam_layer is not None:
+                        try:
+                            # Enable gradients temporarily
+                            input_tensor = (
+                                images[i : i + 1].clone().requires_grad_(True)
+                            )
+
+                            # Get prediction for this sample
+                            with torch.set_grad_enabled(True):
+                                if isinstance(model, nn.DataParallel):
+                                    test_model = model.module
+                                else:
+                                    test_model = model
+
+                                gradcam_map = gradcam(
+                                    test_model,
+                                    input_tensor,
+                                    gradcam_layer,
+                                    class_idx=pred_class,
+                                )
+                        except Exception as e:
+                            print(f"⚠️ Warning: GradCAM failed for {image_id}: {e}")
+                            gradcam_map = None
+
                     # Save visualization
                     save_path = os.path.join(vis_dir, f"{image_id}.png")
                     try:
@@ -669,7 +721,8 @@ def run_m2_detr_test_with_visualization(
                             original_size,
                             image_path=image_path,
                             obj_threshold=obj_threshold,
-                            use_otsu=use_otsu,  # ADDED: Pass parameter
+                            use_otsu=use_otsu,
+                            gradcam_map=gradcam_map,  # ADDED: Pass GradCAM
                         )
                     except Exception as e:
                         print(f"⚠️ Warning: Error visualizing {image_id}: {e}")
@@ -719,6 +772,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Use Otsu thresholding for attention map visualization",
     )
+    parser.add_argument(
+        "--gradcam",
+        action="store_true",
+        help="Add GradCAM visualization panel",
+    )
 
     args = parser.parse_args()
     config = load_config(args.config)
@@ -751,5 +809,6 @@ if __name__ == "__main__":
         only_viz=args.only_viz,
         sample_viz=args.sample_viz,
         obj_threshold=args.obj_threshold,
-        use_otsu=args.use_otsu,  # ADDED: Pass argument
+        use_otsu=args.use_otsu,
+        use_gradcam=args.gradcam,  # ADDED: Pass argument
     )
