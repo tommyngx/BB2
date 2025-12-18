@@ -342,7 +342,7 @@ def run_m2_detr_test_with_visualization(
     sample_viz=False,
     obj_threshold=0.5,
     use_otsu=False,
-    use_gradcam=False,  # ADDED: Parameter to enable GradCAM
+    use_gradcam=False,
 ):
     """Test M2 DETR model with visualization of multiple queries"""
     # Load config
@@ -406,6 +406,25 @@ def run_m2_detr_test_with_visualization(
 
     # Extract model name from pretrained path
     model_filename = os.path.basename(pretrained_model_path).replace(".pth", "")
+
+    # ADDED: Determine GradCAM target layer if enabled
+    gradcam_layer = None
+    if use_gradcam:
+        # Get gradcam_layer from model
+        model_name = model_type.lower()
+        if isinstance(model, nn.DataParallel):
+            test_model = model.module
+        else:
+            test_model = model
+
+        # Get GradCAM layer using the helper function
+        gradcam_layer = get_gradcam_layer(test_model, model_name)
+
+        if gradcam_layer is None:
+            print("⚠️ Warning: Could not auto-detect GradCAM layer, disabling GradCAM")
+            use_gradcam = False
+        else:
+            print(f"✓ GradCAM enabled with layer: {gradcam_layer}")
 
     # Sample visualization for test data
     if sample_viz:
@@ -604,7 +623,7 @@ def run_m2_detr_test_with_visualization(
         print("\n" + "=" * 50)
         print("Task 3: Generate Visualizations (DETR Multiple Queries)")
         if use_gradcam:
-            print("✓ GradCAM visualization enabled")
+            print(f"✓ GradCAM visualization enabled (layer: {gradcam_layer})")
         print("=" * 50)
 
         vis_dir = os.path.join(output, "test_detr", model_filename)
