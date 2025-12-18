@@ -716,14 +716,45 @@ def run_m2_detr_test_with_visualization(
                                 else:
                                     test_model = model
 
-                                gradcam_map = gradcam(
+                                # UPDATED: Add detailed error handling
+                                result = gradcam(
                                     test_model,
                                     input_tensor,
                                     gradcam_layer,
                                     class_idx=pred_class,
                                 )
+
+                                # ADDED: Validate GradCAM output
+                                if isinstance(result, np.ndarray):
+                                    if result.ndim == 2 and result.dtype == np.uint8:
+                                        gradcam_map = result
+                                    else:
+                                        print(
+                                            f"⚠️ Warning: GradCAM returned unexpected array for {image_id}: "
+                                            f"shape={result.shape}, dtype={result.dtype}"
+                                        )
+                                elif isinstance(result, tuple):
+                                    print(
+                                        f"⚠️ Warning: GradCAM returned tuple for {image_id}: {result}"
+                                    )
+                                    # Try to extract first element if it's an array
+                                    if len(result) > 0 and isinstance(
+                                        result[0], np.ndarray
+                                    ):
+                                        gradcam_map = result[0]
+                                        print(
+                                            f"   Using first element: shape={gradcam_map.shape}"
+                                        )
+                                else:
+                                    print(
+                                        f"⚠️ Warning: GradCAM returned unexpected type for {image_id}: "
+                                        f"{type(result)}"
+                                    )
                         except Exception as e:
                             print(f"⚠️ Warning: GradCAM failed for {image_id}: {e}")
+                            import traceback
+
+                            print(f"   Full error:\n{traceback.format_exc()}")
                             gradcam_map = None
 
                     # Save visualization
