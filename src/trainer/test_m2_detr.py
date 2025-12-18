@@ -526,7 +526,6 @@ def run_m2_detr_test_with_visualization(
             roc_auc_score,
             precision_recall_fscore_support,
         )
-        import numpy as np
 
         all_preds = np.array(all_preds)
         all_labels = np.array(all_labels)
@@ -716,7 +715,7 @@ def run_m2_detr_test_with_visualization(
                                 else:
                                     test_model = model
 
-                                # UPDATED: Add detailed error handling
+                                # Generate GradCAM
                                 result = gradcam(
                                     test_model,
                                     input_tensor,
@@ -724,7 +723,7 @@ def run_m2_detr_test_with_visualization(
                                     class_idx=pred_class,
                                 )
 
-                                # ADDED: Validate GradCAM output
+                                # FIXED: Validate GradCAM output (np is already imported at top)
                                 if isinstance(result, np.ndarray):
                                     if result.ndim == 2 and result.dtype == np.uint8:
                                         gradcam_map = result
@@ -737,7 +736,6 @@ def run_m2_detr_test_with_visualization(
                                     print(
                                         f"⚠️ Warning: GradCAM returned tuple for {image_id}: {result}"
                                     )
-                                    # Try to extract first element if it's an array
                                     if len(result) > 0 and isinstance(
                                         result[0], np.ndarray
                                     ):
