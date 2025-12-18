@@ -201,24 +201,82 @@ def get_gradcam_layer(model, model_name):
     has_backbone = hasattr(model, "backbone")
     prefix = "backbone." if has_backbone else ""
 
+    # Special handling for timm models with nested base_model
+    # Try to find the deepest valid layer for ConvNeXt/MaxViT/EfficientNet
+    def find_deepest_layer(model, candidates):
+        # candidates: list of possible layer name patterns (from most to least preferred)
+        named_modules = dict([*model.named_modules()])
+        for cand in candidates:
+            for name in named_modules:
+                if name.endswith(cand):
+                    return name
+        return None
+
     # ResNet, ResNeXt, ResNeSt
     if "resnet" in model_name or "resnext" in model_name or "resnest" in model_name:
         return f"{prefix}layer4"
-    # ConvNeXtV2 Tiny
-    elif "convnextv2_tiny" in model_name:
-        return f"{prefix}stages.3.blocks.2.conv_dw"
-    # ConvNeXt, ConvNeXtV2
+    # ConvNeXtV2 Tiny, ConvNeXt
     elif "convnext" in model_name:
-        return f"{prefix}stages.3.blocks.2.conv_dw"
+        # Try to find the correct path for conv_dw in stage 3, block 2
+        candidates = [
+            "base_model.stages.3.blocks.2.conv_dw",
+            "stages.3.blocks.2.conv_dw",
+            "stages.3.blocks.2",
+        ]
+        layer_name = find_deepest_layer(model, candidates)
+        if layer_name:
+            return (
+                f"{prefix}{layer_name}"
+                if not layer_name.startswith(prefix)
+                else layer_name
+            )
+        # fallback
+        return f"{prefix}feature_proj"
     # MaxViT Tiny
     elif "maxvit_tiny" in model_name:
-        return f"{prefix}stages.-1.blocks.-1.conv.norm2"
+        candidates = [
+            "base_model.stages.3.blocks.1.conv.norm2",
+            "base_model.stages.3.blocks.1.conv",
+            "base_model.stages.3.blocks.1",
+        ]
+        layer_name = find_deepest_layer(model, candidates)
+        if layer_name:
+            return (
+                f"{prefix}{layer_name}"
+                if not layer_name.startswith(prefix)
+                else layer_name
+            )
+        return f"{prefix}feature_proj"
     # RegNetY
     elif "regnety" in model_name:
-        return f"{prefix}s4.b1.conv3.conv"
+        candidates = [
+            "base_model.s4.b1.conv3.conv",
+            "s4.b1.conv3.conv",
+        ]
+        layer_name = find_deepest_layer(model, candidates)
+        if layer_name:
+            return (
+                f"{prefix}{layer_name}"
+                if not layer_name.startswith(prefix)
+                else layer_name
+            )
+        return f"{prefix}feature_proj"
     # EfficientNet, EfficientNetV2
     elif "efficientnet" in model_name:
-        return f"{prefix}blocks.5.-1.conv_pwl"
+        candidates = [
+            "base_model.blocks.5.2.conv_pwl",
+            "base_model.blocks.5.2",
+            "blocks.5.2.conv_pwl",
+            "blocks.5.2",
+        ]
+        layer_name = find_deepest_layer(model, candidates)
+        if layer_name:
+            return (
+                f"{prefix}{layer_name}"
+                if not layer_name.startswith(prefix)
+                else layer_name
+            )
+        return f"{prefix}feature_proj"
     # DINOv2
     elif "dinov2" in model_name or "dinov3" in model_name:
         return f"{prefix}transformer.blocks.23.norm1"
