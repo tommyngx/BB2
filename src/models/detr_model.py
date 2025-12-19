@@ -313,6 +313,7 @@ def get_detr_model(model_type="resnet50", num_classes=2, num_queries=5):
     elif model_type in [
         "resnest50",
         "convnextv2_tiny",
+        "convnextv2base",
         "efficientnetv2s",
         "maxvit_tiny",
         "maxvit_tiny512",
