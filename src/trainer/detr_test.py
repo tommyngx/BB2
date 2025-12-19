@@ -150,7 +150,6 @@ def generate_visualizations(
                 gradcam_map = None
                 if use_gradcam and gradcam_layer is not None:
                     try:
-                        # print(f"[DEBUG] gradcam_layer: {gradcam_layer}")
                         input_tensor = images[i : i + 1].clone().requires_grad_(True)
                         with torch.set_grad_enabled(True):
                             test_model = (
@@ -167,10 +166,6 @@ def generate_visualizations(
                                 input_tensor,
                                 gradcam_layer,
                                 class_idx=pred_class,
-                            )
-
-                            print(
-                                # f"[DEBUG] gradcam result type: {type(result)}, shape: {getattr(result, 'shape', None)}"
                             )
                             if (
                                 isinstance(result, np.ndarray)
