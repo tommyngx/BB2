@@ -236,7 +236,7 @@ def unique_patients(df, debug_save_path=None):
     """
     Trả về số lượng bệnh nhân duy nhất (đã chuẩn hóa) từ DataFrame.
     Đảm bảo drop_duplicates theo image_id/link trước khi đếm (giống dataloader.py).
-    Nếu debug_save_path được truyền vào, sẽ lưu df_unique ra file csv.
+    Nếu debug_save_path được truyền vào, sẽ lưu df_unique đã chuẩn hóa ra file csv.
     """
 
     # Tìm cột patient_id, id, hoặc image_id (không phân biệt hoa thường)
@@ -260,11 +260,6 @@ def unique_patients(df, debug_save_path=None):
     else:
         df_unique = df
 
-    # Lưu ra file nếu cần debug
-    if debug_save_path is not None:
-        df_unique.to_csv(debug_save_path, index=False)
-        print(f"⚡️ Saved unique patient debug DataFrame to: {debug_save_path}")
-
     # Chuẩn hóa patient_id (giống dataloader.py)
     def normalize_pid(val):
         if isinstance(val, str):
@@ -275,8 +270,15 @@ def unique_patients(df, debug_save_path=None):
             return val
         return val
 
-    # Trả về số unique sau khi normalize (giống dataloader.py)
-    return df_unique[patient_id_col].map(normalize_pid).nunique()
+    # Áp dụng chuẩn hóa và lưu ra file nếu cần debug
+    norm_pid_series = df_unique[patient_id_col].map(normalize_pid)
+    if debug_save_path is not None:
+        debug_df = df_unique.copy()
+        debug_df["normalized_patient_id"] = norm_pid_series
+        debug_df.to_csv(debug_save_path, index=False)
+        print(f"⚡️ Saved unique patient debug DataFrame to: {debug_save_path}")
+
+    return norm_pid_series.nunique()
 
 
 def prepare_detr_dataframe(
