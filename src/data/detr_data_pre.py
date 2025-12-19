@@ -232,6 +232,40 @@ def group_bboxes_by_image_vectorized(
     return grouped
 
 
+def unique_patients(df):
+    """
+    Trả về tập hợp các bệnh nhân duy nhất (đã chuẩn hóa) từ DataFrame.
+    Đảm bảo loại bỏ duplicate trước khi chuẩn hóa.
+    """
+
+    # Tìm cột patient_id, id, hoặc image_id (không phân biệt hoa thường)
+    def find_col(df, candidates):
+        df_cols = list(df.columns)
+        for col in candidates:
+            for c in df_cols:
+                if c.lower() == col:
+                    return c
+        return None
+
+    patient_id_col = find_col(df, ["patient_id", "id", "image_id"])
+    if patient_id_col is None:
+        return set()
+    # Loại bỏ duplicate trước khi chuẩn hóa
+    unique_df = df.drop_duplicates(subset=[patient_id_col])
+
+    # Chuẩn hóa patient_id
+    def normalize_pid(val):
+        if isinstance(val, str):
+            for suffix in ["_R", "_L", "_MLO", "_CC"]:
+                idx = val.find(suffix)
+                if idx > 0:
+                    return val[:idx]
+            return val
+        return val
+
+    return set(unique_df[patient_id_col].dropna().map(normalize_pid))
+
+
 def prepare_detr_dataframe(
     df, data_folder=None, validate_bbox=True, min_area=100, verbose=True
 ):
@@ -267,53 +301,22 @@ def prepare_detr_dataframe(
         print(f"    Train: {len(train_df)} images")
         print(f"    Test:  {len(test_df)} images")
 
-        # Check for patient_id, id, or image_id columns (case-insensitive, but keep original name)
-        def find_col(df, candidates):
-            df_cols = list(df.columns)
-            for col in candidates:
-                for c in df_cols:
-                    if c.lower() == col:
-                        return c
-            return None
-
-        patient_id_col_train = find_col(train_df, ["patient_id", "id", "image_id"])
-        patient_id_col_test = find_col(test_df, ["patient_id", "id", "image_id"])
-        patient_id_col = patient_id_col_train or patient_id_col_test
-
-        def normalize_pid(val):
-            if isinstance(val, str):
-                for suffix in ["_R", "_L", "_MLO", "_CC"]:
-                    idx = val.find(suffix)
-                    if idx > 0:
-                        return val[:idx]
-                return val
-            return val
-
-        # Calculate unique patients for train, test, and total
-        if patient_id_col is not None:
-            train_patients_set = set(
-                train_df[patient_id_col].dropna().map(normalize_pid)
-            )
-            test_patients_set = set(test_df[patient_id_col].dropna().map(normalize_pid))
-            total_patients_set = train_patients_set | test_patients_set
-            n_train_patients = len(train_patients_set)
-            n_test_patients = len(test_patients_set)
-            n_total_patients = len(total_patients_set)
-            pct_train = (
-                (n_train_patients / n_total_patients * 100)
-                if n_total_patients > 0
-                else 0
-            )
-            pct_test = (
-                (n_test_patients / n_total_patients * 100)
-                if n_total_patients > 0
-                else 0
-            )
-            print(
-                f"    Unique patients: train {n_train_patients} ({pct_train:.1f}%) | test {n_test_patients} ({pct_test:.1f}%) | total {n_total_patients}"
-            )
-        else:
-            print("    Unique patients: N/A")
+        # Tính unique patients cho train, test, tổng
+        train_patients_set = unique_patients(train_df)
+        test_patients_set = unique_patients(test_df)
+        total_patients_set = train_patients_set | test_patients_set
+        n_train_patients = len(train_patients_set)
+        n_test_patients = len(test_patients_set)
+        n_total_patients = len(total_patients_set)
+        pct_train = (
+            (n_train_patients / n_total_patients * 100) if n_total_patients > 0 else 0
+        )
+        pct_test = (
+            (n_test_patients / n_total_patients * 100) if n_total_patients > 0 else 0
+        )
+        print(
+            f"    Unique patients: train {n_train_patients} ({pct_train:.1f}%) | test {n_test_patients} ({pct_test:.1f}%) | total {n_total_patients}"
+        )
 
         # Multi-bbox statistics
         train_multi = (train_df["num_bboxes"] > 1).sum()
