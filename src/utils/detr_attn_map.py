@@ -59,21 +59,21 @@ def prepare_attention_heatmap(attn_map, original_size, use_otsu=False):
     orig_h, orig_w = original_size
     attn_np = attn_map.squeeze().cpu().numpy()
 
-    # ADDED: Normalize to [0, 1] before resizing to avoid artifacts and make the map clearer
-    if attn_np.max() - attn_np.min() > 1e-6:  # Avoid divide by zero
+    # Normalize to [0, 1] before resizing
+    if attn_np.max() - attn_np.min() > 1e-6:
         attn_np = (attn_np - attn_np.min()) / (attn_np.max() - attn_np.min())
     else:
         attn_np = np.zeros_like(attn_np)
 
-    # Resize to original size (on [0,255] for PIL)
+    # Resize to original size
     attn_resized = Image.fromarray((attn_np * 255).astype(np.uint8)).resize(
         (orig_w, orig_h), Image.Resampling.BILINEAR
     )
-    attn_resized_np = np.array(attn_resized) / 255.0  # Normalize back to [0,1]
+    attn_resized_np = np.array(attn_resized) / 255.0
 
     mask = None
     if use_otsu:
-        # Apply Otsu on [0,255] for threshold_otsu, then normalize thresh
+        # Apply Otsu thresholding
         otsu_thresh = threshold_otsu(attn_resized_np * 255) / 255.0
         mask = attn_resized_np > otsu_thresh
 

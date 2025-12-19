@@ -204,87 +204,85 @@ class EfficientDeformableAttention(nn.Module):
         offsets = self.sampling_offsets(query).view(
             B, N_q, self.num_heads, self.num_points, 2
         )
-        attn_weights = F.softmax(self.attention_weights(query), dim=-1).view(
+        attn_weights = self.attention_weights(query).view(
             B, N_q, self.num_heads, self.num_points
         )
+        attn_weights = F.softmax(attn_weights, dim=-1)
 
-        # Normalize offsets to [-1, 1] relative to ref points
-        offsets = offsets * 0.5  # Scale offsets
-        sampling_locations = reference_points.unsqueeze(2).unsqueeze(3) + offsets
-        sampling_locations = torch.clamp(sampling_locations, 0, 1)
+        # Normalize offsets to relative scale
+        offsets_x = offsets[..., 0] / float(W) * 0.1
+        offsets_y = offsets[..., 1] / float(H) * 0.1
+        offsets = torch.stack([offsets_x, offsets_y], dim=-1)
 
-        # Project value
-        value = self.value_proj(value)  # [B, L, C]
-        value = value.view(B, H * W, self.num_heads, self.head_dim)
+        # Sampling locations
+        sampling_locations = reference_points[:, :, None, None, :] + offsets
+        sampling_locations = sampling_locations.clamp(0, 1)
 
-        # Sample features
-        sampled_feats = []
-        for b in range(B):
-            # Đưa value về [num_heads, head_dim, H, W]
-            feat = (
-                value[b].permute(1, 2, 0).reshape(self.num_heads, self.head_dim, H, W)
-            )
-            # grid: [N_q, num_heads, num_points, 2]
-            grid = sampling_locations[b]  # [N_q, num_heads, num_points, 2]
-            all_heads = []
-            for h in range(self.num_heads):
-                value_head = feat[h].unsqueeze(0)  # [1, head_dim, H, W]
-                grid_h = grid[:, h, :, :]  # [N_q, num_points, 2]
-                # grid_sample expects [N, C, H, W] and [N, H_out, W_out, 2]
-                # We'll sample each query separately
-                sampled_per_query = []
-                for q in range(N_q):
-                    grid_q = (
-                        grid_h[q].unsqueeze(0).unsqueeze(0)
-                    )  # [1, 1, num_points, 2]
-                    # Expand value_head to [1, head_dim, H, W]
-                    sampled_q = F.grid_sample(
-                        value_head,
-                        grid_q,
-                        mode="bilinear",
-                        padding_mode="border",
-                        align_corners=False,
-                    )  # [1, head_dim, 1, num_points]
-                    sampled_per_query.append(
-                        sampled_q.squeeze(2)
-                    )  # [1, head_dim, num_points]
-                sampled_per_query = torch.cat(
-                    sampled_per_query, dim=0
-                )  # [N_q, head_dim, num_points]
-                all_heads.append(sampled_per_query)
-            # all_heads: list of [N_q, head_dim, num_points] for each head
-            all_heads = torch.stack(
-                all_heads, dim=1
-            )  # [N_q, num_heads, head_dim, num_points]
-            sampled_feats.append(all_heads)
-        sampled_feats = torch.stack(
-            sampled_feats, dim=0
-        )  # [B, N_q, num_heads, head_dim, num_points]
+        # Project value and reshape for grid_sample
+        value_projected = self.value_proj(value)  # [B, H*W, C]
+        value_spatial = value_projected.view(B, H, W, self.num_heads, self.head_dim)
+        value_spatial = value_spatial.permute(0, 3, 4, 1, 2)  # [B, num_heads, head_dim, H, W]
 
-        # Attend
-        attn_weights = attn_weights.unsqueeze(3)  # [B, N_q, heads, 1, points]
-        output = (sampled_feats * attn_weights).sum(-1)  # [B, N_q, heads, head_dim]
+        # Prepare for grid_sample: reshape to [B*num_heads, head_dim, H, W]
+        value_for_sample = value_spatial.reshape(B * self.num_heads, self.head_dim, H, W)
+
+        # Prepare grid: [B, N_q, num_heads, num_points, 2] -> [B*num_heads, N_q*num_points, 1, 2]
+        grid = sampling_locations.permute(0, 2, 1, 3, 4).reshape(
+            B * self.num_heads, N_q * self.num_points, 1, 2
+        )
+        # Normalize to [-1, 1] for grid_sample
+        grid = grid * 2 - 1
+
+        # Sample features: [B*num_heads, head_dim, N_q*num_points, 1]
+        sampled_feats = F.grid_sample(
+            value_for_sample,
+            grid,
+            mode='bilinear',
+            padding_mode='border',
+            align_corners=False
+        )
+        
+        # Reshape: [B, num_heads, head_dim, N_q, num_points]
+        sampled_feats = sampled_feats.squeeze(-1).view(
+            B, self.num_heads, self.head_dim, N_q, self.num_points
+        ).permute(0, 3, 1, 4, 2)  # [B, N_q, num_heads, num_points, head_dim]
+
+        # Apply attention weights and aggregate
+        attn_weights_expanded = attn_weights.unsqueeze(-1)  # [B, N_q, num_heads, num_points, 1]
+        output = (sampled_feats * attn_weights_expanded).sum(dim=3)  # [B, N_q, num_heads, head_dim]
         output = output.flatten(2)  # [B, N_q, C]
         output = self.output_proj(output)
 
         if return_attention_weights:
-            # Compute per-query attention maps first
+            # Create per-query attention maps
             per_query_maps = torch.zeros((B, N_q, H, W), device=device)
+            
+            # Accumulate attention weights at sampling locations
             for b in range(B):
                 for q in range(N_q):
                     for h in range(self.num_heads):
                         for p in range(self.num_points):
-                            attn = attn_weights[b, q, h, p]
-                            x = int(sampling_locations[b, q, h, p, 0] * (W - 1))
-                            y = int(sampling_locations[b, q, h, p, 1] * (H - 1))
-                            per_query_maps[b, q, y, x] += (
-                                attn  # Accumulate per query over heads/points
-                            )
+                            # Get attention weight
+                            weight = attn_weights[b, q, h, p].item()
+                            
+                            # Get sampling location in pixel coordinates
+                            x_norm = sampling_locations[b, q, h, p, 0].item()
+                            y_norm = sampling_locations[b, q, h, p, 1].item()
+                            
+                            x = int(x_norm * (W - 1))
+                            y = int(y_norm * (H - 1))
+                            
+                            # Clamp to valid range
+                            x = max(0, min(W - 1, x))
+                            y = max(0, min(H - 1, y))
+                            
+                            # Accumulate
+                            per_query_maps[b, q, y, x] += weight
 
             # Normalize per-query maps
             per_query_maps = per_query_maps / (self.num_heads * self.num_points + 1e-6)
 
-            # Combine with max pool over queries
+            # Max pool over queries to get global attention map
             attn_maps = per_query_maps.max(dim=1).values  # [B, H, W]
 
             return output, attn_maps
