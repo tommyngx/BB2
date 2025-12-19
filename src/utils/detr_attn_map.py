@@ -8,7 +8,7 @@ from PIL import Image
 from skimage.filters import threshold_otsu
 
 
-def prepare_attention_heatmap_ori(attn_map, original_size, use_otsu=False):
+def prepare_attention_heatmap(attn_map, original_size, use_otsu=False):
     """
     Prepare attention heatmap with optional Otsu thresholding
 
@@ -38,7 +38,7 @@ def prepare_attention_heatmap_ori(attn_map, original_size, use_otsu=False):
     return attn_resized_np, None
 
 
-def prepare_attention_heatmap(attn_map, original_size, use_otsu=False):
+def prepare_attention_heatmap1(attn_map, original_size, use_otsu=False):
     """
     Prepare attention heatmap with optional Otsu thresholding
     Args:
