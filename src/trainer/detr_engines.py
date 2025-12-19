@@ -32,6 +32,7 @@ from src.utils.detr_test_utils import (
     print_test_metrics,
 )
 from src.utils.detr_train_utils import HungarianMatcher, DETRCriterion
+from src.utils.detr_metrics import compute_detr_metrics, box_iou_batch
 
 
 def train_detr_model(
@@ -219,9 +220,8 @@ def train_detr_model(
         # Validation
         model.eval()
         val_loss, val_correct, val_total = 0.0, 0, 0
-        val_iou, num_val_bbox = 0.0, 0
         all_preds, all_labels, all_probs = [], [], []
-        all_pred_boxes, all_gt_boxes = [], []
+        all_pred_boxes, all_gt_boxes, all_obj_scores = [], [], []
 
         with torch.no_grad():
             for batch in test_loader:
@@ -246,43 +246,49 @@ def train_detr_model(
                 all_labels.extend(labels.cpu().numpy())
                 all_probs.extend(probs.cpu().numpy())
 
+                # Collect boxes and scores for mAP computation
                 pred_obj = torch.sigmoid(outputs["obj_scores"])
                 for i in range(images.size(0)):
                     if bbox_mask[i].sum() > 0:
-                        top_idx = pred_obj[i].squeeze(-1).argmax()
-                        pred_box = outputs["pred_bboxes"][i, top_idx : top_idx + 1]
-                        gt_boxes = bboxes[i][bbox_mask[i] > 0.5]
-
-                        val_iou += detr_compute_iou(pred_box[0], gt_boxes[0]).item()
-                        num_val_bbox += 1
-                        all_pred_boxes.append(pred_box.cpu())
-                        all_gt_boxes.append(gt_boxes.cpu())
+                        all_pred_boxes.append(outputs["pred_bboxes"][i].cpu())
+                        all_gt_boxes.append(bboxes[i].cpu())
+                        all_obj_scores.append(pred_obj[i].cpu())
 
         val_loss = val_loss / val_total
         val_acc = val_correct / val_total
-        avg_val_iou = val_iou / max(num_val_bbox, 1)
         test_losses.append(val_loss)
         test_accs.append(val_acc)
-        test_ious.append(avg_val_iou)
 
-        # mAP@0.5, mAP@0.25, and Recall@IoU=0.25
-        val_map50 = 0.0
-        val_map25 = 0.0
-        recall_iou25 = 0.0
+        # Compute standard DETR metrics using the new metrics module
+        bbox_metrics = {}
         if len(all_pred_boxes) > 0:
-            num_correct_50 = sum(
-                1
-                for pred_box, gt_box in zip(all_pred_boxes, all_gt_boxes)
-                if detr_compute_iou(pred_box[0], gt_box[0]).item() >= 0.5
+            # Stack all predictions for batch processing
+            pred_boxes_batch = torch.stack(all_pred_boxes)  # (N, num_queries, 4)
+            gt_boxes_batch = torch.stack(all_gt_boxes)  # (N, max_gt, 4)
+            obj_scores_batch = torch.stack(all_obj_scores)  # (N, num_queries)
+
+            # Create bbox_mask for the batch
+            bbox_mask_batch = torch.zeros(
+                gt_boxes_batch.size(0), gt_boxes_batch.size(1)
             )
-            num_correct_25 = sum(
-                1
-                for pred_box, gt_box in zip(all_pred_boxes, all_gt_boxes)
-                if detr_compute_iou(pred_box[0], gt_box[0]).item() >= 0.25
+            for i, gt_box in enumerate(all_gt_boxes):
+                valid_count = (gt_box.sum(dim=1) > 0).sum()
+                bbox_mask_batch[i, :valid_count] = 1
+
+            bbox_metrics = compute_detr_metrics(
+                pred_boxes_batch,
+                gt_boxes_batch,
+                obj_scores_batch.squeeze(-1),
+                bbox_mask_batch,
             )
-            val_map50 = num_correct_50 / len(all_pred_boxes)
-            val_map25 = num_correct_25 / len(all_pred_boxes)
-            recall_iou25 = num_correct_25 / len(all_gt_boxes)
+
+        # Extract metrics with default values
+        avg_val_iou = bbox_metrics.get("avg_iou", 0.0)
+        val_map50 = bbox_metrics.get("mAP@0.5", 0.0)
+        val_map25 = bbox_metrics.get("mAP@0.25", 0.0)
+        recall_iou25 = bbox_metrics.get("recall@0.25", 0.0)
+
+        test_ious.append(avg_val_iou)
 
         # Metrics
         all_preds = np.array(all_preds)
@@ -303,10 +309,10 @@ def train_detr_model(
                     epoch + 1,
                     round(train_losses[-1], 6),
                     round(train_accs[-1], 6),
-                    round(epoch_iou / max(num_bbox_samples, 1), 6),
+                    round(train_ious[-1], 6),
                     round(test_losses[-1], 6),
                     round(val_acc, 6),
-                    round(val_iou / max(num_val_bbox, 1), 6),
+                    round(avg_val_iou, 6),
                     round(val_map50, 6),
                     round(val_map25, 6),
                     round(recall_iou25, 6),
