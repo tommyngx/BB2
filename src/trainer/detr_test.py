@@ -20,7 +20,7 @@ from src.data.detr_data_pre import load_detr_metadata
 from src.models.detr_model import get_detr_model
 from src.utils.common import load_config, get_arg_or_config
 from src.utils.detr_common_utils import parse_img_size
-from src.utils.detr_gradcam_utils import get_gradcam_layer
+from src.utils.detr_gradcam_utils import get_gradcam_layer, gradcam
 from src.utils.detr_data_utils import load_image_metadata_with_bboxes
 from src.utils.detr_viz_utils import visualize_detr_result
 from src.utils.detr_test_utils import (
@@ -28,7 +28,6 @@ from src.utils.detr_test_utils import (
     compute_classification_metrics,
     print_test_metrics,
 )
-from src.gradcam.gradcam_utils_based import gradcam
 
 
 def save_full_model(
@@ -97,6 +96,9 @@ def generate_visualizations(
     device,
 ):
     """Generate visualizations for test set"""
+    print(
+        f"[DEBUG] generate_visualizations: use_gradcam={use_gradcam}, gradcam_layer={gradcam_layer}"
+    )
     vis_dir = os.path.join(output, "test_detr", model_filename)
     os.makedirs(vis_dir, exist_ok=True)
 
@@ -131,6 +133,7 @@ def generate_visualizations(
                 pred_prob = probs[i, pred_class].item()
 
                 if image_id not in image_info:
+                    print(f"[DEBUG] image_id {image_id} not in image_info, skipping")
                     continue
 
                 info = image_info[image_id]
@@ -143,12 +146,18 @@ def generate_visualizations(
                     or attn_maps is None
                     or len(attn_maps.shape) != 3
                 ):
+                    print(
+                        f"[DEBUG] Skipping {image_id} due to original_size/attn_maps/shape: original_size={original_size}, attn_maps={type(attn_maps)}, shape={getattr(attn_maps, 'shape', None)}"
+                    )
                     continue
 
                 attn_map = attn_maps[i]
 
                 # GradCAM generation
                 gradcam_map = None
+                print(
+                    f"[DEBUG] Before gradcam: use_gradcam={use_gradcam}, gradcam_layer={gradcam_layer}"
+                )
                 if use_gradcam and gradcam_layer is not None:
                     try:
                         print(f"[DEBUG] gradcam_layer: {gradcam_layer}")
@@ -159,7 +168,6 @@ def generate_visualizations(
                                 if isinstance(model, nn.DataParallel)
                                 else model
                             )
-                            # In ra các layer của model để kiểm tra
                             print("[DEBUG] Model layers:")
                             for name, _ in test_model.named_modules():
                                 print("   ", name)
