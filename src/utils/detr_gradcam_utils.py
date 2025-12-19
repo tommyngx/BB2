@@ -29,11 +29,6 @@ def vit_reshape_transform(x, grid_h, grid_w):
     # Tính số extra tokens (CLS + register tokens)
     num_extra = N - num_patches
 
-    print(f"DEBUG vit_reshape: B={B}, N={N}, C={C}")
-    print(
-        f"DEBUG vit_reshape: grid=({grid_h}, {grid_w}), num_patches={num_patches}, num_extra={num_extra}"
-    )
-
     if num_extra < 0:
         raise ValueError(
             f"Mismatch: Expected {num_patches} patches but got {N} tokens. "
@@ -130,10 +125,6 @@ def gradcam(
     acts = activations[0]
     grads = gradients[0]
 
-    # REMOVED: Debug prints
-    # print(f"DEBUG: Activation shape: {acts.shape}")
-    # print(f"DEBUG: Gradient shape: {grads.shape}")
-
     # ===== Kiểm tra cấu trúc wrapper và lấy grid_size =====
     is_vit = False
     grid_h, grid_w = None, None
@@ -159,24 +150,18 @@ def gradcam(
                 # **TÍNH TỪ INPUT THỰC TẾ, KHÔNG DÙNG model.patch_embed.img_size**
                 grid_h = actual_input_h // patch_size
                 grid_w = actual_input_w // patch_size
-                print(f"DEBUG: Detected ViT wrapper")
-                print(
-                    f"DEBUG: Actual input size=({actual_input_h}, {actual_input_w}), patch_size={patch_size}"
-                )
-                print(f"DEBUG: Calculated grid_size=({grid_h}, {grid_w})")
             else:
                 # Fallback
                 if hasattr(model.transformer.patch_embed, "grid_size"):
                     is_vit = True
                     grid_h, grid_w = model.transformer.patch_embed.grid_size
-                    print(f"DEBUG: Using stored grid_size=({grid_h}, {grid_w})")
                 elif hasattr(model.transformer.patch_embed, "num_patches"):
                     is_vit = True
                     num_patches = model.transformer.patch_embed.num_patches
                     grid_h = grid_w = int(num_patches**0.5)
-                    print(
-                        f"DEBUG: Calculated from num_patches, grid_size=({grid_h}, {grid_w})"
-                    )
+                    # print(
+                    #     f"DEBUG: Calculated from num_patches, grid_size=({grid_h}, {grid_w})"
+                    # )
 
     # Kiểm tra direct ViT model
     elif hasattr(model, "patch_embed"):
@@ -194,41 +179,28 @@ def gradcam(
             # **TÍNH TỪ INPUT THỰC TẾ**
             grid_h = actual_input_h // patch_size
             grid_w = actual_input_w // patch_size
-            print(f"DEBUG: Detected direct ViT")
-            print(
-                f"DEBUG: Actual input size=({actual_input_h}, {actual_input_w}), patch_size={patch_size}"
-            )
-            print(f"DEBUG: Calculated grid_size=({grid_h}, {grid_w})")
         else:
             # Fallback
             if hasattr(model.patch_embed, "grid_size"):
                 is_vit = True
                 grid_h, grid_w = model.patch_embed.grid_size
-                print(f"DEBUG: Using stored grid_size=({grid_h}, {grid_w})")
             elif hasattr(model.patch_embed, "num_patches"):
                 is_vit = True
                 num_patches = model.patch_embed.num_patches
                 grid_h = grid_w = int(num_patches**0.5)
-                print(
-                    f"DEBUG: Calculated from num_patches, grid_size=({grid_h}, {grid_w})"
-                )
+                # print(
+                #     f"DEBUG: Calculated from num_patches, grid_size=({grid_h}, {grid_w})"
+                # )
 
     # Reshape nếu là ViT và activation có dạng [B, N, C]
     if is_vit and acts.ndim == 3 and grid_h is not None and grid_w is not None:
-        print(f"DEBUG: Reshaping ViT output from {acts.shape}")
         try:
             acts = vit_reshape_transform(acts, grid_h, grid_w)  # [B, C, H, W]
             grads = vit_reshape_transform(grads, grid_h, grid_w)  # [B, C, H, W]
-            print(f"DEBUG: After reshape - Acts: {acts.shape}, Grads: {grads.shape}")
         except ValueError as e:
-            print(f"⚠️ ERROR during reshape: {e}")
-            print(f"⚠️ Falling back to non-ViT mode")
             is_vit = False
     elif is_vit and acts.ndim == 3:
-        print(
-            "⚠️ WARNING: Detected ViT but couldn't determine grid_size. "
-            "GradCAM may not work correctly."
-        )
+        pass
 
     # GradCAM logic
     weights = grads.mean(dim=(2, 3), keepdim=True)

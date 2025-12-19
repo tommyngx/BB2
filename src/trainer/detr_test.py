@@ -157,10 +157,7 @@ def generate_visualizations(
                                 if isinstance(model, nn.DataParallel)
                                 else model
                             )
-                            # In ra các layer của model để kiểm tra
-                            # print("[DEBUG] Model layers:")
-                            for name, _ in test_model.named_modules():
-                                print("   ", name)
+                            # ĐÃ TẮT DEBUG: không in ra các layer nữa
                             result = gradcam(
                                 test_model,
                                 input_tensor,
@@ -174,9 +171,8 @@ def generate_visualizations(
                             ):
                                 gradcam_map = result
                             else:
-                                print(
-                                    "[DEBUG] gradcam did not return expected ndarray."
-                                )
+                                # ĐÃ TẮT DEBUG
+                                pass
                     except Exception as e:
                         print(f"⚠️ GradCAM failed for {image_id}: {e}")
 
