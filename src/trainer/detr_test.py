@@ -305,7 +305,13 @@ def run_detr_test(
         )
         metrics["accuracy"] = results["accuracy"]
 
-        print_test_metrics(metrics, results["iou"], results["map"])
+        # Use new keys if available, else fallback for backward compatibility
+        print_test_metrics(
+            metrics,
+            results.get("iou", 0.0),
+            results.get("map50", 0.0),
+            results.get("map25", 0.0),
+        )
 
         save_full_model(
             model,

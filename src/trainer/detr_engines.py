@@ -431,28 +431,34 @@ def train_detr_model(
         test_accs.append(val_acc)
         test_ious.append(avg_val_iou)
 
-        # mAP@0.5
-        val_map = 0.0
+        # mAP@0.5 and mAP@0.25
+        val_map50 = 0.0
+        val_map25 = 0.0
         if len(all_pred_boxes) > 0:
-            num_correct = sum(
+            num_correct_50 = sum(
                 1
                 for pred_box, gt_box in zip(all_pred_boxes, all_gt_boxes)
                 if detr_compute_iou(pred_box[0], gt_box[0]).item() >= 0.5
             )
-            val_map = num_correct / len(all_pred_boxes)
+            num_correct_25 = sum(
+                1
+                for pred_box, gt_box in zip(all_pred_boxes, all_gt_boxes)
+                if detr_compute_iou(pred_box[0], gt_box[0]).item() >= 0.25
+            )
+            val_map50 = num_correct_50 / len(all_pred_boxes)
+            val_map25 = num_correct_25 / len(all_pred_boxes)
 
         # Metrics
         all_preds = np.array(all_preds)
         all_labels = np.array(all_labels)
         all_probs = np.array(all_probs)
 
-        # Use unified metrics and print function
         metrics = compute_classification_metrics(
             all_preds, all_labels, all_probs, class_names=None
         )
         metrics["accuracy"] = val_acc * 100
 
-        print_test_metrics(metrics, avg_val_iou, val_map)
+        print_test_metrics(metrics, avg_val_iou, val_map50, val_map25)
         # Logging
         with open(log_file, "a", newline="") as f:
             csv.writer(f).writerow(
