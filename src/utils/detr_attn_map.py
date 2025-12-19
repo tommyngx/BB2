@@ -69,8 +69,9 @@ def prepare_attention_heatmap(attn_map, original_size, use_otsu=False):
         # Apply Otsu on [0,255] for threshold_otsu, then normalize thresh
         otsu_thresh = threshold_otsu(attn_resized_np * 255) / 255.0
         mask = attn_resized_np > otsu_thresh
+        return attn_resized_np, mask
 
-    return attn_resized_np, mask
+    return attn_resized_np, None
 
 
 def create_heatmap_overlay(img_original_np, attn_resized_np, mask=None, alpha=0.4):
