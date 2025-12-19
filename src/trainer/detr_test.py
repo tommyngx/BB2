@@ -74,7 +74,8 @@ def save_full_model(
         print(f"   Inference time: {inference_time:.4f}s")
         print(f"   Test Accuracy: {test_metrics['accuracy']:.2f}%")
         print(f"   Test IoU: {test_metrics['iou'] * 100:.2f}%")
-        print(f"   Test mAP@0.5: {test_metrics['map'] * 100:.2f}%")
+        print(f"   Test mAP@0.5: {test_metrics.get('map50', 0.0) * 100:.2f}%")
+        print(f"   Test mAP@0.25: {test_metrics.get('map25', 0.0) * 100:.2f}%")
     except Exception as e:
         print(f"⚠️ Error saving full model: {e}")
 
