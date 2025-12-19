@@ -172,10 +172,10 @@ def print_test_metrics(metrics, test_iou, test_map, test_loss=None):
 
     if spec is not None:
         print(
-            f"Test Class: ACC={acc:.2f}%, AUC={auc:.2f}%, SEN={sen:.2f}%, SPEC={spec:.2f}%"
+            f"Test Class: ACC={acc:.2f}% | AUC={auc:.2f}% | SEN={sen:.2f}% | SPEC={spec:.2f}%"
         )
     else:
-        print(f"Test Class: ACC={acc:.2f}%, AUC={auc:.2f}%, SEN={sen:.2f}%")
-    print(f"Test Det: IoU={iou:.2f}%, mAP={map50:.2f}%, F1={f1:.2f}%")
-    print("\nClassification Report:")
+        print(f"Test Class: ACC={acc:.2f}% | AUC={auc:.2f}% | SEN={sen:.2f}%")
+    print(f"Test Det : IoU={iou:.2f}% | mAP={map50:.2f}% |  F1={f1:.2f}%")
+    # print("\nClassification Report:")
     print(metrics["report"])
