@@ -365,11 +365,10 @@ def train_detr_model(
                     os.remove(p)
 
         plot_metrics(
-            train_losses,   test_losses,
-            os.path.join(plot_dir, f"{model_key}.png"),            test_accs,
-        )ath.join(plot_dir, f"{model_key}.png"),
+            train_losses,
+            test_losses,
+            os.path.join(plot_dir, f"{model_key}.png"),
+            test_accs,
         )
 
-
-    return model
     return model
