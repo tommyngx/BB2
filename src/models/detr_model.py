@@ -131,11 +131,6 @@ class PositionEmbeddingSine(nn.Module):
         return pos
 
 
-import torch
-import torch.nn as nn
-import math
-
-
 class EfficientDeformableAttention(nn.Module):
     """
     Efficient Deformable Attention with reduced complexity
@@ -225,17 +220,26 @@ class EfficientDeformableAttention(nn.Module):
         # Sample features
         sampled_feats = []
         for b in range(B):
+            # Đưa value về [num_heads, head_dim, H, W]
+            feat = (
+                value[b].permute(1, 2, 0).reshape(self.num_heads, self.head_dim, H, W)
+            )
+            # grid: [N_q, num_heads*num_points, 2] -> cần [N_q, num_heads*num_points, 2]
             grid = sampling_locations[b].flatten(1, 2)  # [N_q, num_heads*num_points, 2]
-            grid = grid[..., [1, 0]] * 2 - 1  # To [-1,1] yx -> xy
-            feat = value[b].permute(0, 2, 1)  # [L, num_heads, head_dim]
-
-            sampled = F.grid_sample(
-                feat.unsqueeze(0),  # [1, L, num_heads, head_dim]
-                grid.unsqueeze(0).unsqueeze(0),  # [1,1, N_q*heads*points, 2]
-                mode="bilinear",
-                padding_mode="border",
-                align_corners=False,
-            )[0]
+            grid = grid.view(1, -1, 1, 2)  # [1, N_q*num_heads*num_points, 1, 2]
+            # Lặp qua từng head
+            for h in range(self.num_heads):
+                value_head = feat[h].unsqueeze(0)  # [1, head_dim, H, W]
+                # Lấy grid cho head này
+                grid_h = grid[:, h * self.num_points : (h + 1) * self.num_points, :, :]
+                # Sử dụng grid_sample
+                sampled = F.grid_sample(
+                    value_head,
+                    grid_h,
+                    mode="bilinear",
+                    padding_mode="border",
+                    align_corners=False,
+                )
 
             sampled_feats.append(
                 sampled.view(
