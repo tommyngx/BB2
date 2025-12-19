@@ -148,24 +148,8 @@ def compute_classification_metrics(all_preds, all_labels, all_probs, class_names
     }
 
 
-def print_test_metrics(metrics, test_iou, test_map):
-    """Print concise test metrics"""
-    # Calculate specificity if possible
-    spec = None
-    if metrics.get("report"):
-        # Try to extract specificity from classification_report
-        try:
-            # Parse the report string for support/recall for class 0
-            lines = metrics["report"].splitlines()
-            for line in lines:
-                parts = line.strip().split()
-                if len(parts) >= 4 and parts[0] == "0":
-                    # specificity = recall of class 0
-                    spec = float(parts[2]) * 100
-                    break
-        except Exception:
-            spec = None
-
+def print_test_metrics(metrics, test_iou, test_map, test_loss=None):
+    """Print concise test metrics (2 lines: class + det)"""
     acc = metrics.get("accuracy", 0.0)
     auc = metrics.get("auc", 0.0)
     sen = metrics.get("sensitivity", 0.0)
@@ -173,9 +157,25 @@ def print_test_metrics(metrics, test_iou, test_map):
     iou = test_iou * 100
     map50 = test_map * 100
 
-    print(
-        f"Test Class: ACC={acc:.2f}%, AUC={auc:.2f}%, SEN={sen:.2f}%, SPEC={spec:.2f}%"
-        if spec is not None
-        else f"Test Class: ACC={acc:.2f}%, AUC={auc:.2f}%, SEN={sen:.2f}%"
-    )
+    # SPEC: recall of class 0 from classification_report
+    spec = None
+    if metrics.get("report"):
+        try:
+            lines = metrics["report"].splitlines()
+            for line in lines:
+                parts = line.strip().split()
+                if len(parts) >= 3 and parts[0] == "0":
+                    spec = float(parts[2]) * 100
+                    break
+        except Exception:
+            spec = None
+
+    if spec is not None:
+        print(
+            f"Test Class: ACC={acc:.2f}%, AUC={auc:.2f}%, SEN={sen:.2f}%, SPEC={spec:.2f}%"
+        )
+    else:
+        print(f"Test Class: ACC={acc:.2f}%, AUC={auc:.2f}%, SEN={sen:.2f}%")
     print(f"Test Det: IoU={iou:.2f}%, mAP={map50:.2f}%, F1={f1:.2f}%")
+    print("\nClassification Report:")
+    print(metrics["report"])
