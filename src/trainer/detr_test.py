@@ -76,6 +76,9 @@ def save_full_model(
         print(f"   Test IoU: {test_metrics['iou'] * 100:.2f}%")
         print(f"   Test mAP@0.5: {test_metrics.get('map50', 0.0) * 100:.2f}%")
         print(f"   Test mAP@0.25: {test_metrics.get('map25', 0.0) * 100:.2f}%")
+        print(
+            f"   Test Recall@IoU=0.25: {test_metrics.get('recall_iou25', 0.0) * 100:.2f}%"
+        )
     except Exception as e:
         print(f"⚠️ Error saving full model: {e}")
 
@@ -312,6 +315,7 @@ def run_detr_test(
             results.get("iou", 0.0),
             results.get("map50", 0.0),
             results.get("map25", 0.0),
+            results.get("recall_iou25", 0.0),
         )
 
         save_full_model(

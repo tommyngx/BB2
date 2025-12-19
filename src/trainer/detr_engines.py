@@ -135,7 +135,9 @@ def train_detr_model(
                     "test_loss",
                     "test_acc",
                     "test_iou",
-                    "test_map",
+                    "test_map50",
+                    "test_map25",
+                    "recall_iou25",
                     "lr",
                     "patience",
                     "best_acc",
@@ -263,9 +265,10 @@ def train_detr_model(
         test_accs.append(val_acc)
         test_ious.append(avg_val_iou)
 
-        # mAP@0.5 and mAP@0.25
+        # mAP@0.5, mAP@0.25, and Recall@IoU=0.25
         val_map50 = 0.0
         val_map25 = 0.0
+        recall_iou25 = 0.0
         if len(all_pred_boxes) > 0:
             num_correct_50 = sum(
                 1
@@ -279,6 +282,7 @@ def train_detr_model(
             )
             val_map50 = num_correct_50 / len(all_pred_boxes)
             val_map25 = num_correct_25 / len(all_pred_boxes)
+            recall_iou25 = num_correct_25 / len(all_gt_boxes)
 
         # Metrics
         all_preds = np.array(all_preds)
@@ -290,7 +294,7 @@ def train_detr_model(
         )
         metrics["accuracy"] = val_acc * 100
 
-        print_test_metrics(metrics, avg_val_iou, val_map50, val_map25)
+        print_test_metrics(metrics, avg_val_iou, val_map50, val_map25, recall_iou25)
         # Logging
         with open(log_file, "a", newline="") as f:
             csv.writer(f).writerow(
@@ -303,8 +307,9 @@ def train_detr_model(
                     round(test_losses[-1], 6),
                     round(val_acc, 6),
                     round(val_iou / max(num_val_bbox, 1), 6),
-                    round(val_map50, 6),  # FIXED: use val_map50 instead of val_map
+                    round(val_map50, 6),
                     round(val_map25, 6),
+                    round(recall_iou25, 6),
                     optimizer.param_groups[0]["lr"],
                     patience_counter,
                     round(best_acc, 6),
@@ -360,11 +365,11 @@ def train_detr_model(
                     os.remove(p)
 
         plot_metrics(
-            train_losses,
-            train_accs,
-            test_losses,
-            test_accs,
-            os.path.join(plot_dir, f"{model_key}.png"),
+            train_losses,   test_losses,
+            os.path.join(plot_dir, f"{model_key}.png"),            test_accs,
+        )ath.join(plot_dir, f"{model_key}.png"),
         )
 
+
+    return model
     return model

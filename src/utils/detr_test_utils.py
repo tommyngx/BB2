@@ -85,9 +85,10 @@ def evaluate_detr_model(model, test_loader, device):
     test_acc = (correct / total) * 100
     test_iou = total_iou / max(num_bbox_samples, 1)
 
-    # mAP@0.5 and mAP@0.25
+    # mAP@0.5, mAP@0.25, and Recall@IoU=0.25
     test_map50 = 0.0
     test_map25 = 0.0
+    recall_iou25 = 0.0
     if len(all_pred_boxes) > 0:
         num_correct_50 = sum(
             1
@@ -101,12 +102,14 @@ def evaluate_detr_model(model, test_loader, device):
         )
         test_map50 = num_correct_50 / len(all_pred_boxes)
         test_map25 = num_correct_25 / len(all_pred_boxes)
+        recall_iou25 = num_correct_25 / len(all_gt_boxes)
 
     return {
         "accuracy": test_acc,
         "iou": test_iou,
         "map50": test_map50,
         "map25": test_map25,
+        "recall_iou25": recall_iou25,
         "preds": all_preds,
         "labels": all_labels,
         "probs": all_probs,
@@ -156,7 +159,9 @@ def compute_classification_metrics(all_preds, all_labels, all_probs, class_names
     }
 
 
-def print_test_metrics(metrics, test_iou, test_map50, test_map25, test_loss=None):
+def print_test_metrics(
+    metrics, test_iou, test_map50, test_map25, recall_iou25=None, test_loss=None
+):
     """Print concise test metrics (2 lines: class + det)"""
     acc = metrics.get("accuracy", 0.0)
     auc = metrics.get("auc", 0.0)
@@ -165,6 +170,7 @@ def print_test_metrics(metrics, test_iou, test_map50, test_map25, test_loss=None
     iou = test_iou * 100
     map50 = test_map50 * 100
     map25 = test_map25 * 100
+    recall25 = (recall_iou25 * 100) if recall_iou25 is not None else 0.0
 
     # SPEC: recall of class 0 from classification_report
     spec = None
@@ -181,11 +187,13 @@ def print_test_metrics(metrics, test_iou, test_map50, test_map25, test_loss=None
 
     if spec is not None:
         print(
-            f"Test Class: Acc={acc:.2f}% | AUC={auc:.2f}% | Sens={sen:.2f}% | Spec={spec:.2f}%"
+            f"Test Class: Acc={acc:.2f}% | AUC={auc:.2f}% | Sens={sen:.2f}% | Spec={spec:.2f}% | F1={f1:.2f}%"
         )
     else:
-        print(f"Test Class: Acc={acc:.2f}% | AUC={auc:.2f}% | Sens={sen:.2f}%")
+        print(
+            f"Test Class: Acc={acc:.2f}% | AUC={auc:.2f}% | Sens={sen:.2f}% | F1={f1:.2f}%"
+        )
     print(
-        f"Test Det  : IoU={iou:.2f}% | mAP@0.5={map50:.2f}% | mAP@0.25={map25:.2f}% | F1={f1:.2f}%"
+        f"Test Det  : IoU={iou:.2f}% | mAP@0.5={map50:.2f}% | mAP@0.25={map25:.2f}% | Recall@IoU=0.25={recall25:.2f}%"
     )
     print(metrics["report"])
