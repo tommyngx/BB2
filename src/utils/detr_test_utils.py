@@ -14,6 +14,7 @@ from sklearn.metrics import (
 )
 
 from src.utils.detr_common_utils import box_iou
+from src.utils.detr_metrics import compute_detr_metrics
 
 
 def detr_compute_iou(pred_box, gt_box):
@@ -38,11 +39,9 @@ def evaluate_detr_model(model, test_loader, device):
     """Evaluate DETR model - independent implementation"""
     model.eval()
     correct, total = 0, 0
-    total_iou = 0.0
-    num_bbox_samples = 0
 
     all_preds, all_labels, all_probs = [], [], []
-    all_pred_boxes, all_gt_boxes = [], []
+    all_pred_boxes, all_gt_boxes, all_obj_scores = [], [], []
 
     with torch.no_grad():
         for batch in tqdm(test_loader, desc="Evaluating"):
@@ -63,46 +62,40 @@ def evaluate_detr_model(model, test_loader, device):
             all_labels.extend(labels.cpu().numpy())
             all_probs.extend(probs.cpu().numpy())
 
-            # Bbox evaluation
-            pred_bboxes = outputs["pred_bboxes"]
+            # Collect boxes and scores for mAP computation
             pred_obj = torch.sigmoid(outputs["obj_scores"])
-
             for i in range(images.size(0)):
-                valid_mask = bbox_mask[i] > 0.5
-                if valid_mask.sum() > 0:
-                    top_idx = pred_obj[i].squeeze(-1).argmax()
-                    pred_box = pred_bboxes[i, top_idx : top_idx + 1]
-                    gt_boxes = bboxes[i][valid_mask]
+                if bbox_mask[i].sum() > 0:
+                    all_pred_boxes.append(outputs["pred_bboxes"][i].cpu())
+                    all_gt_boxes.append(bboxes[i].cpu())
+                    all_obj_scores.append(pred_obj[i].cpu())
 
-                    iou = detr_compute_iou(pred_box[0], gt_boxes[0])
-                    total_iou += iou.item()
-                    num_bbox_samples += 1
-
-                    all_pred_boxes.append(pred_box.cpu())
-                    all_gt_boxes.append(gt_boxes.cpu())
-
-    # Metrics
-    test_acc = (correct / total) * 100
-    test_iou = total_iou / max(num_bbox_samples, 1)
-
-    # mAP@0.5, mAP@0.25, and Recall@IoU=0.25
-    test_map50 = 0.0
-    test_map25 = 0.0
-    recall_iou25 = 0.0
+    # Compute standard DETR metrics
+    bbox_metrics = {}
     if len(all_pred_boxes) > 0:
-        num_correct_50 = sum(
-            1
-            for pred_box, gt_box in zip(all_pred_boxes, all_gt_boxes)
-            if detr_compute_iou(pred_box[0], gt_box[0]).item() >= 0.5
+        pred_boxes_batch = torch.stack(all_pred_boxes)
+        gt_boxes_batch = torch.stack(all_gt_boxes)
+        obj_scores_batch = torch.stack(all_obj_scores)
+
+        # Create bbox_mask for the batch
+        bbox_mask_batch = torch.zeros(gt_boxes_batch.size(0), gt_boxes_batch.size(1))
+        for i, gt_box in enumerate(all_gt_boxes):
+            valid_count = (gt_box.sum(dim=1) > 0).sum()
+            bbox_mask_batch[i, :valid_count] = 1
+
+        bbox_metrics = compute_detr_metrics(
+            pred_boxes_batch,
+            gt_boxes_batch,
+            obj_scores_batch.squeeze(-1),
+            bbox_mask_batch,
         )
-        num_correct_25 = sum(
-            1
-            for pred_box, gt_box in zip(all_pred_boxes, all_gt_boxes)
-            if detr_compute_iou(pred_box[0], gt_box[0]).item() >= 0.25
-        )
-        test_map50 = num_correct_50 / len(all_pred_boxes)
-        test_map25 = num_correct_25 / len(all_pred_boxes)
-        recall_iou25 = num_correct_25 / len(all_gt_boxes)
+
+    # Extract metrics
+    test_acc = (correct / total) * 100
+    test_iou = bbox_metrics.get("avg_iou", 0.0)
+    test_map50 = bbox_metrics.get("mAP@0.5", 0.0)
+    test_map25 = bbox_metrics.get("mAP@0.25", 0.0)
+    recall_iou25 = bbox_metrics.get("recall@0.25", 0.0)
 
     return {
         "accuracy": test_acc,

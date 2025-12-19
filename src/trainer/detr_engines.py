@@ -370,11 +370,13 @@ def train_detr_model(
                 if p not in top2 and os.path.exists(p):
                     os.remove(p)
 
+        # Plot metrics every epoch
         plot_metrics(
             train_losses,
+            train_accs,
             test_losses,
-            os.path.join(plot_dir, f"{model_key}.png"),
             test_accs,
+            os.path.join(plot_dir, f"{model_key}.png"),
         )
 
     return model
