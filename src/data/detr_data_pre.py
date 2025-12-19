@@ -234,7 +234,8 @@ def group_bboxes_by_image_vectorized(
 
 def unique_patients(df):
     """
-    Trả về tập hợp các bệnh nhân duy nhất (đã chuẩn hóa) từ DataFrame.
+    Trả về số lượng bệnh nhân duy nhất (đã chuẩn hóa) từ DataFrame.
+    Đảm bảo logic giống print_dataset_stats2 trong dataloader.py
     """
 
     # Tìm cột patient_id, id, hoặc image_id (không phân biệt hoa thường)
@@ -248,7 +249,7 @@ def unique_patients(df):
 
     patient_id_col = find_col(df, ["patient_id", "id", "image_id"])
     if patient_id_col is None:
-        return set()
+        return 0
 
     # Chuẩn hóa patient_id (giống dataloader.py)
     def normalize_pid(val):
@@ -260,7 +261,7 @@ def unique_patients(df):
             return val
         return val
 
-    # Trả về số unique sau khi normalize (giống dataloader.py)
+    # Áp dụng normalize rồi đếm unique (giống print_dataset_stats2)
     return df[patient_id_col].map(normalize_pid).nunique()
 
 
