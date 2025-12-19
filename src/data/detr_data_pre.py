@@ -232,10 +232,11 @@ def group_bboxes_by_image_vectorized(
     return grouped
 
 
-def unique_patients(df):
+def unique_patients(df, debug_save_path=None):
     """
     Trả về số lượng bệnh nhân duy nhất (đã chuẩn hóa) từ DataFrame.
     Đảm bảo drop_duplicates theo image_id/link trước khi đếm (giống dataloader.py).
+    Nếu debug_save_path được truyền vào, sẽ lưu df_unique ra file csv.
     """
 
     # Tìm cột patient_id, id, hoặc image_id (không phân biệt hoa thường)
@@ -258,6 +259,11 @@ def unique_patients(df):
         df_unique = df.drop_duplicates(subset=["image_id"])
     else:
         df_unique = df
+
+    # Lưu ra file nếu cần debug
+    if debug_save_path is not None:
+        df_unique.to_csv(debug_save_path, index=False)
+        print(f"⚡️ Saved unique patient debug DataFrame to: {debug_save_path}")
 
     # Chuẩn hóa patient_id (giống dataloader.py)
     def normalize_pid(val):
@@ -308,12 +314,17 @@ def prepare_detr_dataframe(
         print(f"    Train: {len(train_df)} images")
         print(f"    Test:  {len(test_df)} images")
 
-        # Tính unique patients cho train, test, tổng
-        n_train_patients = unique_patients(train_df)
-        n_test_patients = unique_patients(test_df)
-        # Tổng unique patients = union của 2 set
+        # Tính unique patients cho train, test, tổng và lưu ra file để debug
+        n_train_patients = unique_patients(
+            train_df, debug_save_path="train_unique_patients.csv"
+        )
+        n_test_patients = unique_patients(
+            test_df, debug_save_path="test_unique_patients.csv"
+        )
         combined_df = pd.concat([train_df, test_df])
-        n_total_patients = unique_patients(combined_df)
+        n_total_patients = unique_patients(
+            combined_df, debug_save_path="all_unique_patients.csv"
+        )
 
         pct_train = (
             (n_train_patients / n_total_patients * 100) if n_total_patients > 0 else 0
