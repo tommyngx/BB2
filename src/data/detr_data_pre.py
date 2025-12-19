@@ -267,17 +267,15 @@ def prepare_detr_dataframe(
         print(f"    Train: {len(train_df)} images")
         print(f"    Test:  {len(test_df)} images")
 
-        # Unique patient statistics
-        train_patients = (
-            train_df["patient_id"].nunique()
-            if "patient_id" in train_df.columns
-            else "N/A"
-        )
-        test_patients = (
-            test_df["patient_id"].nunique()
-            if "patient_id" in test_df.columns
-            else "N/A"
-        )
+        # Unique patient statistics (fix: count unique patient_id, ignore N/A)
+        def count_unique_patients(df):
+            if "patient_id" in df.columns:
+                # Dropna + astype(str) to avoid counting NaN as a unique patient
+                return df["patient_id"].dropna().astype(str).nunique()
+            return 0
+
+        train_patients = count_unique_patients(train_df)
+        test_patients = count_unique_patients(test_df)
         print(f"    Unique patients (train): {train_patients}")
         print(f"    Unique patients (test):  {test_patients}")
 
@@ -304,7 +302,7 @@ def prepare_detr_dataframe(
         all_labels = sorted(set(train_counts.index).union(set(test_counts.index)))
         train_total = len(train_df)
         test_total = len(test_df)
-        print("  Label | Train  | %Train | Test   | %Test  | Total  | %Total")
+        print("  Label | Train  | %Train  | Test   | %Test   | Total  | %Total")
         for label in all_labels:
             n_train = train_counts.get(label, 0)
             n_test = test_counts.get(label, 0)
