@@ -316,14 +316,14 @@ def prepare_detr_dataframe(
 
         # Tính unique patients cho train, test, tổng và lưu ra file để debug
         n_train_patients = unique_patients(
-            train_df, debug_save_path="train_unique_patients.csv"
+            train_df,  # debug_save_path="train_unique_patients.csv"
         )
         n_test_patients = unique_patients(
-            test_df, debug_save_path="test_unique_patients.csv"
+            test_df,  # debug_save_path="test_unique_patients.csv"
         )
         combined_df = pd.concat([train_df, test_df])
         n_total_patients = unique_patients(
-            combined_df, debug_save_path="all_unique_patients.csv"
+            combined_df,  # debug_save_path="all_unique_patients.csv"
         )
 
         pct_train = (
