@@ -260,13 +260,11 @@ def unique_patients(df, debug_save_path=None):
     else:
         df_unique = df
 
-    # Chuẩn hóa patient_id (giống dataloader.py)
+    # Chuẩn hóa patient_id: loại bỏ tất cả các hậu tố _R, _L, _MLO, _CC xuất hiện ở cuối hoặc giữa chuỗi
     def normalize_pid(val):
         if isinstance(val, str):
             for suffix in ["_R", "_L", "_MLO", "_CC"]:
-                idx = val.find(suffix)
-                if idx > 0:
-                    return val[:idx]
+                val = val.split(suffix)[0]
             return val
         return val
 
