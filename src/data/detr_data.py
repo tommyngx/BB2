@@ -4,39 +4,35 @@ import numpy as np
 import cv2
 import torch
 from torch.utils.data import Dataset, DataLoader
-from .dataloader import get_weighted_sampler, load_metadata
-from .m2_augment import get_m2_train_augmentation, get_m2_test_augmentation
+
+from .m2_augment import (
+    get_m2_train_augmentation,
+    get_m2_test_augmentation,
+    get_m2_test_augmentation_no_bbox,
+)
 
 
 def validate_and_clip_bbox(x, y, w, h, img_w, img_h, min_area=100):
-    """
-    Validate and clip bbox to image boundaries
-    Returns: (x, y, w, h, is_valid)
-    """
-    # Ensure non-negative
+    """Validate and clip bbox to image boundaries"""
     x = max(0, float(x))
     y = max(0, float(y))
     w = max(0, float(w))
     h = max(0, float(h))
 
-    # Clip to image boundaries
     x = min(x, img_w - 1)
     y = min(y, img_h - 1)
 
-    # Ensure bbox doesn't exceed boundaries
     if x + w > img_w:
         w = img_w - x
     if y + h > img_h:
         h = img_h - y
 
-    # Check validity: positive area and min size
     is_valid = w > 0 and h > 0 and (w * h) >= min_area
-
     return x, y, w, h, is_valid
 
 
 class M2DETRDataset(Dataset):
-    """Dataset for DETR (reads grouped bbox_list from preprocessed DataFrame)"""
+    """Dataset for DETR"""
 
     def __init__(
         self,
@@ -48,7 +44,6 @@ class M2DETRDataset(Dataset):
         img_size=None,
         max_objects=5,
     ):
-        # DataFrame is already grouped by image_id with bbox_list column
         self.df = df.reset_index(drop=True)
         self.data_folder = data_folder
         self.mode = mode
@@ -64,10 +59,8 @@ class M2DETRDataset(Dataset):
         row = self.df.iloc[idx]
         img_path = os.path.join(self.data_folder, row["link"])
 
-        # Load image
         image = cv2.imread(img_path)
         if image is None:
-            print(f"⚠️ Failed to load: {img_path}")
             return {
                 "image": torch.zeros(3, 448, 448),
                 "label": 0,
@@ -82,12 +75,11 @@ class M2DETRDataset(Dataset):
 
         label = int(row["cancer"])
 
-        # Get bbox_list from preprocessed DataFrame
         bbox_list = row.get("bbox_list", [])
         if not isinstance(bbox_list, list):
             bbox_list = []
 
-        bboxes = bbox_list.copy()  # [[x, y, w, h], ...]
+        bboxes = bbox_list.copy()
 
         # Apply augmentation
         if len(bboxes) > 0:
@@ -103,8 +95,6 @@ class M2DETRDataset(Dataset):
                 transformed = self.negative_transform(image=image)
                 image = transformed["image"]
             else:
-                from .m2_augment import get_m2_test_augmentation_no_bbox
-
                 if self.img_size:
                     h_t, w_t = (
                         self.img_size
@@ -117,7 +107,7 @@ class M2DETRDataset(Dataset):
                 transformed = simple_transform(image=image)
                 image = transformed["image"]
 
-        # Get target image size
+        # Get target size
         if self.img_size:
             h_img, w_img = self.img_size
         else:
@@ -159,6 +149,35 @@ class M2DETRDataset(Dataset):
         }
 
 
+def get_image_size_from_config(config_path):
+    """Get image size from config file"""
+    from src.utils.common import load_config
+
+    config = load_config(config_path)
+    img_size = config.get("image_size", 448)
+    if isinstance(img_size, str):
+        from src.utils.detr_common_utils import parse_img_size
+
+        img_size = parse_img_size(img_size)
+    return img_size
+
+
+def get_weighted_sampler_detr(df, label_col="cancer"):
+    """Get weighted sampler for DETR (based on unique images)"""
+    from torch.utils.data import WeightedRandomSampler
+
+    labels = df[label_col].values
+    class_counts = np.bincount(labels)
+    class_weights = 1.0 / class_counts
+    sample_weights = class_weights[labels]
+
+    sampler = WeightedRandomSampler(
+        weights=sample_weights, num_samples=len(sample_weights), replacement=True
+    )
+
+    return sampler
+
+
 def get_detr_dataloaders(
     train_df,
     test_df,
@@ -169,8 +188,7 @@ def get_detr_dataloaders(
     mode="train",
     max_objects=5,
 ):
-    """Get DETR-style dataloaders"""
-    from .dataloader import get_image_size_from_config, get_weighted_sampler_detr
+    """Get DETR dataloaders"""
 
     if img_size is None:
         img_size = get_image_size_from_config(config_path)
@@ -207,15 +225,11 @@ def get_detr_dataloaders(
         max_objects=max_objects,
     )
 
-    # Dataloaders
     num_workers = 0 if mode == "test" else 4
 
-    # CRITICAL FIX: Use DETR-specific sampler (based on unique images)
     sampler = get_weighted_sampler_detr(train_df, label_col="cancer")
 
-    print(
-        f"[INFO] Dataset size: {len(train_dataset)} unique images, Sampler size: {len(sampler)}"
-    )
+    print(f"[INFO] Dataset: {len(train_dataset)} images, Sampler: {len(sampler)}")
 
     train_loader = DataLoader(
         train_dataset,

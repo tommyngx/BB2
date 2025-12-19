@@ -6,6 +6,51 @@ OPTIMIZED: Vectorized pandas operations, no image loading
 
 import pandas as pd
 import numpy as np
+import os
+
+
+def load_detr_metadata(
+    data_folder, config_path="config/config.yaml", target_column=None
+):
+    """
+    Load and prepare metadata for DETR training
+    This is the main entry point for getting train/test DataFrames
+
+    Args:
+        data_folder: Path to data folder containing metadata.csv
+        config_path: Path to config file (not used currently)
+        target_column: Target column name (default: 'cancer')
+
+    Returns:
+        train_df: Training DataFrame with bbox_list
+        test_df: Testing DataFrame with bbox_list
+        class_names: List of class names
+    """
+    # Find metadata file
+    metadata_path = os.path.join(data_folder, "metadata2.csv")
+    if not os.path.exists(metadata_path):
+        metadata_path = os.path.join(data_folder, "metadata.csv")
+
+    if not os.path.exists(metadata_path):
+        raise FileNotFoundError(f"No metadata file found in {data_folder}")
+
+    # Load and process metadata
+    train_df, test_df, _ = prepare_detr_from_metadata(
+        metadata_path,
+        data_folder=data_folder,
+        validate_bbox=True,
+        min_area=100,
+        verbose=True,
+    )
+
+    # Get class names
+    target_col = target_column if target_column else "cancer"
+    if target_col in train_df.columns:
+        class_names = sorted(train_df[target_col].unique().tolist())
+    else:
+        class_names = [0, 1]  # Default binary classification
+
+    return train_df, test_df, class_names
 
 
 def validate_bboxes_vectorized(df, min_area=100):
