@@ -247,6 +247,7 @@ def unique_patients(df):
                     return c
         return None
 
+    df = df.drop_duplicates(subset=["link"])
     patient_id_col = find_col(df, ["patient_id", "id", "image_id"])
     if patient_id_col is None:
         return set()
