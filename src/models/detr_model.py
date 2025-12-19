@@ -193,8 +193,8 @@ class EfficientDeformableAttention(nn.Module):
             spatial_shapes: (H, W)
             return_attention_weights: bool, whether to return attention maps
         Returns:
-            output: [B, N_q, C]
-            attn_maps: [B, H, W] global attention map (max-pooled over queries) if return_attention_weights else None
+            output: [B, N_q, C] if return_attention_weights=False
+            (output, attn_maps): tuple if return_attention_weights=True
         """
         B, N_q, C = query.shape
         H, W = spatial_shapes
@@ -221,10 +221,14 @@ class EfficientDeformableAttention(nn.Module):
         # Project value and reshape for grid_sample
         value_projected = self.value_proj(value)  # [B, H*W, C]
         value_spatial = value_projected.view(B, H, W, self.num_heads, self.head_dim)
-        value_spatial = value_spatial.permute(0, 3, 4, 1, 2)  # [B, num_heads, head_dim, H, W]
+        value_spatial = value_spatial.permute(
+            0, 3, 4, 1, 2
+        )  # [B, num_heads, head_dim, H, W]
 
         # Prepare for grid_sample: reshape to [B*num_heads, head_dim, H, W]
-        value_for_sample = value_spatial.reshape(B * self.num_heads, self.head_dim, H, W)
+        value_for_sample = value_spatial.reshape(
+            B * self.num_heads, self.head_dim, H, W
+        )
 
         # Prepare grid: [B, N_q, num_heads, num_points, 2] -> [B*num_heads, N_q*num_points, 1, 2]
         grid = sampling_locations.permute(0, 2, 1, 3, 4).reshape(
@@ -237,26 +241,32 @@ class EfficientDeformableAttention(nn.Module):
         sampled_feats = F.grid_sample(
             value_for_sample,
             grid,
-            mode='bilinear',
-            padding_mode='border',
-            align_corners=False
+            mode="bilinear",
+            padding_mode="border",
+            align_corners=False,
         )
-        
+
         # Reshape: [B, num_heads, head_dim, N_q, num_points]
-        sampled_feats = sampled_feats.squeeze(-1).view(
-            B, self.num_heads, self.head_dim, N_q, self.num_points
-        ).permute(0, 3, 1, 4, 2)  # [B, N_q, num_heads, num_points, head_dim]
+        sampled_feats = (
+            sampled_feats.squeeze(-1)
+            .view(B, self.num_heads, self.head_dim, N_q, self.num_points)
+            .permute(0, 3, 1, 4, 2)
+        )  # [B, N_q, num_heads, num_points, head_dim]
 
         # Apply attention weights and aggregate
-        attn_weights_expanded = attn_weights.unsqueeze(-1)  # [B, N_q, num_heads, num_points, 1]
-        output = (sampled_feats * attn_weights_expanded).sum(dim=3)  # [B, N_q, num_heads, head_dim]
+        attn_weights_expanded = attn_weights.unsqueeze(
+            -1
+        )  # [B, N_q, num_heads, num_points, 1]
+        output = (sampled_feats * attn_weights_expanded).sum(
+            dim=3
+        )  # [B, N_q, num_heads, head_dim]
         output = output.flatten(2)  # [B, N_q, C]
         output = self.output_proj(output)
 
         if return_attention_weights:
             # Create per-query attention maps
             per_query_maps = torch.zeros((B, N_q, H, W), device=device)
-            
+
             # Accumulate attention weights at sampling locations
             for b in range(B):
                 for q in range(N_q):
@@ -264,18 +274,18 @@ class EfficientDeformableAttention(nn.Module):
                         for p in range(self.num_points):
                             # Get attention weight
                             weight = attn_weights[b, q, h, p].item()
-                            
+
                             # Get sampling location in pixel coordinates
                             x_norm = sampling_locations[b, q, h, p, 0].item()
                             y_norm = sampling_locations[b, q, h, p, 1].item()
-                            
+
                             x = int(x_norm * (W - 1))
                             y = int(y_norm * (H - 1))
-                            
+
                             # Clamp to valid range
                             x = max(0, min(W - 1, x))
                             y = max(0, min(H - 1, y))
-                            
+
                             # Accumulate
                             per_query_maps[b, q, y, x] += weight
 
@@ -287,7 +297,7 @@ class EfficientDeformableAttention(nn.Module):
 
             return output, attn_maps
         else:
-            return output, None
+            return output  # FIXED: Return only output, not tuple
 
 
 class EfficientDeformableAttention_ori(nn.Module):
@@ -595,8 +605,13 @@ class EfficientDETRDecoder(nn.Module):
                 )
                 cross_attn_maps = attn_maps  # [B, H, W] global map
             else:
+                # FIXED: cross_attn returns only output when return_attention_weights=False
                 queries2 = layer["cross_attn"](
-                    queries_norm, reference_points, feat_seq, (H, W)
+                    queries_norm,
+                    reference_points,
+                    feat_seq,
+                    (H, W),
+                    return_attention_weights=False,
                 )
 
             queries = queries + queries2
