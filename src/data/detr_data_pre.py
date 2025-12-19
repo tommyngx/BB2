@@ -289,20 +289,31 @@ def prepare_detr_dataframe(
                 return val
             return val
 
-        if patient_id_col_train is not None:
-            n_train_patients = (
-                train_df[patient_id_col_train].dropna().map(normalize_pid).nunique()
+        # Calculate unique patients for train, test, and total
+        if patient_id_col is not None:
+            train_patients_set = set(
+                train_df[patient_id_col].dropna().map(normalize_pid)
+            )
+            test_patients_set = set(test_df[patient_id_col].dropna().map(normalize_pid))
+            total_patients_set = train_patients_set | test_patients_set
+            n_train_patients = len(train_patients_set)
+            n_test_patients = len(test_patients_set)
+            n_total_patients = len(total_patients_set)
+            pct_train = (
+                (n_train_patients / n_total_patients * 100)
+                if n_total_patients > 0
+                else 0
+            )
+            pct_test = (
+                (n_test_patients / n_total_patients * 100)
+                if n_total_patients > 0
+                else 0
+            )
+            print(
+                f"    Unique patients: train {n_train_patients} ({pct_train:.1f}%) | test {n_test_patients} ({pct_test:.1f}%) | total {n_total_patients}"
             )
         else:
-            n_train_patients = "N/A"
-        if patient_id_col_test is not None:
-            n_test_patients = (
-                test_df[patient_id_col_test].dropna().map(normalize_pid).nunique()
-            )
-        else:
-            n_test_patients = "N/A"
-        print(f"    Unique patients (train): {n_train_patients}")
-        print(f"    Unique patients (test):  {n_test_patients}")
+            print("    Unique patients: N/A")
 
         # Multi-bbox statistics
         train_multi = (train_df["num_bboxes"] > 1).sum()
