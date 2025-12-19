@@ -151,6 +151,7 @@ def generate_visualizations(
                 gradcam_map = None
                 if use_gradcam and gradcam_layer is not None:
                     try:
+                        print(f"[DEBUG] gradcam_layer: {gradcam_layer}")
                         input_tensor = images[i : i + 1].clone().requires_grad_(True)
                         with torch.set_grad_enabled(True):
                             test_model = (
@@ -158,6 +159,10 @@ def generate_visualizations(
                                 if isinstance(model, nn.DataParallel)
                                 else model
                             )
+                            # In ra các layer của model để kiểm tra
+                            print("[DEBUG] Model layers:")
+                            for name, _ in test_model.named_modules():
+                                print("   ", name)
                             result = gradcam(
                                 test_model,
                                 input_tensor,
@@ -165,12 +170,19 @@ def generate_visualizations(
                                 class_idx=pred_class,
                             )
 
+                            print(
+                                f"[DEBUG] gradcam result type: {type(result)}, shape: {getattr(result, 'shape', None)}"
+                            )
                             if (
                                 isinstance(result, np.ndarray)
                                 and result.ndim == 2
                                 and result.dtype == np.uint8
                             ):
                                 gradcam_map = result
+                            else:
+                                print(
+                                    "[DEBUG] gradcam did not return expected ndarray."
+                                )
                     except Exception as e:
                         print(f"⚠️ GradCAM failed for {image_id}: {e}")
 
