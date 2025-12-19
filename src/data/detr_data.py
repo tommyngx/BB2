@@ -159,7 +159,7 @@ class M2DETRDataset(Dataset):
         }
 
 
-def get_m2_detr_dataloaders(
+def get_detr_dataloaders(
     train_df,
     test_df,
     data_folder,
