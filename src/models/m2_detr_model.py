@@ -579,6 +579,7 @@ def get_m2_detr_model(model_type="resnet50", num_classes=2, num_queries=5):
         "convnextv2_tiny",
         "efficientnetv2s",
         "maxvit_tiny",
+        "maxvit_tiny512",
         "swinv2_tiny",
         "eva02_small",
     ]:
