@@ -224,32 +224,42 @@ class EfficientDeformableAttention(nn.Module):
             feat = (
                 value[b].permute(1, 2, 0).reshape(self.num_heads, self.head_dim, H, W)
             )
-            # grid: [N_q, num_heads*num_points, 2] -> cần [N_q, num_heads*num_points, 2]
-            grid = sampling_locations[b].flatten(1, 2)  # [N_q, num_heads*num_points, 2]
-            grid = grid.view(1, -1, 1, 2)  # [1, N_q*num_heads*num_points, 1, 2]
-            # Lặp qua từng head
+            # grid: [N_q, num_heads, num_points, 2]
+            grid = sampling_locations[b]  # [N_q, num_heads, num_points, 2]
+            all_heads = []
             for h in range(self.num_heads):
                 value_head = feat[h].unsqueeze(0)  # [1, head_dim, H, W]
-                # Lấy grid cho head này
-                grid_h = grid[:, h * self.num_points : (h + 1) * self.num_points, :, :]
-                # Sử dụng grid_sample
-                sampled = F.grid_sample(
-                    value_head,
-                    grid_h,
-                    mode="bilinear",
-                    padding_mode="border",
-                    align_corners=False,
-                )
-
-            sampled_feats.append(
-                sampled.view(
-                    N_q, self.num_heads, self.num_points, self.head_dim
-                ).permute(0, 1, 3, 2)
-            )  # [N_q, heads, head_dim, points]
-
+                grid_h = grid[:, h, :, :]  # [N_q, num_points, 2]
+                # grid_sample expects [N, C, H, W] and [N, H_out, W_out, 2]
+                # We'll sample each query separately
+                sampled_per_query = []
+                for q in range(N_q):
+                    grid_q = (
+                        grid_h[q].unsqueeze(0).unsqueeze(0)
+                    )  # [1, 1, num_points, 2]
+                    # Expand value_head to [1, head_dim, H, W]
+                    sampled_q = F.grid_sample(
+                        value_head,
+                        grid_q,
+                        mode="bilinear",
+                        padding_mode="border",
+                        align_corners=False,
+                    )  # [1, head_dim, 1, num_points]
+                    sampled_per_query.append(
+                        sampled_q.squeeze(2)
+                    )  # [1, head_dim, num_points]
+                sampled_per_query = torch.cat(
+                    sampled_per_query, dim=0
+                )  # [N_q, head_dim, num_points]
+                all_heads.append(sampled_per_query)
+            # all_heads: list of [N_q, head_dim, num_points] for each head
+            all_heads = torch.stack(
+                all_heads, dim=1
+            )  # [N_q, num_heads, head_dim, num_points]
+            sampled_feats.append(all_heads)
         sampled_feats = torch.stack(
             sampled_feats, dim=0
-        )  # [B, N_q, heads, head_dim, points]
+        )  # [B, N_q, num_heads, head_dim, num_points]
 
         # Attend
         attn_weights = attn_weights.unsqueeze(3)  # [B, N_q, heads, 1, points]
