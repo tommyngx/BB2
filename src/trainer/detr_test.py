@@ -349,7 +349,7 @@ def run_detr_test(
             actual_input_size,
             num_queries,
             gradcam_layer,
-            results,
+            metrics,  # <-- truyền metrics thay vì results
             device,
         )
 
