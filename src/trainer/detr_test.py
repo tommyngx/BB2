@@ -96,9 +96,6 @@ def generate_visualizations(
     device,
 ):
     """Generate visualizations for test set"""
-    print(
-        f"[DEBUG] generate_visualizations: use_gradcam={use_gradcam}, gradcam_layer={gradcam_layer}"
-    )
     vis_dir = os.path.join(output, "test_detr", model_filename)
     os.makedirs(vis_dir, exist_ok=True)
 
@@ -133,7 +130,6 @@ def generate_visualizations(
                 pred_prob = probs[i, pred_class].item()
 
                 if image_id not in image_info:
-                    print(f"[DEBUG] image_id {image_id} not in image_info, skipping")
                     continue
 
                 info = image_info[image_id]
@@ -146,21 +142,15 @@ def generate_visualizations(
                     or attn_maps is None
                     or len(attn_maps.shape) != 3
                 ):
-                    print(
-                        f"[DEBUG] Skipping {image_id} due to original_size/attn_maps/shape: original_size={original_size}, attn_maps={type(attn_maps)}, shape={getattr(attn_maps, 'shape', None)}"
-                    )
                     continue
 
                 attn_map = attn_maps[i]
 
                 # GradCAM generation
                 gradcam_map = None
-                print(
-                    f"[DEBUG] Before gradcam: use_gradcam={use_gradcam}, gradcam_layer={gradcam_layer}"
-                )
                 if use_gradcam and gradcam_layer is not None:
                     try:
-                        print(f"[DEBUG] gradcam_layer: {gradcam_layer}")
+                        # print(f"[DEBUG] gradcam_layer: {gradcam_layer}")
                         input_tensor = images[i : i + 1].clone().requires_grad_(True)
                         with torch.set_grad_enabled(True):
                             test_model = (
@@ -168,7 +158,8 @@ def generate_visualizations(
                                 if isinstance(model, nn.DataParallel)
                                 else model
                             )
-                            print("[DEBUG] Model layers:")
+                            # In ra các layer của model để kiểm tra
+                            # print("[DEBUG] Model layers:")
                             for name, _ in test_model.named_modules():
                                 print("   ", name)
                             result = gradcam(
@@ -179,7 +170,7 @@ def generate_visualizations(
                             )
 
                             print(
-                                f"[DEBUG] gradcam result type: {type(result)}, shape: {getattr(result, 'shape', None)}"
+                                # f"[DEBUG] gradcam result type: {type(result)}, shape: {getattr(result, 'shape', None)}"
                             )
                             if (
                                 isinstance(result, np.ndarray)
