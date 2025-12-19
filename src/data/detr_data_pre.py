@@ -267,11 +267,19 @@ def prepare_detr_dataframe(
         print(f"    Train: {len(train_df)} images")
         print(f"    Test:  {len(test_df)} images")
 
-        # Unique patient statistics (fix: count unique patient_id, ignore N/A)
+        # Unique patient statistics (normalize patient_id like print_dataset_stats2)
+        def normalize_pid(val):
+            if isinstance(val, str):
+                for suffix in ["_R", "_L", "_MLO", "_CC"]:
+                    idx = val.find(suffix)
+                    if idx > 0:
+                        return val[:idx]
+                return val
+            return val
+
         def count_unique_patients(df):
             if "patient_id" in df.columns:
-                # Dropna + astype(str) to avoid counting NaN as a unique patient
-                return df["patient_id"].dropna().astype(str).nunique()
+                return df["patient_id"].dropna().map(normalize_pid).nunique()
             return 0
 
         train_patients = count_unique_patients(train_df)
