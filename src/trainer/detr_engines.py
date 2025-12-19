@@ -345,14 +345,16 @@ def train_detr_model(
             acc4 = int(round(val_acc * 10000))
             weight_path = os.path.join(model_dir, f"{model_key}_{acc4}.pth")
 
-            related = [
-                (
-                    float(f.split("_")[-1].replace(".pth", "")) / 10000,
-                    os.path.join(model_dir, f),
-                )
-                for f in os.listdir(model_dir)
-                if f.startswith(model_key) and f.endswith(".pth")
-            ]
+            # Sửa lỗi: chỉ lấy file có số ở cuối trước .pth (loại bỏ file có 'full')
+            related = []
+            for f in os.listdir(model_dir):
+                if f.startswith(model_key) and f.endswith(".pth"):
+                    try:
+                        score = float(f.split("_")[-1].replace(".pth", ""))
+                        related.append((score / 10000, os.path.join(model_dir, f)))
+                    except ValueError:
+                        # Bỏ qua file không phải dạng số (ví dụ: ..._full.pth)
+                        continue
             related.append((val_acc, weight_path))
             related = sorted(related, reverse=True)
             top2 = set(p for _, p in related[:2])
