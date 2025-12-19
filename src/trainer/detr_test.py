@@ -60,25 +60,47 @@ def save_full_model(
         _ = model_to_save(dummy_input)
         inference_time = time.time() - start
 
+    # Thêm tên model và số lượng tham số
+    model_name = type(model_to_save).__name__
+    num_params = sum(p.numel() for p in model_to_save.parameters())
+
     full_model_dir = os.path.join(output, "models")
     os.makedirs(full_model_dir, exist_ok=True)
     full_model_path = os.path.join(full_model_dir, f"{model_filename}_full.pth")
 
+    model_metadata = {
+        "model": model_to_save,
+        "model_type": model_type,
+        "model_name": model_name,
+        "num_params": num_params,
+        "input_size": actual_input_size,
+        "num_queries": num_queries,
+        "gradcam_layer": gradcam_layer,
+        "test_metrics": test_metrics,
+        "inference_time": inference_time,
+    }
+
     try:
-        torch.save(model_to_save, full_model_path)
+        torch.save(model_metadata, full_model_path)
         print(f"✅ Saved full DETR model to: {full_model_path}")
-        print(f"   Model name: {model_type}")
-        print(f"   Input size: {actual_input_size}")
-        print(f"   Num queries: {num_queries}")
-        print(f"   GradCAM layer: {gradcam_layer}")
-        print(f"   Inference time: {inference_time:.4f}s")
-        print(f"   Test Accuracy: {test_metrics['accuracy']:.2f}%")
-        print(f"   Test AUC: {test_metrics.get('auc', 0.0):.4f}")
-        print(f"   Test IoU: {test_metrics['iou'] * 100:.2f}%")
-        print(f"   Test mAP@0.5: {test_metrics.get('map50', 0.0) * 100:.2f}%")
-        print(f"   Test mAP@0.25: {test_metrics.get('map25', 0.0) * 100:.2f}%")
+        print(f"   Model name: {model_metadata['model_name']}")
+        print(f"   Model type: {model_metadata['model_type']}")
+        print(f"   Num params: {model_metadata['num_params']}")
+        print(f"   Input size: {model_metadata['input_size']}")
+        print(f"   Num queries: {model_metadata['num_queries']}")
+        print(f"   GradCAM layer: {model_metadata['gradcam_layer']}")
+        print(f"   Inference time: {model_metadata['inference_time']:.4f}s")
+        print(f"   Test Accuracy: {model_metadata['test_metrics']['accuracy']:.2f}%")
+        print(f"   Test AUC: {model_metadata['test_metrics'].get('auc', 0.0):.4f}")
+        print(f"   Test IoU: {model_metadata['test_metrics']['iou'] * 100:.2f}%")
         print(
-            f"   Test Recall@IoU=0.25: {test_metrics.get('recall_iou25', 0.0) * 100:.2f}%"
+            f"   Test mAP@0.5: {model_metadata['test_metrics'].get('map50', 0.0) * 100:.2f}%"
+        )
+        print(
+            f"   Test mAP@0.25: {model_metadata['test_metrics'].get('map25', 0.0) * 100:.2f}%"
+        )
+        print(
+            f"   Test Recall@IoU=0.25: {model_metadata['test_metrics'].get('recall_iou25', 0.0) * 100:.2f}%"
         )
     except Exception as e:
         print(f"⚠️ Error saving full model: {e}")
