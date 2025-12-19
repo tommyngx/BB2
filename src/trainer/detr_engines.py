@@ -471,7 +471,8 @@ def train_detr_model(
                     round(test_losses[-1], 6),
                     round(val_acc, 6),
                     round(val_iou / max(num_val_bbox, 1), 6),
-                    round(val_map, 6),
+                    round(val_map50, 6),  # FIXED: use val_map50 instead of val_map
+                    round(val_map25, 6),
                     optimizer.param_groups[0]["lr"],
                     patience_counter,
                     round(best_acc, 6),
