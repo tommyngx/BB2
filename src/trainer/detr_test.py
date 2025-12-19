@@ -73,6 +73,7 @@ def save_full_model(
         print(f"   GradCAM layer: {gradcam_layer}")
         print(f"   Inference time: {inference_time:.4f}s")
         print(f"   Test Accuracy: {test_metrics['accuracy']:.2f}%")
+        print(f"   Test AUC: {test_metrics.get('auc', 0.0):.4f}")
         print(f"   Test IoU: {test_metrics['iou'] * 100:.2f}%")
         print(f"   Test mAP@0.5: {test_metrics.get('map50', 0.0) * 100:.2f}%")
         print(f"   Test mAP@0.25: {test_metrics.get('map25', 0.0) * 100:.2f}%")
