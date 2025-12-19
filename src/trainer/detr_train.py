@@ -1,6 +1,5 @@
 """
-Training script for M2 DETR model
-Usage is identical to train_m2.py but uses DETR architecture
+Training script for DETR model
 """
 
 import warnings
@@ -11,15 +10,16 @@ warnings.filterwarnings("ignore", category=UserWarning)
 import argparse
 import os
 import torch
-from src.data.m2_data_detr import get_m2_detr_dataloaders
-from src.data.dataloader import load_metadata_detr
-from src.models.m2_detr_model import get_m2_detr_model
-from trainer.detr_engines_utils import train_m2_detr_model
+
+from src.data.detr_data import get_detr_dataloaders
+from src.data.detr_data_pre import load_detr_metadata
+from src.models.detr_model import get_detr_model
+from src.trainer.detr_engines import train_detr_model
 from src.utils.common import load_config, get_arg_or_config, clear_cuda_memory
 from src.utils.detr_common_utils import parse_img_size
 
 
-def run_m2_detr_train(
+def run_detr_train(
     data_folder,
     model_type,
     batch_size,
@@ -33,15 +33,15 @@ def run_m2_detr_train(
     lambda_bbox=5.0,
     lambda_giou=2.0,
     lambda_obj=1.0,
-    num_queries=3,  # CHANGED: từ 10 xuống 3
-    max_objects=3,  # CHANGED: từ 10 xuống 3
+    num_queries=3,
+    max_objects=3,
     pretrained_model_path=None,
     target_column=None,
     sample_viz=False,
 ):
+    """Run DETR training"""
     clear_cuda_memory()
 
-    # Print main DETR hyperparameters
     print("========== DETR Hyperparameters ==========")
     print(f"Model type      : {model_type}")
     print(f"Num queries     : {num_queries}")
@@ -57,13 +57,13 @@ def run_m2_detr_train(
     print(f"Image size      : {img_size}")
     print("==========================================")
 
-    # Use DETR-specific metadata loader (no duplicate filtering)
-    train_df, test_df, class_names = load_metadata_detr(
+    # Load metadata
+    train_df, test_df, class_names = load_detr_metadata(
         data_folder, config_path, target_column=target_column
     )
 
     # Get dataloaders
-    train_loader, test_loader = get_m2_detr_dataloaders(
+    train_loader, test_loader = get_detr_dataloaders(
         train_df,
         test_df,
         data_folder,
@@ -75,7 +75,7 @@ def run_m2_detr_train(
     )
 
     # Get model
-    model = get_m2_detr_model(
+    model = get_detr_model(
         model_type=model_type, num_classes=len(class_names), num_queries=num_queries
     )
 
@@ -101,7 +101,7 @@ def run_m2_detr_train(
         sample_viz_batches(train_loader, viz_dir, class_names, num_batches=5)
 
     # Train
-    trained_model = train_m2_detr_model(
+    trained_model = train_detr_model(
         model=model,
         train_loader=train_loader,
         test_loader=test_loader,
@@ -123,7 +123,7 @@ def run_m2_detr_train(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train M2 DETR Model")
+    parser = argparse.ArgumentParser(description="Train DETR Model")
     parser.add_argument("--config", type=str, default="config.yaml")
     parser.add_argument("--data_folder", type=str, required=True)
     parser.add_argument("--model_type", type=str, required=True)
@@ -139,8 +139,8 @@ if __name__ == "__main__":
     parser.add_argument("--lambda_bbox", type=float, default=5.0)
     parser.add_argument("--lambda_giou", type=float, default=2.0)
     parser.add_argument("--lambda_obj", type=float, default=1.0)
-    parser.add_argument("--num_queries", type=int, default=3)  # CHANGED: từ 10 xuống 3
-    parser.add_argument("--max_objects", type=int, default=3)  # CHANGED: từ 10 xuống 3
+    parser.add_argument("--num_queries", type=int, default=3)
+    parser.add_argument("--max_objects", type=int, default=3)
     parser.add_argument("--pretrained_model_path", type=str, default=None)
     parser.add_argument("--target_column", type=str, default=None)
     parser.add_argument("--sample_viz", action="store_true")
@@ -148,12 +148,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
     config = load_config(args.config)
 
-    # Parse arguments
     data_folder = get_arg_or_config(args.data_folder, config.get("data_folder"), None)
     model_type = get_arg_or_config(args.model_type, config.get("model_type"), None)
     batch_size = get_arg_or_config(args.batch_size, config.get("batch_size"), 16)
     num_epochs = get_arg_or_config(args.num_epochs, config.get("num_epochs"), 100)
-    pateience = get_arg_or_config(args.patience, config.get("patience"), 150)
+    patience = get_arg_or_config(args.patience, config.get("patience"), 150)
     lr = get_arg_or_config(args.lr, config.get("lr"), 1e-4)
     output = get_arg_or_config(args.output, config.get("output"), "output")
     img_size = get_arg_or_config(args.img_size, config.get("image_size"), None)
@@ -166,7 +165,7 @@ if __name__ == "__main__":
     if img_size and isinstance(img_size, str):
         img_size = parse_img_size(img_size)
 
-    run_m2_detr_train(
+    run_detr_train(
         data_folder=data_folder,
         model_type=model_type,
         batch_size=batch_size,
@@ -175,7 +174,7 @@ if __name__ == "__main__":
         output=output,
         config_path=args.config,
         img_size=img_size,
-        patience=pateience,
+        patience=patience,
         loss_type=loss_type,
         lambda_bbox=args.lambda_bbox,
         lambda_giou=args.lambda_giou,
