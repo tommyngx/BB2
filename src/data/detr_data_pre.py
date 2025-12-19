@@ -235,7 +235,6 @@ def group_bboxes_by_image_vectorized(
 def unique_patients(df):
     """
     Trả về tập hợp các bệnh nhân duy nhất (đã chuẩn hóa) từ DataFrame.
-    Đảm bảo loại bỏ duplicate trước khi chuẩn hóa.
     """
 
     # Tìm cột patient_id, id, hoặc image_id (không phân biệt hoa thường)
@@ -247,14 +246,11 @@ def unique_patients(df):
                     return c
         return None
 
-    df = df.drop_duplicates(subset=["link"])
     patient_id_col = find_col(df, ["patient_id", "id", "image_id"])
     if patient_id_col is None:
         return set()
-    # Loại bỏ duplicate trước khi chuẩn hóa
-    unique_df = df.drop_duplicates(subset=[patient_id_col])
 
-    # Chuẩn hóa patient_id
+    # Chuẩn hóa patient_id (giống dataloader.py)
     def normalize_pid(val):
         if isinstance(val, str):
             for suffix in ["_R", "_L", "_MLO", "_CC"]:
@@ -264,7 +260,8 @@ def unique_patients(df):
             return val
         return val
 
-    return set(unique_df[patient_id_col].dropna().map(normalize_pid))
+    # Trả về số unique sau khi normalize (giống dataloader.py)
+    return df[patient_id_col].map(normalize_pid).nunique()
 
 
 def prepare_detr_dataframe(
@@ -303,12 +300,12 @@ def prepare_detr_dataframe(
         print(f"    Test:  {len(test_df)} images")
 
         # Tính unique patients cho train, test, tổng
-        train_patients_set = unique_patients(train_df)
-        test_patients_set = unique_patients(test_df)
-        total_patients_set = train_patients_set | test_patients_set
-        n_train_patients = len(train_patients_set)
-        n_test_patients = len(test_patients_set)
-        n_total_patients = len(total_patients_set)
+        n_train_patients = unique_patients(train_df)
+        n_test_patients = unique_patients(test_df)
+        # Tổng unique patients = union của 2 set
+        combined_df = pd.concat([train_df, test_df])
+        n_total_patients = unique_patients(combined_df)
+
         pct_train = (
             (n_train_patients / n_total_patients * 100) if n_total_patients > 0 else 0
         )
