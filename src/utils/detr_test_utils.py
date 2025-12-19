@@ -149,16 +149,33 @@ def compute_classification_metrics(all_preds, all_labels, all_probs, class_names
 
 
 def print_test_metrics(metrics, test_iou, test_map):
-    """Print formatted test metrics"""
-    print("\n" + "=" * 50)
-    print("Test Results:")
-    print("=" * 50)
-    print(f"Test Accuracy : {metrics['accuracy']:.2f}% | AUC: {metrics['auc']:.2f}%")
+    """Print concise test metrics"""
+    # Calculate specificity if possible
+    spec = None
+    if metrics.get("report"):
+        # Try to extract specificity from classification_report
+        try:
+            # Parse the report string for support/recall for class 0
+            lines = metrics["report"].splitlines()
+            for line in lines:
+                parts = line.strip().split()
+                if len(parts) >= 4 and parts[0] == "0":
+                    # specificity = recall of class 0
+                    spec = float(parts[2]) * 100
+                    break
+        except Exception:
+            spec = None
+
+    acc = metrics.get("accuracy", 0.0)
+    auc = metrics.get("auc", 0.0)
+    sen = metrics.get("sensitivity", 0.0)
+    f1 = metrics.get("f1", 0.0)
+    iou = test_iou * 100
+    map50 = test_map * 100
+
     print(
-        f"Test Precision: {metrics['precision']:.2f}% | Sens: {metrics['sensitivity']:.2f}%"
+        f"Test Class: ACC={acc:.2f}%, AUC={auc:.2f}%, SEN={sen:.2f}%, SPEC={spec:.2f}%"
+        if spec is not None
+        else f"Test Class: ACC={acc:.2f}%, AUC={auc:.2f}%, SEN={sen:.2f}%"
     )
-    print(f"Test F1-Score : {metrics['f1']:.2f}%")
-    print(f"Test IoU      : {test_iou * 100:.2f}% | mAP@0.5: {test_map * 100:.2f}%")
-    print("\nClassification Report:")
-    print(metrics["report"])
-    print("=" * 50)
+    print(f"Test Det: IoU={iou:.2f}%, mAP={map50:.2f}%, F1={f1:.2f}%")
