@@ -131,7 +131,154 @@ class PositionEmbeddingSine(nn.Module):
         return pos
 
 
+import torch
+import torch.nn as nn
+import math
+
+
 class EfficientDeformableAttention(nn.Module):
+    """
+    Efficient Deformable Attention with reduced complexity
+    """
+
+    def __init__(self, embed_dim, num_heads=4, num_points=4):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.num_points = num_points
+        self.head_dim = embed_dim // num_heads
+
+        # Learnable offset and attention
+        self.sampling_offsets = nn.Linear(embed_dim, num_heads * num_points * 2)
+        self.attention_weights = nn.Linear(embed_dim, num_heads * num_points)
+
+        # Value projection
+        self.value_proj = nn.Linear(embed_dim, embed_dim)
+        self.output_proj = nn.Linear(embed_dim, embed_dim)
+
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        # Initialize offsets to cover nearby regions
+        nn.init.constant_(self.sampling_offsets.weight, 0.0)
+        thetas = torch.arange(self.num_heads, dtype=torch.float32) * (
+            2.0 * math.pi / self.num_heads
+        )
+        grid_init = torch.stack([thetas.cos(), thetas.sin()], -1)
+        grid_init = (grid_init / grid_init.abs().max(-1, keepdim=True)[0]).view(
+            self.num_heads, 1, 2
+        )
+        for i in range(self.num_points):
+            grid_init_i = grid_init.clone()
+            grid_init_i *= (i + 1) / self.num_points  # Gradually increase offset
+            if i == 0:
+                offset_init = grid_init_i
+            else:
+                offset_init = torch.cat([offset_init, grid_init_i], dim=1)
+        self.sampling_offsets.bias.data = offset_init.view(-1)
+
+        nn.init.constant_(self.attention_weights.weight, 0.0)
+        nn.init.constant_(self.attention_weights.bias, 0.0)
+        nn.init.xavier_uniform_(self.value_proj.weight)
+        nn.init.xavier_uniform_(self.output_proj.weight)
+
+    def forward(
+        self,
+        query,
+        reference_points,
+        value,
+        spatial_shapes,
+        return_attention_weights=False,
+    ):
+        """
+        Args:
+            query: [B, N_q, C]
+            reference_points: [B, N_q, 2] in [0, 1]
+            value: [B, H*W, C]
+            spatial_shapes: (H, W)
+            return_attention_weights: bool, whether to return attention maps
+        Returns:
+            output: [B, N_q, C]
+            attn_maps: [B, H, W] global attention map (max-pooled over queries) if return_attention_weights else None
+        """
+        B, N_q, C = query.shape
+        H, W = spatial_shapes
+        device = query.device
+
+        # Generate offsets and weights
+        offsets = self.sampling_offsets(query).view(
+            B, N_q, self.num_heads, self.num_points, 2
+        )
+        attn_weights = F.softmax(self.attention_weights(query), dim=-1).view(
+            B, N_q, self.num_heads, self.num_points
+        )
+
+        # Normalize offsets to [-1, 1] relative to ref points
+        offsets = offsets * 0.5  # Scale offsets
+        sampling_locations = reference_points.unsqueeze(2).unsqueeze(3) + offsets
+        sampling_locations = torch.clamp(sampling_locations, 0, 1)
+
+        # Project value
+        value = self.value_proj(value)  # [B, L, C]
+        value = value.view(B, H * W, self.num_heads, self.head_dim)
+
+        # Sample features
+        sampled_feats = []
+        for b in range(B):
+            grid = sampling_locations[b].flatten(1, 2)  # [N_q, num_heads*num_points, 2]
+            grid = grid[..., [1, 0]] * 2 - 1  # To [-1,1] yx -> xy
+            feat = value[b].permute(0, 2, 1)  # [L, num_heads, head_dim]
+
+            sampled = F.grid_sample(
+                feat.unsqueeze(0),  # [1, L, num_heads, head_dim]
+                grid.unsqueeze(0).unsqueeze(0),  # [1,1, N_q*heads*points, 2]
+                mode="bilinear",
+                padding_mode="border",
+                align_corners=False,
+            )[0]
+
+            sampled_feats.append(
+                sampled.view(
+                    N_q, self.num_heads, self.num_points, self.head_dim
+                ).permute(0, 1, 3, 2)
+            )  # [N_q, heads, head_dim, points]
+
+        sampled_feats = torch.stack(
+            sampled_feats, dim=0
+        )  # [B, N_q, heads, head_dim, points]
+
+        # Attend
+        attn_weights = attn_weights.unsqueeze(3)  # [B, N_q, heads, 1, points]
+        output = (sampled_feats * attn_weights).sum(-1)  # [B, N_q, heads, head_dim]
+        output = output.flatten(2)  # [B, N_q, C]
+        output = self.output_proj(output)
+
+        if return_attention_weights:
+            # Compute per-query attention maps first
+            per_query_maps = torch.zeros((B, N_q, H, W), device=device)
+            for b in range(B):
+                for q in range(N_q):
+                    for h in range(self.num_heads):
+                        for p in range(self.num_points):
+                            attn = attn_weights[b, q, h, p]
+                            x = int(sampling_locations[b, q, h, p, 0] * (W - 1))
+                            y = int(sampling_locations[b, q, h, p, 1] * (H - 1))
+                            per_query_maps[b, q, y, x] += (
+                                attn  # Accumulate per query over heads/points
+                            )
+
+            # Normalize per-query maps
+            per_query_maps = per_query_maps / (self.num_heads * self.num_points + 1e-6)
+
+            # Combine with max pool over queries
+            attn_maps = per_query_maps.max(dim=1).values  # [B, H, W]
+
+            return output, attn_maps
+        else:
+            return output, None
+
+
+class EfficientDeformableAttention_ori(nn.Module):
     """
     Efficient Deformable Attention with reduced complexity
     """
