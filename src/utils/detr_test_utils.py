@@ -194,6 +194,6 @@ def print_test_metrics(
             f"Test Class: Acc={acc:.2f}% | AUC={auc:.2f}% | Sens={sen:.2f}% | F1={f1:.2f}%"
         )
     print(
-        f"Test Det  : IoU={iou:.2f}% | mAP@0.5={map50:.2f}% | mAP@0.25={map25:.2f}% | Recall@IoU=0.25={recall25:.2f}%"
+        f"Test Det  : IoU={iou:.2f}% | mAP@0.5={map50:.2f}% | mAP@0.25={map25:.2f}% | Recall_IoU@0.25={recall25:.2f}%"
     )
     print(metrics["report"])
