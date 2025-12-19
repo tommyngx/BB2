@@ -568,7 +568,7 @@ class M2DETRModel(nn.Module):
         }
 
 
-def get_m2_detr_model(model_type="resnet50", num_classes=2, num_queries=5):
+def get_detr_model(model_type="resnet50", num_classes=2, num_queries=5):
     """Get efficient M2 DETR model (num_queries=5 for mammography)"""
     # Get backbone (reuse from m2_model.py)
     if model_type in ["resnet34", "resnet50", "resnet101", "resnext50", "resnet152"]:
