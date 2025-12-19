@@ -26,7 +26,11 @@ from src.utils.loss import FocalLoss, LDAMLoss, FocalLoss2
 from src.utils.plot import plot_metrics
 from src.utils.bbox_loss import GIoULoss
 from src.utils.detr_common_utils import box_iou
-from src.utils.detr_test_utils import detr_compute_iou
+from src.utils.detr_test_utils import (
+    detr_compute_iou,
+    compute_classification_metrics,
+    print_test_metrics,
+)
 
 
 class HungarianMatcher(nn.Module):
@@ -306,14 +310,21 @@ def train_detr_model(
                 ]
             )
 
-    train_losses, train_accs, test_losses, test_accs = [], [], [], []
+    train_losses, train_accs, test_losses, test_accs, train_ious, test_ious = (
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+    )
     best_acc, patience_counter, last_lr = 0.0, 0, lr
 
     for epoch in range(num_epochs):
         # Training
         model.train()
         running_loss, correct, total = 0.0, 0, 0
-        epoch_iou, num_bbox = 0.0, 0
+        epoch_iou, num_bbox_samples = 0.0, 0
 
         for batch in tqdm(train_loader, desc=f"Epoch {epoch + 1}", leave=False):
             images = batch["image"].to(device)
@@ -355,11 +366,22 @@ def train_detr_model(
                             pred = outputs["pred_bboxes"][i, 0:1]
                             tgt = bboxes[i][bbox_mask[i] > 0.5][:1]
                             epoch_iou += detr_compute_iou(pred[0], tgt[0]).item()
-                            num_bbox += 1
+                            num_bbox_samples += 1
 
-        train_losses.append(running_loss / total)
-        train_accs.append(correct / total)
+        epoch_loss = running_loss / total
+        epoch_acc = correct / total
+        avg_train_iou = epoch_iou / max(num_bbox_samples, 1)
+        train_losses.append(epoch_loss)
+        train_accs.append(epoch_acc)
+        train_ious.append(avg_train_iou)
 
+        # Print training summary (optional, can keep or remove)
+        print(
+            f"\nEpoch [{epoch + 1}/{num_epochs}] Train Loss: {epoch_loss:.4f} "
+            f"Train Acc: {epoch_acc:.4f} IoU: {avg_train_iou:.4f} Learning Rate: {optimizer.param_groups[0]['lr']:.6f}"
+        )
+
+        # ===== VALIDATION =====
         # Validation
         model.eval()
         val_loss, val_correct, val_total = 0.0, 0, 0
@@ -402,34 +424,35 @@ def train_detr_model(
                         all_pred_boxes.append(pred_box.cpu())
                         all_gt_boxes.append(gt_boxes.cpu())
 
+        val_loss = val_loss / val_total
         val_acc = val_correct / val_total
-        test_losses.append(val_loss / val_total)
+        avg_val_iou = val_iou / max(num_val_bbox, 1)
+        test_losses.append(val_loss)
         test_accs.append(val_acc)
+        test_ious.append(avg_val_iou)
 
-        val_map = sum(
-            1
-            for p, g in zip(all_pred_boxes, all_gt_boxes)
-            if detr_compute_iou(p[0], g[0]).item() >= 0.5
-        ) / max(len(all_pred_boxes), 1)
+        # mAP@0.5
+        val_map = 0.0
+        if len(all_pred_boxes) > 0:
+            num_correct = sum(
+                1
+                for pred_box, gt_box in zip(all_pred_boxes, all_gt_boxes)
+                if detr_compute_iou(pred_box[0], gt_box[0]).item() >= 0.5
+            )
+            val_map = num_correct / len(all_pred_boxes)
 
         # Metrics
-        precision, recall, f1, _ = precision_recall_fscore_support(
-            all_labels, all_preds, average="weighted", zero_division=0
-        )
-        try:
-            auc = (
-                roc_auc_score(all_labels, np.array(all_probs)[:, 1]) * 100
-                if np.array(all_probs).shape[1] == 2
-                else 0.0
-            )
-        except:
-            auc = 0.0
+        all_preds = np.array(all_preds)
+        all_labels = np.array(all_labels)
+        all_probs = np.array(all_probs)
 
-        print(
-            f"\nEpoch {epoch + 1}: Train Loss={train_losses[-1]:.4f} Acc={train_accs[-1]:.4f}"
+        # Use unified metrics and print function
+        metrics = compute_classification_metrics(
+            all_preds, all_labels, all_probs, class_names=None
         )
-        print(f"Test Acc={val_acc * 100:.2f}% AUC={auc:.2f}% mAP={val_map * 100:.2f}%")
+        metrics["accuracy"] = val_acc * 100
 
+        print_test_metrics(metrics, avg_val_iou, val_map)
         # Logging
         with open(log_file, "a", newline="") as f:
             csv.writer(f).writerow(
@@ -438,7 +461,7 @@ def train_detr_model(
                     epoch + 1,
                     round(train_losses[-1], 6),
                     round(train_accs[-1], 6),
-                    round(epoch_iou / max(num_bbox, 1), 6),
+                    round(epoch_iou / max(num_bbox_samples, 1), 6),
                     round(test_losses[-1], 6),
                     round(val_acc, 6),
                     round(val_iou / max(num_val_bbox, 1), 6),
