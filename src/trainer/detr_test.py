@@ -332,13 +332,19 @@ def run_detr_test(
         )
         metrics["accuracy"] = results["accuracy"]
 
-        # Use new keys if available, else fallback for backward compatibility
+        # Gộp các chỉ số khác vào dict lưu model
+        all_metrics = dict(metrics)
+        all_metrics["iou"] = results.get("iou", 0.0)
+        all_metrics["map50"] = results.get("map50", 0.0)
+        all_metrics["map25"] = results.get("map25", 0.0)
+        all_metrics["recall_iou25"] = results.get("recall_iou25", 0.0)
+
         print_test_metrics(
-            metrics,
-            results.get("iou", 0.0),
-            results.get("map50", 0.0),
-            results.get("map25", 0.0),
-            results.get("recall_iou25", 0.0),
+            all_metrics,
+            all_metrics["iou"],
+            all_metrics["map50"],
+            all_metrics["map25"],
+            all_metrics["recall_iou25"],
         )
 
         save_full_model(
@@ -349,7 +355,7 @@ def run_detr_test(
             actual_input_size,
             num_queries,
             gradcam_layer,
-            metrics,  # <-- truyền metrics thay vì results
+            all_metrics,  # truyền dict đã gộp đủ chỉ số
             device,
         )
 
