@@ -178,7 +178,6 @@ class EfficientDeformableAttention(nn.Module):
         value,
         spatial_shapes,
         return_attention_weights=False,
-        obj_scores=None,
     ):
         """
         Args:
@@ -187,7 +186,6 @@ class EfficientDeformableAttention(nn.Module):
             value: [B, H*W, C]
             spatial_shapes: (H, W)
             return_attention_weights: bool, whether to return attention maps
-            obj_scores: [B, N_q, 1] objectness scores for weighting queries (optional)
         Returns:
             output: [B, N_q, C] if return_attention_weights=False
             (output, attn_maps): tuple if return_attention_weights=True
@@ -288,19 +286,8 @@ class EfficientDeformableAttention(nn.Module):
             # Normalize per-query maps
             per_query_maps = per_query_maps / (self.num_heads * self.num_points + 1e-6)
 
-            # UPDATED: Weight queries by obj_scores if provided (for sharper maps)
-            if obj_scores is not None:
-                # obj_scores: [B, N_q, 1] -> normalize with softmax
-                query_weights = F.softmax(obj_scores.squeeze(-1), dim=1)  # [B, N_q]
-                query_weights = query_weights.unsqueeze(-1).unsqueeze(
-                    -1
-                )  # [B, N_q, 1, 1]
-
-                # Weighted sum of per-query maps
-                attn_maps = (per_query_maps * query_weights).sum(dim=1)  # [B, H, W]
-            else:
-                # Fallback to max pool over queries
-                attn_maps = per_query_maps.max(dim=1).values  # [B, H, W]
+            # Max pool over queries to get global attention map
+            attn_maps = per_query_maps.max(dim=1).values  # [B, H, W]
 
             return output, attn_maps
         else:

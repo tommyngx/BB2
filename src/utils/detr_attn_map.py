@@ -43,15 +43,14 @@ import numpy as np
 from skimage.filters import threshold_otsu
 
 
-def prepare_attention_heatmap(attn_map, original_size, use_otsu=False, power=1.5):
+def prepare_attention_heatmap(attn_map, original_size, use_otsu=False):
     """
-    Prepare attention heatmap with optional Otsu thresholding and power normalization
+    Prepare attention heatmap with optional Otsu thresholding
 
     Args:
         attn_map: attention map tensor [H, W]
         original_size: (height, width) tuple
         use_otsu: whether to apply Otsu thresholding
-        power: power for amplification (default 1.5, higher = more contrast)
 
     Returns:
         attn_resized_np: resized attention map as numpy array [H', W'] in [0,1]
@@ -65,11 +64,6 @@ def prepare_attention_heatmap(attn_map, original_size, use_otsu=False, power=1.5
         attn_np = (attn_np - attn_np.min()) / (attn_np.max() - attn_np.min())
     else:
         attn_np = np.zeros_like(attn_np)
-
-    # Power normalization to amplify high-attention regions
-    # This makes the heatmap sharper by emphasizing peaks
-    if power != 1.0:
-        attn_np = np.power(attn_np, power)
 
     # Resize to original size
     attn_resized = Image.fromarray((attn_np * 255).astype(np.uint8)).resize(
@@ -112,7 +106,7 @@ def create_heatmap_overlay(img_original_np, attn_resized_np, mask=None, alpha=0.
     return np.clip(blend_img, 0, 1)
 
 
-def process_attention_maps(attn_maps, batch_size, original_sizes, use_otsu=False, power=1.5):
+def process_attention_maps(attn_maps, batch_size, original_sizes, use_otsu=False):
     """
     Process batch of attention maps
 
@@ -121,7 +115,6 @@ def process_attention_maps(attn_maps, batch_size, original_sizes, use_otsu=False
         batch_size: batch size
         original_sizes: list of (height, width) tuples
         use_otsu: whether to apply Otsu thresholding
-        power: power for amplification (default 1.5)
 
     Returns:
         list of (attn_resized_np, mask) tuples
@@ -131,12 +124,10 @@ def process_attention_maps(attn_maps, batch_size, original_sizes, use_otsu=False
     for i in range(batch_size):
         if i < len(original_sizes):
             attn_resized_np, mask = prepare_attention_heatmap(
-                attn_maps[i], original_sizes[i], use_otsu, power
+                attn_maps[i], original_sizes[i], use_otsu
             )
             results.append((attn_resized_np, mask))
         else:
+            results.append((None, None))
 
-
-
-    return results            results.append((None, None))
     return results

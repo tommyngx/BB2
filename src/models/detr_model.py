@@ -158,19 +158,14 @@ class EfficientDETRDecoder(nn.Module):
             return_attn = return_attention_maps and (layer_idx == self.num_layers - 1)
 
             if return_attn:
-                # UPDATED: Pass obj_scores for weighted query combination
-                # Predict obj_scores first to use for weighting
-                temp_obj_scores = self.obj_score_head[layer_idx](queries_norm)
-
                 queries2, attn_maps = layer["cross_attn"](
                     queries_norm,
                     reference_points,
                     feat_seq,
                     (H, W),
                     return_attention_weights=True,
-                    obj_scores=temp_obj_scores,
                 )
-                cross_attn_maps = attn_maps  # [B, H, W] weighted global map
+                cross_attn_maps = attn_maps  # [B, H, W] global map
             else:
                 # FIXED: cross_attn returns only output when return_attention_weights=False
                 queries2 = layer["cross_attn"](
