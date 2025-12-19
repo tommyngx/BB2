@@ -267,6 +267,20 @@ def prepare_detr_dataframe(
         print(f"    Train: {len(train_df)} images")
         print(f"    Test:  {len(test_df)} images")
 
+        # Unique patient statistics
+        train_patients = (
+            train_df["patient_id"].nunique()
+            if "patient_id" in train_df.columns
+            else "N/A"
+        )
+        test_patients = (
+            test_df["patient_id"].nunique()
+            if "patient_id" in test_df.columns
+            else "N/A"
+        )
+        print(f"    Unique patients (train): {train_patients}")
+        print(f"    Unique patients (test):  {test_patients}")
+
         # Multi-bbox statistics
         train_multi = (train_df["num_bboxes"] > 1).sum()
         test_multi = (test_df["num_bboxes"] > 1).sum()
@@ -283,16 +297,25 @@ def prepare_detr_dataframe(
         if test_multi > 0:
             print(f"  Max bboxes per image (test):  {test_df['num_bboxes'].max()}")
 
-        # Label distribution
+        # Label distribution with total and percent
         print(f"\n  Label distribution:")
         train_counts = train_df["cancer"].value_counts().sort_index()
         test_counts = test_df["cancer"].value_counts().sort_index()
         all_labels = sorted(set(train_counts.index).union(set(test_counts.index)))
-        print("  Label | Train  | Test")
+        train_total = len(train_df)
+        test_total = len(test_df)
+        print("  Label | Train  | %Train | Test   | %Test  | Total  | %Total")
         for label in all_labels:
             n_train = train_counts.get(label, 0)
             n_test = test_counts.get(label, 0)
-            print(f"    {label}   | {n_train:5d}  | {n_test:5d}")
+            n_total = n_train + n_test
+            total = train_total + test_total
+            pct_train = (n_train / train_total * 100) if train_total > 0 else 0
+            pct_test = (n_test / test_total * 100) if test_total > 0 else 0
+            pct_total = (n_total / total * 100) if total > 0 else 0
+            print(
+                f"    {label}   | {n_train:5d}  | {pct_train:6.2f}% | {n_test:5d}  | {pct_test:6.2f}% | {n_total:5d}  | {pct_total:6.2f}%"
+            )
 
         print("=" * 60)
 
