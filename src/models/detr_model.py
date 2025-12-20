@@ -8,6 +8,7 @@ from .m2_model import (
     DinoFeatureWrapper,
 )
 from .backbone import get_resnet_backbone, get_timm_backbone, get_dino_backbone
+from .backbone import get_mamba_backbone  # ADDED: import get_mamba_backbone
 
 from .detr_model_attn import (
     MultiScaleSpatialAttention,
@@ -326,6 +327,9 @@ def get_detr_model(model_type="resnet50", num_classes=2, num_queries=5):
     elif model_type in ["dinov2_small", "dinov2_base", "dinov3_vit16small"]:
         backbone, feature_dim = get_dino_backbone(model_type)
         backbone = DinoFeatureWrapper(backbone)
+    elif model_type in ["mamba_t", "mamba_s"]:  # ADDED: mamba support
+        backbone, feature_dim = get_mamba_backbone(model_type)
+        # No wrapper needed for mamba backbone
     else:
         raise ValueError(f"Unsupported model_type: {model_type}")
 
