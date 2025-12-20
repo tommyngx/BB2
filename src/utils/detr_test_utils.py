@@ -35,73 +35,67 @@ def detr_compute_iou(pred_box, gt_box):
     return iou
 
 
-def evaluate_detr_model(model, test_loader, device):
+def evaluate_detr_model(
+    model, test_loader, device, num_queries=5
+):  # ADDED: Pass model's num_queries
     """Evaluate DETR model - independent implementation"""
     model.eval()
     correct, total = 0, 0
-
     all_preds, all_labels, all_probs = [], [], []
     all_pred_boxes, all_gt_boxes, all_obj_scores = [], [], []
-
     with torch.no_grad():
         for batch in tqdm(test_loader, desc="Evaluating"):
             images = batch["image"].to(device)
             labels = batch["label"].to(device)
             bboxes = batch["bboxes"].to(device)
             bbox_mask = batch["bbox_mask"].to(device)
-
             outputs = model(images)
-
             # Classification
             probs = torch.softmax(outputs["cls_logits"], dim=1)
             _, predicted = torch.max(outputs["cls_logits"], 1)
             correct += (predicted == labels).sum().item()
             total += labels.size(0)
-
             all_preds.extend(predicted.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
             all_probs.extend(probs.cpu().numpy())
-
             # Collect boxes and scores for mAP computation
             pred_obj = torch.sigmoid(outputs["obj_scores"])
             for i in range(images.size(0)):
-                if bbox_mask[i].sum() > 0:
+                if bbox_mask[i].sum() > 0:  # Only positive images
                     all_pred_boxes.append(outputs["pred_bboxes"][i].cpu())
                     all_gt_boxes.append(bboxes[i].cpu())
                     all_obj_scores.append(pred_obj[i].cpu())
-
     # Compute standard DETR metrics
     bbox_metrics = {}
     if len(all_pred_boxes) > 0:
         pred_boxes_batch = torch.stack(all_pred_boxes)
         gt_boxes_batch = torch.stack(all_gt_boxes)
         obj_scores_batch = torch.stack(all_obj_scores)
-
         # Create bbox_mask for the batch
         bbox_mask_batch = torch.zeros(gt_boxes_batch.size(0), gt_boxes_batch.size(1))
         for i, gt_box in enumerate(all_gt_boxes):
             valid_count = (gt_box.sum(dim=1) > 0).sum()
             bbox_mask_batch[i, :valid_count] = 1
-
         bbox_metrics = compute_detr_metrics(
             pred_boxes_batch,
             gt_boxes_batch,
             obj_scores_batch.squeeze(-1),
             bbox_mask_batch,
+            num_queries=num_queries,  # ADDED: Use actual num_queries
         )
-
     # Extract metrics
-    test_acc = (correct / total) * 100
+    test_acc = (correct / total) * 100 if total > 0 else 0.0
     test_iou = bbox_metrics.get("avg_iou", 0.0)
     test_map50 = bbox_metrics.get("mAP@0.5", 0.0)
     test_map25 = bbox_metrics.get("mAP@0.25", 0.0)
+    test_map75 = bbox_metrics.get("mAP@0.75", 0.0)  # ADDED: For completeness
     recall_iou25 = bbox_metrics.get("recall@0.25", 0.0)
-
     return {
         "accuracy": test_acc,
         "iou": test_iou,
         "map50": test_map50,
         "map25": test_map25,
+        "map75": test_map75,
         "recall_iou25": recall_iou25,
         "preds": all_preds,
         "labels": all_labels,
@@ -114,6 +108,9 @@ def compute_classification_metrics(all_preds, all_labels, all_probs, class_names
     all_preds = np.array(all_preds)
     all_labels = np.array(all_labels)
     all_probs = np.array(all_probs)
+
+    # ADDED: Compute accuracy
+    accuracy = np.mean(all_preds == all_labels) * 100 if len(all_labels) > 0 else 0.0
 
     precision, recall, f1, _ = precision_recall_fscore_support(
         all_labels, all_preds, average="weighted", zero_division=0
@@ -142,7 +139,7 @@ def compute_classification_metrics(all_preds, all_labels, all_probs, class_names
     )
 
     return {
-        "accuracy": None,
+        "accuracy": accuracy,
         "precision": precision * 100,
         "recall": recall * 100,
         "f1": f1 * 100,

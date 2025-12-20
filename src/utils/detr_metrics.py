@@ -54,76 +54,46 @@ def box_iou_batch(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
     return iou
 
 
+# Fixed compute_ap_at_iou (main bug fix)
 def compute_ap_at_iou(
     pred_boxes: List[torch.Tensor],
     gt_boxes: List[torch.Tensor],
     pred_scores: List[torch.Tensor],
     iou_threshold: float = 0.5,
 ) -> Tuple[float, float, float]:
-    """
-    Compute Average Precision at a specific IoU threshold.
-
-    Args:
-        pred_boxes: List of predicted boxes per image (N, 4)
-        gt_boxes: List of ground truth boxes per image (M, 4)
-        pred_scores: List of prediction confidence scores per image (N,)
-        iou_threshold: IoU threshold for considering a detection as correct
-
-    Returns:
-        ap: Average Precision
-        precision: Overall precision
-        recall: Overall recall
-    """
     all_scores = []
     all_matches = []
     total_gt = 0
-
     for pred_box, gt_box, scores in zip(pred_boxes, gt_boxes, pred_scores):
-        if len(pred_box) == 0:
-            continue
-
-        if len(gt_box) == 0:
-            # No ground truth, all predictions are false positives
+        if len(pred_box) == 0 or len(gt_box) == 0:
             all_scores.extend(scores.cpu().numpy())
             all_matches.extend([False] * len(scores))
             continue
-
-        # Compute IoU matrix
-        iou_matrix = box_iou_batch(pred_box, gt_box)  # (num_pred, num_gt)
-
-        # For each prediction, find best matching GT
-        max_iou, gt_idx = iou_matrix.max(dim=1)
-
-        # Mark predictions as TP or FP
+        # FIXED: Sort by scores descending and match greedily in that order
+        sorted_idx = torch.argsort(scores, descending=True)
+        pred_box_sorted = pred_box[sorted_idx]
+        scores_sorted = scores[sorted_idx]
         gt_matched = set()
-        for i, (iou_val, gt_id) in enumerate(zip(max_iou, gt_idx)):
-            score = scores[i].item()
+        for j in range(len(pred_box_sorted)):
+            iou_matrix = box_iou_batch(pred_box_sorted[j : j + 1], gt_box)
+            max_iou, gt_id = iou_matrix.max(dim=1)
+            score = scores_sorted[j].item()
             all_scores.append(score)
-
-            # Check if IoU is above threshold and GT not already matched
-            if iou_val >= iou_threshold and gt_id.item() not in gt_matched:
+            if max_iou.item() >= iou_threshold and gt_id.item() not in gt_matched:
                 all_matches.append(True)
                 gt_matched.add(gt_id.item())
             else:
                 all_matches.append(False)
-
         total_gt += len(gt_box)
-
     if len(all_scores) == 0 or total_gt == 0:
         return 0.0, 0.0, 0.0
-
-    # Sort by confidence score (descending)
+    # Global sort (though per-image is already sorted, global ensures consistency)
     sorted_indices = np.argsort(all_scores)[::-1]
     all_matches = np.array(all_matches)[sorted_indices]
-
-    # Compute precision and recall at each threshold
     tp_cumsum = np.cumsum(all_matches)
     fp_cumsum = np.cumsum(~all_matches)
-
     recalls = tp_cumsum / total_gt
-    precisions = tp_cumsum / (tp_cumsum + fp_cumsum)
-
-    # Compute AP using 11-point interpolation
+    precisions = tp_cumsum / (tp_cumsum + fp_cumsum + 1e-6)
     ap = 0.0
     for t in np.linspace(0, 1, 11):
         if np.sum(recalls >= t) == 0:
@@ -131,11 +101,8 @@ def compute_ap_at_iou(
         else:
             p = np.max(precisions[recalls >= t])
         ap += p / 11
-
-    # Overall precision and recall
     final_precision = precisions[-1] if len(precisions) > 0 else 0.0
     final_recall = recalls[-1] if len(recalls) > 0 else 0.0
-
     return ap, final_precision, final_recall
 
 

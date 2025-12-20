@@ -332,7 +332,7 @@ def run_detr_test(
         metrics = compute_classification_metrics(
             results["preds"], results["labels"], results["probs"], class_names
         )
-        metrics["accuracy"] = results["accuracy"]
+        # metrics["accuracy"] = results["accuracy"]
 
         # Gộp các chỉ số khác vào dict lưu model
         all_metrics = dict(metrics)
