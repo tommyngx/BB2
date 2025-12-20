@@ -143,6 +143,7 @@ def generate_visualizations(
             pred_bboxes = outputs["pred_bboxes"]
             pred_obj = torch.sigmoid(outputs["obj_scores"])
             attn_maps = outputs.get("attn_maps", None)
+            spatial_attn = outputs.get("spatial_attn", None)
 
             _, predicted = torch.max(cls_logits, 1)
             probs = torch.softmax(cls_logits, dim=1)
@@ -171,7 +172,8 @@ def generate_visualizations(
                 ):
                     continue
 
-                attn_map = attn_maps[i]
+                # attn_map = attn_maps[i]
+                attn_map = spatial_attn[i]
 
                 # GradCAM generation
                 gradcam_map = None
