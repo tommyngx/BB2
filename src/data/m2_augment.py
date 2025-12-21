@@ -6,14 +6,17 @@ from albumentations.pytorch import ToTensorV2
 import cv2
 
 
-def get_m2_positive_augmentations(enable_rotate90=True):
+def get_m2_positive_augmentations(height, width, enable_rotate90=True):
     """
     Augmentations for POSITIVE samples (with bbox) - bbox-safe transforms
     Tránh các transform có thể làm mất bbox như CoarseDropout, ElasticTransform mạnh
     """
+    crop_h = int(height * 0.8)
+    crop_w = int(width * 0.8)
+
     aug_list = [
         # Bổ sung crop an toàn cho bbox
-        A.RandomSizedBBoxSafeCrop(height=512, width=512, erosion_rate=0.0, p=0.4),
+        A.RandomSizedBBoxSafeCrop(height=crop_h, width=crop_w, erosion_rate=0.0, p=0.5),
         A.HorizontalFlip(p=0.5),
         A.VerticalFlip(p=0.5),
         A.Transpose(p=0.5),
@@ -90,7 +93,7 @@ def get_m2_positive_augmentations(enable_rotate90=True):
     return aug_list
 
 
-def get_m2_negative_augmentations(enable_rotate90=True):
+def get_m2_negative_augmentations(height, width, enable_rotate90=True):
     """
     Augmentations for NEGATIVE samples (no bbox) - can use aggressive transforms
     Tận dụng lại augmentation mạnh từ base (có thể dùng CoarseDropout, ElasticTransform...)
@@ -194,10 +197,10 @@ def get_m2_negative_augmentations(enable_rotate90=True):
         A.ToSepia(p=0.05),
         # Crop tối đa 10% mỗi cạnh (trái/phải/trên/dưới)
         A.CropAndPad(
-            percent=(-0.1, 0.0),  # chỉ crop, không pad, tối đa 10% mỗi cạnh
+            percent=(-0.2, 0.0),  # chỉ crop, không pad, tối đa 20% mỗi cạnh
             pad_mode=cv2.BORDER_CONSTANT,
             pad_cval=0,
-            p=0.2,
+            p=0.3,
         ),
     ]
 
@@ -212,10 +215,17 @@ def get_m2_train_augmentation(height, width, enable_rotate90=True):
     Training augmentation with bbox support
     Trả về 2 transforms: 1 cho positive (bbox-safe), 1 cho negative (aggressive)
     """
+
+    big_h = int(height * 0.3)
+    big_w = int(width * 0.3)
+
     # Positive transform (bbox-safe)
-    positive_aug_list = [A.Resize(height, width)]
-    positive_aug_list += get_m2_positive_augmentations(enable_rotate90=enable_rotate90)
+    positive_aug_list = [A.Resize(big_h, big_w)]
+    positive_aug_list += get_m2_positive_augmentations(
+        height, width, enable_rotate90=enable_rotate90
+    )
     positive_aug_list += [
+        A.Resize(height, width),
         A.Normalize([0.5] * 3, [0.5] * 3),
         ToTensorV2(),
     ]
@@ -231,9 +241,12 @@ def get_m2_train_augmentation(height, width, enable_rotate90=True):
     )
 
     # Negative transform (aggressive, no bbox) - KHÔNG CẦN bbox_params
-    negative_aug_list = [A.Resize(height, width)]
-    negative_aug_list += get_m2_negative_augmentations(enable_rotate90=enable_rotate90)
+    negative_aug_list = [A.Resize(big_h, big_w)]
+    negative_aug_list += get_m2_negative_augmentations(
+        height, width, enable_rotate90=enable_rotate90
+    )
     negative_aug_list += [
+        A.Resize(height, width),
         A.Normalize([0.5] * 3, [0.5] * 3),
         ToTensorV2(),
     ]
