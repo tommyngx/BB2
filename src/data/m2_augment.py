@@ -197,7 +197,7 @@ def get_m2_negative_augmentations(height, width, enable_rotate90=True):
         A.ToSepia(p=0.05),
         # Crop tối đa 10% mỗi cạnh (trái/phải/trên/dưới)
         A.CropAndPad(
-            percent=(-0.2, 0.0),  # chỉ crop, không pad, tối đa 20% mỗi cạnh
+            percent=(-0.15, 0.0),  # chỉ crop, không pad, tối đa 15% mỗi cạnh
             pad_mode=cv2.BORDER_CONSTANT,
             pad_cval=0,
             p=0.3,
@@ -216,8 +216,8 @@ def get_m2_train_augmentation(height, width, enable_rotate90=True):
     Trả về 2 transforms: 1 cho positive (bbox-safe), 1 cho negative (aggressive)
     """
 
-    big_h = int(height * 0.3)
-    big_w = int(width * 0.3)
+    big_h = int(height * 1.2)
+    big_w = int(width * 1.2)
 
     # Positive transform (bbox-safe)
     positive_aug_list = [A.Resize(big_h, big_w)]
