@@ -236,5 +236,15 @@ def visualize_detr_result(
         ax3.axis("off")
 
     plt.tight_layout()
+    save_path = clean_image_filename(save_path)
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close()
+
+
+def clean_image_filename(filename):
+    """
+    Nếu tên file có đuôi .png.png thì chỉ giữ lại phần trước .png đầu tiên.
+    """
+    if filename.endswith(".png.png"):
+        return filename[: filename.find(".png") + 4]
+    return filename
