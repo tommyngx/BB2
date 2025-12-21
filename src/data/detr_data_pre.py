@@ -129,6 +129,26 @@ def get_image_dimensions(df, data_folder):
     return img_dims
 
 
+def remove_large_bboxes(df, area_ratio_thresh=0.9):
+    """
+    Loại bỏ bbox chiếm trên area_ratio_thresh diện tích ảnh
+    Args:
+        df: DataFrame có các cột x, y, width, height, img_width, img_height
+        area_ratio_thresh: Ngưỡng tỷ lệ diện tích (0.9 = 90%)
+    Returns:
+        DataFrame đã loại bỏ bbox lớn
+    """
+    # Tính diện tích bbox và ảnh
+    df = df.copy()
+    df["bbox_area"] = df["width"] * df["height"]
+    df["img_area"] = df["img_width"] * df["img_height"]
+    df["bbox_ratio"] = df["bbox_area"] / df["img_area"]
+    # Chỉ giữ bbox nhỏ hơn ngưỡng
+    df = df[df["bbox_ratio"] <= area_ratio_thresh].copy()
+    df = df.drop(columns=["bbox_area", "img_area", "bbox_ratio"])
+    return df
+
+
 def group_bboxes_by_image_vectorized(
     df, data_folder=None, validate_bbox=True, min_area=100
 ):
@@ -299,6 +319,8 @@ def prepare_detr_dataframe(
     if verbose:
         print(f"\n📊 DETR Preprocessing (Vectorized):")
         print(f"  Input: {len(df)} annotations")
+    # Loại bỏ bbox quá lớn
+    df = remove_large_bboxes(df, area_ratio_thresh=0.9)
 
     # Group bboxes using vectorized operations
     df_grouped = group_bboxes_by_image_vectorized(
