@@ -340,38 +340,88 @@ def train_detr_model(
                     print(f"Early stopping at epoch {epoch + 1}")
                     break
 
-        # Save top-2 models
+        # Save top-2 models by accuracy and top-1 by recall_iou25
         if epoch >= 10:
             acc4 = int(round(val_acc * 10000))
-            weight_path = os.path.join(model_dir, f"{model_key}_{acc4}.pth")
+            recall_iou254 = int(round(recall_iou25 * 10000))
+            weight_name = f"{model_key}_{acc4}_{recall_iou254}.pth"
+            weight_path = os.path.join(model_dir, weight_name)
 
-            # Sửa lỗi: chỉ lấy file có số ở cuối trước .pth (loại bỏ file có 'full')
-            related = []
-            for f in os.listdir(model_dir):
-                if f.startswith(model_key) and f.endswith(".pth"):
+            # Gather models by accuracy (exclude '_full.pth')
+            related_weights = []
+            recall_weights = []
+            for fname in os.listdir(model_dir):
+                if (
+                    fname.startswith(model_key)
+                    and fname.endswith(".pth")
+                    and not fname.endswith("_full.pth")
+                ):
+                    parts = fname.replace(".pth", "").split("_")
                     try:
-                        score = float(f.split("_")[-1].replace(".pth", ""))
-                        related.append((score / 10000, os.path.join(model_dir, f)))
-                    except ValueError:
-                        # Bỏ qua file không phải dạng số (ví dụ: ..._full.pth)
+                        acc_part = parts[-2] if len(parts) > 2 else parts[-1]
+                        recall_part = parts[-1]
+                        acc_val = float(acc_part) / 10000
+                        recall_val = float(recall_part) / 10000
+                        fpath = os.path.join(model_dir, fname)
+                        related_weights.append((acc_val, fpath))
+                        recall_weights.append((recall_val, fpath))
+                    except Exception:
+                        print(f"Skipping invalid model file: {fname}")
                         continue
-            related.append((val_acc, weight_path))
-            related = sorted(related, reverse=True)
-            top2 = set(p for _, p in related[:2])
 
-            if weight_path in top2:
-                torch.save(
-                    model.state_dict()
-                    if not isinstance(model, nn.DataParallel)
-                    else model.module.state_dict(),
-                    weight_path,
+            # Top-2 by accuracy
+            related_weights = sorted(related_weights, key=lambda x: x[0], reverse=True)
+            top2_accs = set(acc for acc, _ in related_weights[:2])
+
+            # Top-1 by recall_iou25
+            recall_weights = sorted(recall_weights, key=lambda x: x[0], reverse=True)
+            top1_recall_val = recall_weights[0][0] if recall_weights else recall_iou25
+            top1_recall_path = recall_weights[0][1] if recall_weights else weight_path
+
+            # Save logic
+            save_needed = False
+            if val_acc not in top2_accs:
+                related_weights.append((val_acc, weight_path))
+                related_weights = sorted(
+                    related_weights, key=lambda x: x[0], reverse=True
                 )
-                print(f"✅ Saved: {os.path.basename(weight_path)}")
+                save_needed = True
+            if recall_iou25 > top1_recall_val:
+                recall_weights.append((recall_iou25, weight_path))
+                recall_weights = sorted(
+                    recall_weights, key=lambda x: x[0], reverse=True
+                )
+                save_needed = True
 
-            for _, p in related:
-                if p not in top2 and os.path.exists(p):
-                    os.remove(p)
+            top2_paths = set(path for _, path in related_weights[:2])
+            top1_recall_path = recall_weights[0][1] if recall_weights else weight_path
+            keep_paths = top2_paths | {top1_recall_path}
 
+            if save_needed and weight_path in keep_paths:
+                if isinstance(model, nn.DataParallel):
+                    torch.save(model.module.state_dict(), weight_path)
+                else:
+                    torch.save(model.state_dict(), weight_path)
+                print(
+                    f"✅ Saved new model: {weight_name} (acc = {val_acc:.6f}, recall_iou25 = {recall_iou25:.6f})"
+                )
+            elif weight_path in keep_paths:
+                print(f"⏩ Skipped saving {weight_name} (already in top models)")
+
+            # Delete models not in keep_paths and not '_full.pth'
+            for fname in os.listdir(model_dir):
+                fpath = os.path.join(model_dir, fname)
+                if (
+                    fname.startswith(model_key)
+                    and fname.endswith(".pth")
+                    and not fname.endswith("_full.pth")
+                    and fpath not in keep_paths
+                ):
+                    try:
+                        os.remove(fpath)
+                        print(f"🗑️ Deleted model: {fpath}")
+                    except Exception as e:
+                        print(f"⚠️ Could not delete {fpath}: {e}")
         # Plot metrics every epoch
         plot_metrics(
             train_losses,
