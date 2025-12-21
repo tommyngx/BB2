@@ -12,6 +12,8 @@ def get_m2_positive_augmentations(enable_rotate90=True):
     Tránh các transform có thể làm mất bbox như CoarseDropout, ElasticTransform mạnh
     """
     aug_list = [
+        # Bổ sung crop an toàn cho bbox
+        A.RandomSizedBBoxSafeCrop(height=512, width=512, erosion_rate=0.0, p=0.4),
         A.HorizontalFlip(p=0.5),
         A.VerticalFlip(p=0.5),
         A.Transpose(p=0.5),
@@ -190,6 +192,13 @@ def get_m2_negative_augmentations(enable_rotate90=True):
         A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.2),
         A.ToGray(p=0.05),
         A.ToSepia(p=0.05),
+        # Crop tối đa 10% mỗi cạnh (trái/phải/trên/dưới)
+        A.CropAndPad(
+            percent=(-0.1, 0.0),  # chỉ crop, không pad, tối đa 10% mỗi cạnh
+            pad_mode=cv2.BORDER_CONSTANT,
+            pad_cval=0,
+            p=0.2,
+        ),
     ]
 
     if enable_rotate90:
