@@ -164,6 +164,9 @@ def train_detr_model(
         running_loss, correct, total = 0.0, 0, 0
         epoch_iou, num_bbox_samples = 0.0, 0
 
+        # Thêm các list để gom bbox và obj_scores cho train
+        train_pred_boxes, train_gt_boxes, train_obj_scores = [], [], []
+
         for batch in tqdm(train_loader, desc=f"Epoch {epoch + 1}", leave=False):
             images = batch["image"].to(device)
             labels = batch["label"].to(device)
@@ -205,6 +208,12 @@ def train_detr_model(
                             tgt = bboxes[i][bbox_mask[i] > 0.5][:1]
                             epoch_iou += detr_compute_iou(pred[0], tgt[0]).item()
                             num_bbox_samples += 1
+                            # Gom bbox cho recall@0.25 train
+                            train_pred_boxes.append(outputs["pred_bboxes"][i].cpu())
+                            train_gt_boxes.append(bboxes[i].cpu())
+                            train_obj_scores.append(
+                                torch.sigmoid(outputs["obj_scores"][i]).cpu()
+                            )
 
         epoch_loss = running_loss / total
         epoch_acc = correct / total
@@ -294,6 +303,28 @@ def train_detr_model(
         test_ious.append(avg_val_iou)
         test_map25s.append(val_map25)
         test_recalls_025.append(recall_iou25)  # <--- thêm dòng này
+
+        # Tính recall@0.25 cho train (nếu có bbox)
+        if len(train_pred_boxes) > 0:
+            pred_boxes_batch = torch.stack(train_pred_boxes)
+            gt_boxes_batch = torch.stack(train_gt_boxes)
+            obj_scores_batch = torch.stack(train_obj_scores)
+            bbox_mask_batch = torch.zeros(
+                gt_boxes_batch.size(0), gt_boxes_batch.size(1)
+            )
+            for i, gt_box in enumerate(train_gt_boxes):
+                valid_count = (gt_box.sum(dim=1) > 0).sum()
+                bbox_mask_batch[i, :valid_count] = 1
+            train_bbox_metrics = compute_detr_metrics(
+                pred_boxes_batch,
+                gt_boxes_batch,
+                obj_scores_batch.squeeze(-1),
+                bbox_mask_batch,
+            )
+            train_recall_025 = train_bbox_metrics.get("recall@0.25", 0.0)
+        else:
+            train_recall_025 = 0.0
+        train_recalls_025.append(train_recall_025)
 
         # Metrics
         all_preds = np.array(all_preds)
