@@ -634,15 +634,16 @@ def plot_metrics_det(
         label=f"Best Loss: {val_loss_top[0]:.4f} (Epoch {idx_loss[0] + 1})",
         zorder=10,
     )
-    # Top-2
-    axes[0].scatter(
-        idx_loss[1] + 1,
-        val_loss_top[1],
-        s=120,
-        c="orange",
-        label=f"2nd Loss: {val_loss_top[1]:.4f} (Epoch {idx_loss[1] + 1})",
-        zorder=10,
-    )
+    # Top-2 (chỉ vẽ nếu có đủ 2 epoch)
+    if len(idx_loss) > 1:
+        axes[0].scatter(
+            idx_loss[1] + 1,
+            val_loss_top[1],
+            s=120,
+            c="orange",
+            label=f"2nd Loss: {val_loss_top[1]:.4f} (Epoch {idx_loss[1] + 1})",
+            zorder=10,
+        )
     axes[0].set_title("Training and Test Loss")
     axes[0].set_xlabel("Epochs", color="#222831")
     axes[0].set_ylabel("Loss", color="#222831")
@@ -667,15 +668,15 @@ def plot_metrics_det(
         label=f"Best Acc: {val_acc_top[0]:.4f} (Epoch {idx_acc[0] + 1})",
         zorder=10,
     )
-    # Top-2
-    axes[1].scatter(
-        idx_acc[1] + 1,
-        val_acc_top[1],
-        s=120,
-        c="orange",
-        label=f"2nd Acc: {val_acc_top[1]:.4f} (Epoch {idx_acc[1] + 1})",
-        zorder=10,
-    )
+    if len(idx_acc) > 1:
+        axes[1].scatter(
+            idx_acc[1] + 1,
+            val_acc_top[1],
+            s=120,
+            c="orange",
+            label=f"2nd Acc: {val_acc_top[1]:.4f} (Epoch {idx_acc[1] + 1})",
+            zorder=10,
+        )
     axes[1].set_title("Training and Test Accuracy")
     axes[1].set_xlabel("Epochs", color="#222831")
     axes[1].set_ylabel("Accuracy", color="#222831")
@@ -692,7 +693,6 @@ def plot_metrics_det(
     axes[2].plot(epochs, train_recalls, "r", label="Train recall@0.25")
     axes[2].plot(epochs, test_recalls, "g", label="Test recall@0.25")
     axes[2].plot(epochs, test_map25, "b", label="Test mAP@0.25")
-    # Top-1 recall
     axes[2].scatter(
         idx_recall[0] + 1,
         val_recall_top[0],
@@ -701,16 +701,15 @@ def plot_metrics_det(
         label=f"Best recall@0.25: {val_recall_top[0]:.4f} (Epoch {idx_recall[0] + 1})",
         zorder=10,
     )
-    # Top-2 recall
-    axes[2].scatter(
-        idx_recall[1] + 1,
-        val_recall_top[1],
-        s=120,
-        c="orange",
-        label=f"2nd recall@0.25: {val_recall_top[1]:.4f} (Epoch {idx_recall[1] + 1})",
-        zorder=10,
-    )
-    # Top-1 mAP25
+    if len(idx_recall) > 1:
+        axes[2].scatter(
+            idx_recall[1] + 1,
+            val_recall_top[1],
+            s=120,
+            c="orange",
+            label=f"2nd recall@0.25: {val_recall_top[1]:.4f} (Epoch {idx_recall[1] + 1})",
+            zorder=10,
+        )
     axes[2].scatter(
         idx_map25[0] + 1,
         val_map25_top[0],
@@ -720,16 +719,16 @@ def plot_metrics_det(
         label=f"Best mAP@0.25: {val_map25_top[0]:.4f} (Epoch {idx_map25[0] + 1})",
         zorder=10,
     )
-    # Top-2 mAP25
-    axes[2].scatter(
-        idx_map25[1] + 1,
-        val_map25_top[1],
-        s=120,
-        c="brown",
-        marker="D",
-        label=f"2nd mAP@0.25: {val_map25_top[1]:.4f} (Epoch {idx_map25[1] + 1})",
-        zorder=10,
-    )
+    if len(idx_map25) > 1:
+        axes[2].scatter(
+            idx_map25[1] + 1,
+            val_map25_top[1],
+            s=120,
+            c="brown",
+            marker="D",
+            label=f"2nd mAP@0.25: {val_map25_top[1]:.4f} (Epoch {idx_map25[1] + 1})",
+            zorder=10,
+        )
     axes[2].set_title("Recall@0.25 & mAP@0.25")
     axes[2].set_xlabel("Epochs", color="#222831")
     axes[2].set_ylabel("Score", color="#222831")
