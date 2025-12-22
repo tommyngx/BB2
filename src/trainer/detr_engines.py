@@ -432,9 +432,8 @@ def train_detr_model(
             weight_name = f"{model_key}_{acc4}_{recall_iou254}.pth"
             weight_path = os.path.join(model_dir, weight_name)
 
-            # Gather all existing models (exclude '_full.pth')
+            # Gather all existing models for accuracy ranking
             acc_candidates = []
-            recall_candidates = []
             for fname in os.listdir(model_dir):
                 if (
                     fname.startswith(model_key)
@@ -444,63 +443,64 @@ def train_detr_model(
                     parts = fname.replace(".pth", "").split("_")
                     try:
                         acc_part = parts[-2] if len(parts) > 2 else parts[-1]
-                        recall_part = parts[-1]
                         acc_val = float(acc_part) / 10000
-                        recall_val = float(recall_part) / 10000
                         fpath = os.path.join(model_dir, fname)
                         acc_candidates.append((acc_val, fpath))
-                        recall_candidates.append((recall_val, fpath))
                     except Exception:
                         print(f"Skipping invalid model file: {fname}")
                         continue
 
-            # Sort and get top-2 existing values
+            # Gather all existing models for recall ranking
+            recall_candidates = []
+            for fname in os.listdir(model_dir):
+                if (
+                    fname.startswith(model_key)
+                    and fname.endswith(".pth")
+                    and not fname.endswith("_full.pth")
+                ):
+                    parts = fname.replace(".pth", "").split("_")
+                    try:
+                        recall_part = parts[-1]
+                        recall_val = float(recall_part) / 10000
+                        fpath = os.path.join(model_dir, fname)
+                        recall_candidates.append((recall_val, fpath))
+                    except Exception:
+                        continue
+
+            # Sort existing candidates
             acc_candidates = sorted(acc_candidates, key=lambda x: x[0], reverse=True)
             recall_candidates = sorted(
                 recall_candidates, key=lambda x: x[0], reverse=True
             )
 
+            # Get top-2 values before adding current
             top2_accs = set(acc for acc, _ in acc_candidates[:2])
             top2_recalls = set(recall for recall, _ in recall_candidates[:2])
 
-            # Check if current model's acc/recall already in top-2
-            acc_already_in_top2 = val_acc in top2_accs
-            recall_already_in_top2 = recall_iou25 in top2_recalls
-
-            if acc_already_in_top2 and recall_already_in_top2:
+            # Check if current model already in top-2 by VALUE (skip if both are already there)
+            if val_acc in top2_accs and recall_iou25 in top2_recalls:
                 print(
                     f"⏩ Skipped saving {weight_name} (acc {val_acc:.6f} and recall {recall_iou25:.6f} already in top-2)"
                 )
             else:
-                # Add current model to candidates if not already in top-2
-                should_save = False
+                # Add current model to candidates
+                acc_candidates.append((val_acc, weight_path))
+                recall_candidates.append((recall_iou25, weight_path))
 
-                if not acc_already_in_top2:
-                    acc_candidates.append((val_acc, weight_path))
-                    acc_candidates = sorted(
-                        acc_candidates, key=lambda x: x[0], reverse=True
-                    )
-                    top2_acc_paths = set(path for _, path in acc_candidates[:2])
-                    if weight_path in top2_acc_paths:
-                        should_save = True
-                else:
-                    top2_acc_paths = set(path for _, path in acc_candidates[:2])
+                # Re-sort and get top-2 paths
+                acc_candidates = sorted(
+                    acc_candidates, key=lambda x: x[0], reverse=True
+                )
+                recall_candidates = sorted(
+                    recall_candidates, key=lambda x: x[0], reverse=True
+                )
 
-                if not recall_already_in_top2:
-                    recall_candidates.append((recall_iou25, weight_path))
-                    recall_candidates = sorted(
-                        recall_candidates, key=lambda x: x[0], reverse=True
-                    )
-                    top2_recall_paths = set(path for _, path in recall_candidates[:2])
-                    if weight_path in top2_recall_paths:
-                        should_save = True
-                else:
-                    top2_recall_paths = set(path for _, path in recall_candidates[:2])
-
+                top2_acc_paths = set(path for _, path in acc_candidates[:2])
+                top2_recall_paths = set(path for _, path in recall_candidates[:2])
                 keep_paths = top2_acc_paths | top2_recall_paths
 
-                # Save if needed
-                if should_save:
+                # Save if current model is in keep_paths
+                if weight_path in keep_paths:
                     if isinstance(model, nn.DataParallel):
                         torch.save(model.module.state_dict(), weight_path)
                     else:
