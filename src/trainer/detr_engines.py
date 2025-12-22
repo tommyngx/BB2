@@ -123,6 +123,31 @@ def train_detr_model(
     model_key = f"{dataset}_{img_size[0]}x{img_size[1]}_detr_{model_name}"
     log_file = os.path.join(log_dir, f"{model_key}.csv")
 
+    # Check for existing weights
+    print(f"Checking for existing weights in {model_dir} with model_key: {model_key}")
+    existing_weights = []
+    for fname in os.listdir(model_dir):
+        if (
+            fname.startswith(model_key)
+            and fname.endswith(".pth")
+            and not fname.endswith("_full.pth")
+        ):
+            try:
+                parts = fname.replace(".pth", "").split("_")
+                acc_part = parts[-2] if len(parts) > 2 else parts[-1]
+                recall_part = parts[-1]
+                acc_val = float(acc_part) / 10000
+                recall_val = float(recall_part) / 10000
+                existing_weights.append((fname, acc_val, recall_val))
+            except Exception:
+                print(f"Skipping invalid model file: {fname}")
+    if existing_weights:
+        print("Found existing weights:")
+        for fname, acc_val, recall_val in existing_weights:
+            print(f"  - {fname} (acc: {acc_val:.4f}, recall@0.25: {recall_val:.4f})")
+    else:
+        print("No existing weights found.")
+
     if not os.path.exists(log_file):
         with open(log_file, "w", newline="") as f:
             writer = csv.writer(f)
@@ -154,9 +179,13 @@ def train_detr_model(
         [],
     )
     test_map25s = []
-    train_recalls_025 = []  # <--- thêm dòng này
-    test_recalls_025 = []  # <--- thêm dòng này
+    train_recalls_025 = []
+    test_recalls_025 = []
     best_acc, patience_counter, last_lr = 0.0, 0, lr
+
+    # Track best epoch by recall_iou25
+    best_recall_iou25 = 0.0
+    best_epoch_info = {}
 
     for epoch in range(num_epochs):
         # Training
@@ -336,7 +365,20 @@ def train_detr_model(
         )
         metrics["accuracy"] = val_acc * 100
 
-        print_test_metrics(metrics, avg_val_iou, val_map50, val_map25, recall_iou25)
+        # Update best epoch info if recall_iou25 improves
+        if recall_iou25 > best_recall_iou25:
+            best_recall_iou25 = recall_iou25
+            best_epoch_info = {
+                "epoch": epoch + 1,
+                "acc": val_acc,
+                "auc": metrics.get("auc"),
+                "map25": val_map25,
+                "recall_iou25": recall_iou25,
+            }
+
+        print_test_metrics(
+            metrics, avg_val_iou, val_map50, val_map25, recall_iou25, best_epoch_info
+        )
         # Logging
         with open(log_file, "a", newline="") as f:
             csv.writer(f).writerow(
@@ -384,7 +426,7 @@ def train_detr_model(
                     break
 
         # Save top-2 models by accuracy and top-2 by recall_iou25
-        if epoch >= 10:
+        if epoch >= 0:
             acc4 = int(round(val_acc * 10000))
             recall_iou254 = int(round(recall_iou25 * 10000))
             weight_name = f"{model_key}_{acc4}_{recall_iou254}.pth"

@@ -150,7 +150,13 @@ def compute_classification_metrics(all_preds, all_labels, all_probs, class_names
 
 
 def print_test_metrics(
-    metrics, test_iou, test_map50, test_map25, recall_iou25=None, test_loss=None
+    metrics,
+    test_iou,
+    test_map50,
+    test_map25,
+    recall_iou25=None,
+    test_loss=None,
+    best_epoch_info=None,
 ):
     """Print concise test metrics (2 lines: class + det)"""
     acc = metrics.get("accuracy", 0.0)
@@ -186,4 +192,8 @@ def print_test_metrics(
     print(
         f"Test Det  : IoU={iou:.2f}% | mAP@0.5={map50:.2f}% | mAP@0.25={map25:.2f}% | Recall_IoU@0.25={recall25:.2f}%"
     )
+    if best_epoch_info:
+        print(
+            f"Best E{best_epoch_info['epoch']}: Acc={best_epoch_info['acc']:.2f}% | mAP@0.25={best_epoch_info['map25']:.2f}% | Recall_IoU@0.25={best_epoch_info['recall_iou25']:.2f}%"
+        )
     print(metrics["report"])
