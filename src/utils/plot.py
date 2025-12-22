@@ -739,7 +739,7 @@ def plot_metrics_det(
             idx_map25[1] + 1,
             val_map25_top[1],
             s=120,
-            c="yellow",
+            c="orange",
             marker="o",
             label=f"2nd mAP@0.25: {val_map25_top[1]:.4f} (Epoch {idx_map25[1] + 1})",
             zorder=10,
