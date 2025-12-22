@@ -723,22 +723,24 @@ def plot_metrics_det(
             label=f"2nd recall@0.25: {val_recall_top[1]:.4f} (Epoch {idx_recall[1] + 1})",
             zorder=10,
         )
+    # Top-1 mAP25 (red, hình tròn)
     axes[2].scatter(
         idx_map25[0] + 1,
         val_map25_top[0],
         s=150,
-        c="purple",
-        marker="D",
+        c="red",
+        marker="o",
         label=f"Best mAP@0.25: {val_map25_top[0]:.4f} (Epoch {idx_map25[0] + 1})",
         zorder=10,
     )
+    # Top-2 mAP25 (yellow, hình tròn)
     if len(idx_map25) > 1:
         axes[2].scatter(
             idx_map25[1] + 1,
             val_map25_top[1],
             s=120,
-            c="brown",
-            marker="D",
+            c="yellow",
+            marker="o",
             label=f"2nd mAP@0.25: {val_map25_top[1]:.4f} (Epoch {idx_map25[1] + 1})",
             zorder=10,
         )
