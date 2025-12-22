@@ -711,7 +711,7 @@ def plot_metrics_det(
         val_recall_top[0],
         s=150,
         c="blue",
-        label=f"Best recall@0.25: {val_recall_top[0]:.4f} (Epoch {idx_recall[0] + 1})",
+        label=f"Best recall@0.25: {val_recall_top[0]:.4f} (E {idx_recall[0] + 1})",
         zorder=10,
     )
     if len(idx_recall) > 1:
@@ -720,7 +720,7 @@ def plot_metrics_det(
             val_recall_top[1],
             s=120,
             c="orange",
-            label=f"2nd recall@0.25: {val_recall_top[1]:.4f} (Epoch {idx_recall[1] + 1})",
+            label=f"2nd recall@0.25: {val_recall_top[1]:.4f} (E {idx_recall[1] + 1})",
             zorder=10,
         )
     # Top-1 mAP25 (red, hình tròn)
@@ -730,7 +730,7 @@ def plot_metrics_det(
         s=150,
         c="red",
         marker="o",
-        label=f"Best mAP@0.25: {val_map25_top[0]:.4f} (Epoch {idx_map25[0] + 1})",
+        label=f"Best mAP@0.25: {val_map25_top[0]:.4f} (E {idx_map25[0] + 1})",
         zorder=10,
     )
     # Top-2 mAP25 (yellow, hình tròn)
