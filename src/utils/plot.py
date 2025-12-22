@@ -573,3 +573,182 @@ def plot_pr_curve_full(y_true, y_prob, title="PR Curve"):
     plt.ylabel("Precision")
     plt.legend()
     plt.show()
+
+
+def plot_metrics_det(
+    train_losses,
+    train_accs,
+    test_losses,
+    test_accs,
+    train_recalls,
+    test_recalls,
+    test_map25,
+    save_path,
+):
+    """
+    Plot training/test loss, accuracy, recall_iou25 and mAP25 with top-2 highlights.
+
+    Args:
+        train_losses: List of training losses per epoch
+        train_accs: List of training accuracies per epoch
+        test_losses: List of test/validation losses per epoch
+        test_accs: List of test/validation accuracies per epoch
+        train_recalls: List of training recall_iou25 per epoch
+        test_recalls: List of test recall_iou25 per epoch
+        test_map25: List of test mAP25 per epoch
+        save_path: Path to save the plot
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    epochs = list(range(1, len(train_losses) + 1))
+
+    # Top-2 for loss (lowest)
+    idx_loss = np.argsort(test_losses)[:2]
+    val_loss_top = [test_losses[i] for i in idx_loss]
+    # Top-2 for acc (highest)
+    idx_acc = np.argsort(test_accs)[-2:][::-1]
+    val_acc_top = [test_accs[i] for i in idx_acc]
+    # Top-2 for recall_iou25 (highest)
+    idx_recall = np.argsort(test_recalls)[-2:][::-1]
+    val_recall_top = [test_recalls[i] for i in idx_recall]
+    # Top-2 for mAP25 (highest)
+    idx_map25 = np.argsort(test_map25)[-2:][::-1]
+    val_map25_top = [test_map25[i] for i in idx_map25]
+
+    plt.style.use("fivethirtyeight")
+    fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(28, 8))
+    fig.patch.set_facecolor("#f7f7f7")
+    for ax in axes:
+        ax.set_facecolor("#f7f7f7")
+
+    # Plot Loss
+    axes[0].plot(epochs, train_losses, "r", label="Training Loss")
+    axes[0].plot(epochs, test_losses, "g", label="Test Loss")
+    # Top-1
+    axes[0].scatter(
+        idx_loss[0] + 1,
+        val_loss_top[0],
+        s=150,
+        c="blue",
+        label=f"Best Loss: {val_loss_top[0]:.4f} (Epoch {idx_loss[0] + 1})",
+        zorder=10,
+    )
+    # Top-2
+    axes[0].scatter(
+        idx_loss[1] + 1,
+        val_loss_top[1],
+        s=120,
+        c="orange",
+        label=f"2nd Loss: {val_loss_top[1]:.4f} (Epoch {idx_loss[1] + 1})",
+        zorder=10,
+    )
+    axes[0].set_title("Training and Test Loss")
+    axes[0].set_xlabel("Epochs", color="#222831")
+    axes[0].set_ylabel("Loss", color="#222831")
+    axes[0].tick_params(axis="x", colors="#222831")
+    axes[0].tick_params(axis="y", colors="#222831")
+    axes[0].grid(True, linestyle="--", alpha=0.5, color="navy")
+    legend = axes[0].legend()
+    legend.get_frame().set_facecolor("white")
+    legend.get_frame().set_edgecolor("#222831")
+    for text in legend.get_texts():
+        text.set_color("#222831")
+
+    # Plot Accuracy
+    axes[1].plot(epochs, train_accs, "r", label="Training Accuracy")
+    axes[1].plot(epochs, test_accs, "g", label="Test Accuracy")
+    # Top-1
+    axes[1].scatter(
+        idx_acc[0] + 1,
+        val_acc_top[0],
+        s=150,
+        c="blue",
+        label=f"Best Acc: {val_acc_top[0]:.4f} (Epoch {idx_acc[0] + 1})",
+        zorder=10,
+    )
+    # Top-2
+    axes[1].scatter(
+        idx_acc[1] + 1,
+        val_acc_top[1],
+        s=120,
+        c="orange",
+        label=f"2nd Acc: {val_acc_top[1]:.4f} (Epoch {idx_acc[1] + 1})",
+        zorder=10,
+    )
+    axes[1].set_title("Training and Test Accuracy")
+    axes[1].set_xlabel("Epochs", color="#222831")
+    axes[1].set_ylabel("Accuracy", color="#222831")
+    axes[1].tick_params(axis="x", colors="#222831")
+    axes[1].tick_params(axis="y", colors="#222831")
+    axes[1].grid(True, linestyle="--", alpha=0.5, color="navy")
+    legend = axes[1].legend()
+    legend.get_frame().set_facecolor("white")
+    legend.get_frame().set_edgecolor("#222831")
+    for text in legend.get_texts():
+        text.set_color("#222831")
+
+    # Plot Recall IoU25 & mAP25
+    axes[2].plot(epochs, train_recalls, "r", label="Train recall@0.25")
+    axes[2].plot(epochs, test_recalls, "g", label="Test recall@0.25")
+    axes[2].plot(epochs, test_map25, "b", label="Test mAP@0.25")
+    # Top-1 recall
+    axes[2].scatter(
+        idx_recall[0] + 1,
+        val_recall_top[0],
+        s=150,
+        c="blue",
+        label=f"Best recall@0.25: {val_recall_top[0]:.4f} (Epoch {idx_recall[0] + 1})",
+        zorder=10,
+    )
+    # Top-2 recall
+    axes[2].scatter(
+        idx_recall[1] + 1,
+        val_recall_top[1],
+        s=120,
+        c="orange",
+        label=f"2nd recall@0.25: {val_recall_top[1]:.4f} (Epoch {idx_recall[1] + 1})",
+        zorder=10,
+    )
+    # Top-1 mAP25
+    axes[2].scatter(
+        idx_map25[0] + 1,
+        val_map25_top[0],
+        s=150,
+        c="purple",
+        marker="D",
+        label=f"Best mAP@0.25: {val_map25_top[0]:.4f} (Epoch {idx_map25[0] + 1})",
+        zorder=10,
+    )
+    # Top-2 mAP25
+    axes[2].scatter(
+        idx_map25[1] + 1,
+        val_map25_top[1],
+        s=120,
+        c="brown",
+        marker="D",
+        label=f"2nd mAP@0.25: {val_map25_top[1]:.4f} (Epoch {idx_map25[1] + 1})",
+        zorder=10,
+    )
+    axes[2].set_title("Recall@0.25 & mAP@0.25")
+    axes[2].set_xlabel("Epochs", color="#222831")
+    axes[2].set_ylabel("Score", color="#222831")
+    axes[2].tick_params(axis="x", colors="#222831")
+    axes[2].tick_params(axis="y", colors="#222831")
+    axes[2].grid(True, linestyle="--", alpha=0.5, color="navy")
+    legend = axes[2].legend()
+    legend.get_frame().set_facecolor("white")
+    legend.get_frame().set_edgecolor("#222831")
+    for text in legend.get_texts():
+        text.set_color("#222831")
+
+    # Add border to all axes
+    for ax in axes:
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(2)
+            spine.set_color("#161A1F")
+
+    fig.subplots_adjust(left=0.05, right=0.98, wspace=0.18)
+    plt.savefig(save_path, bbox_inches="tight", pad_inches=0.1)
+    plt.close()

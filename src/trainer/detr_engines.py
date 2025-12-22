@@ -23,7 +23,7 @@ from sklearn.metrics import (
 )
 
 from src.utils.loss import FocalLoss, LDAMLoss, FocalLoss2
-from src.utils.plot import plot_metrics
+from src.utils.plot import plot_metrics, plot_metrics_det
 from src.utils.bbox_loss import GIoULoss
 from src.utils.detr_common_utils import box_iou
 from src.utils.detr_test_utils import (
@@ -430,12 +430,23 @@ def train_detr_model(
                     except Exception as e:
                         print(f"⚠️ Could not delete {fpath}: {e}")
         # Plot metrics every epoch
-        plot_metrics(
+        # plot_metrics(
+        #    train_losses,
+        #    train_accs,
+        #    test_losses,
+        #    test_accs,
+        #    os.path.join(plot_dir, f"{model_key}.png"),
+        # )
+
+        plot_metrics_det(
             train_losses,
             train_accs,
             test_losses,
             test_accs,
-            os.path.join(plot_dir, f"{model_key}.png"),
+            train_ious,
+            test_ious,
+            val_map25,
+            os.path.join(plot_dir, f"{model_key}_det.png"),
         )
 
     return model
