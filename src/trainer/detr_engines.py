@@ -153,6 +153,7 @@ def train_detr_model(
         [],
         [],
     )
+    test_map25s = []  # <--- thêm dòng này
     best_acc, patience_counter, last_lr = 0.0, 0, lr
 
     for epoch in range(num_epochs):
@@ -289,6 +290,7 @@ def train_detr_model(
         recall_iou25 = bbox_metrics.get("recall@0.25", 0.0)
 
         test_ious.append(avg_val_iou)
+        test_map25s.append(val_map25)  # <--- thêm dòng này
 
         # Metrics
         all_preds = np.array(all_preds)
@@ -445,7 +447,7 @@ def train_detr_model(
             test_accs,
             train_ious,
             test_ious,
-            val_map25,
+            test_map25s,  # <--- truyền list này thay vì val_map25
             os.path.join(plot_dir, f"{model_key}_det.png"),
         )
 
