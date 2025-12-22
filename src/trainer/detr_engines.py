@@ -426,7 +426,7 @@ def train_detr_model(
                     break
 
         # Save top-2 models by accuracy and top-2 by recall_iou25
-        if epoch >= 0:
+        if epoch >= 10:
             acc4 = int(round(val_acc * 10000))
             recall_iou254 = int(round(recall_iou25 * 10000))
             weight_name = f"{model_key}_{acc4}_{recall_iou254}.pth"
