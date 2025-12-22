@@ -390,7 +390,7 @@ def train_detr_model(
             weight_name = f"{model_key}_{acc4}_{recall_iou254}.pth"
             weight_path = os.path.join(model_dir, weight_name)
 
-            # Gather all candidate models (including current)
+            # Gather all existing models (exclude '_full.pth')
             acc_candidates = []
             recall_candidates = []
             for fname in os.listdir(model_dir):
@@ -412,26 +412,53 @@ def train_detr_model(
                         print(f"Skipping invalid model file: {fname}")
                         continue
 
-            # Add current epoch's model to the candidate lists (if not already present)
-            acc_candidates.append((val_acc, weight_path))
-            recall_candidates.append((recall_iou25, weight_path))
-
-            # Top-2 by accuracy (descending)
+            # Sort and get top-2 existing values
             acc_candidates = sorted(acc_candidates, key=lambda x: x[0], reverse=True)
-            top2_acc_paths = set(path for _, path in acc_candidates[:2])
-
-            # Top-2 by recall_iou25 (descending)
             recall_candidates = sorted(
                 recall_candidates, key=lambda x: x[0], reverse=True
             )
-            top2_recall_paths = set(path for _, path in recall_candidates[:2])
 
-            # Union of all top-2 paths to keep
-            keep_paths = top2_acc_paths | top2_recall_paths
+            top2_accs = set(acc for acc, _ in acc_candidates[:2])
+            top2_recalls = set(recall for recall, _ in recall_candidates[:2])
 
-            # Save current model if it's in top-2 acc or recall
-            if weight_path in keep_paths:
-                if not os.path.exists(weight_path):
+            # Check if current model's acc/recall already in top-2
+            acc_already_in_top2 = val_acc in top2_accs
+            recall_already_in_top2 = recall_iou25 in top2_recalls
+
+            if acc_already_in_top2 and recall_already_in_top2:
+                print(
+                    f"⏩ Skipped saving {weight_name} (acc {val_acc:.6f} and recall {recall_iou25:.6f} already in top-2)"
+                )
+            else:
+                # Add current model to candidates if not already in top-2
+                should_save = False
+
+                if not acc_already_in_top2:
+                    acc_candidates.append((val_acc, weight_path))
+                    acc_candidates = sorted(
+                        acc_candidates, key=lambda x: x[0], reverse=True
+                    )
+                    top2_acc_paths = set(path for _, path in acc_candidates[:2])
+                    if weight_path in top2_acc_paths:
+                        should_save = True
+                else:
+                    top2_acc_paths = set(path for _, path in acc_candidates[:2])
+
+                if not recall_already_in_top2:
+                    recall_candidates.append((recall_iou25, weight_path))
+                    recall_candidates = sorted(
+                        recall_candidates, key=lambda x: x[0], reverse=True
+                    )
+                    top2_recall_paths = set(path for _, path in recall_candidates[:2])
+                    if weight_path in top2_recall_paths:
+                        should_save = True
+                else:
+                    top2_recall_paths = set(path for _, path in recall_candidates[:2])
+
+                keep_paths = top2_acc_paths | top2_recall_paths
+
+                # Save if needed
+                if should_save:
                     if isinstance(model, nn.DataParallel):
                         torch.save(model.module.state_dict(), weight_path)
                     else:
@@ -439,25 +466,21 @@ def train_detr_model(
                     print(
                         f"✅ Saved new model: {weight_name} (acc = {val_acc:.6f}, recall_iou25 = {recall_iou25:.6f})"
                     )
-                else:
-                    print(f"⏩ Model already exists: {weight_name}")
-            else:
-                print(f"⏩ Skipped saving {weight_name} (not in top-2 acc/recall)")
 
-            # Delete models not in keep_paths and not '_full.pth'
-            for fname in os.listdir(model_dir):
-                fpath = os.path.join(model_dir, fname)
-                if (
-                    fname.startswith(model_key)
-                    and fname.endswith(".pth")
-                    and not fname.endswith("_full.pth")
-                    and fpath not in keep_paths
-                ):
-                    try:
-                        os.remove(fpath)
-                        print(f"🗑️ Deleted model: {fpath}")
-                    except Exception as e:
-                        print(f"⚠️ Could not delete {fpath}: {e}")
+                # Delete models not in keep_paths
+                for fname in os.listdir(model_dir):
+                    fpath = os.path.join(model_dir, fname)
+                    if (
+                        fname.startswith(model_key)
+                        and fname.endswith(".pth")
+                        and not fname.endswith("_full.pth")
+                        and fpath not in keep_paths
+                    ):
+                        try:
+                            os.remove(fpath)
+                            print(f"🗑️ Deleted model: {fpath}")
+                        except Exception as e:
+                            print(f"⚠️ Could not delete {fpath}: {e}")
         # Plot metrics every epoch
         # plot_metrics(
         #    train_losses,
