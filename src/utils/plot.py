@@ -603,6 +603,19 @@ def plot_metrics_det(
 
     epochs = list(range(1, len(train_losses) + 1))
 
+    # Ensure all input lists have the same length as epochs
+    def pad_or_trim(arr):
+        arr = list(arr)
+        if len(arr) < len(epochs):
+            arr = arr + [np.nan] * (len(epochs) - len(arr))
+        elif len(arr) > len(epochs):
+            arr = arr[: len(epochs)]
+        return arr
+
+    train_recalls = pad_or_trim(train_recalls)
+    test_recalls = pad_or_trim(test_recalls)
+    test_map25 = pad_or_trim(test_map25)
+
     # Top-2 for loss (lowest)
     idx_loss = np.argsort(test_losses)[:2]
     val_loss_top = [test_losses[i] for i in idx_loss]
