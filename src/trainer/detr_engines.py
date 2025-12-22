@@ -329,18 +329,25 @@ def train_detr_model(
             plateau_scheduler.step(val_loss / val_total)
 
         current_lr = optimizer.param_groups[0]["lr"]
+        improved = False
+        if val_acc > best_acc:
+            best_acc = val_acc
+            improved = True
+        if len(test_losses) > 1 and test_losses[-1] < min(test_losses[:-1]):
+            improved = True
+
         if current_lr < last_lr:
             patience_counter, last_lr = 0, current_lr
         else:
-            if val_acc > best_acc:
-                best_acc, patience_counter = val_acc, 0
+            if improved:
+                patience_counter = 0
             else:
                 patience_counter += 1
                 if patience_counter >= patience:
                     print(f"Early stopping at epoch {epoch + 1}")
                     break
 
-        # Save top-2 models by accuracy and top-1 by recall_iou25
+        # Save top-2 models by accuracy and top-2 by recall_iou25
         if epoch >= 10:
             acc4 = int(round(val_acc * 10000))
             recall_iou254 = int(round(recall_iou25 * 10000))
@@ -373,10 +380,10 @@ def train_detr_model(
             related_weights = sorted(related_weights, key=lambda x: x[0], reverse=True)
             top2_accs = set(acc for acc, _ in related_weights[:2])
 
-            # Top-1 by recall_iou25
+            # Top-2 by recall_iou25
             recall_weights = sorted(recall_weights, key=lambda x: x[0], reverse=True)
-            top1_recall_val = recall_weights[0][0] if recall_weights else recall_iou25
-            top1_recall_path = recall_weights[0][1] if recall_weights else weight_path
+            top2_recall_vals = set(recall for recall, _ in recall_weights[:2])
+            top2_recall_paths = set(path for _, path in recall_weights[:2])
 
             # Save logic
             save_needed = False
@@ -386,7 +393,7 @@ def train_detr_model(
                     related_weights, key=lambda x: x[0], reverse=True
                 )
                 save_needed = True
-            if recall_iou25 > top1_recall_val:
+            if recall_iou25 not in top2_recall_vals:
                 recall_weights.append((recall_iou25, weight_path))
                 recall_weights = sorted(
                     recall_weights, key=lambda x: x[0], reverse=True
@@ -394,8 +401,8 @@ def train_detr_model(
                 save_needed = True
 
             top2_paths = set(path for _, path in related_weights[:2])
-            top1_recall_path = recall_weights[0][1] if recall_weights else weight_path
-            keep_paths = top2_paths | {top1_recall_path}
+            top2_recall_paths = set(path for _, path in recall_weights[:2])
+            keep_paths = top2_paths | top2_recall_paths
 
             if save_needed and weight_path in keep_paths:
                 if isinstance(model, nn.DataParallel):
