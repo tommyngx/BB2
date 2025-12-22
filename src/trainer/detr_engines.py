@@ -381,35 +381,24 @@ def train_detr_model(
                         print(f"Skipping invalid model file: {fname}")
                         continue
 
+            # Add current epoch's model to the candidate lists
+            related_weights.append((val_acc, weight_path))
+            recall_weights.append((recall_iou25, weight_path))
+
             # Top-2 by accuracy
             related_weights = sorted(related_weights, key=lambda x: x[0], reverse=True)
             top2_accs = set(acc for acc, _ in related_weights[:2])
+            top2_paths = set(path for _, path in related_weights[:2])
 
             # Top-2 by recall_iou25
             recall_weights = sorted(recall_weights, key=lambda x: x[0], reverse=True)
             top2_recall_vals = set(recall for recall, _ in recall_weights[:2])
             top2_recall_paths = set(path for _, path in recall_weights[:2])
 
-            # Save logic
-            save_needed = False
-            if val_acc not in top2_accs:
-                related_weights.append((val_acc, weight_path))
-                related_weights = sorted(
-                    related_weights, key=lambda x: x[0], reverse=True
-                )
-                save_needed = True
-            if recall_iou25 not in top2_recall_vals:
-                recall_weights.append((recall_iou25, weight_path))
-                recall_weights = sorted(
-                    recall_weights, key=lambda x: x[0], reverse=True
-                )
-                save_needed = True
-
-            top2_paths = set(path for _, path in related_weights[:2])
-            top2_recall_paths = set(path for _, path in recall_weights[:2])
             keep_paths = top2_paths | top2_recall_paths
 
-            if save_needed and weight_path in keep_paths:
+            # Save if current model is in top-2 acc or top-2 recall
+            if weight_path in keep_paths:
                 if isinstance(model, nn.DataParallel):
                     torch.save(model.module.state_dict(), weight_path)
                 else:
@@ -417,8 +406,8 @@ def train_detr_model(
                 print(
                     f"✅ Saved new model: {weight_name} (acc = {val_acc:.6f}, recall_iou25 = {recall_iou25:.6f})"
                 )
-            elif weight_path in keep_paths:
-                print(f"⏩ Skipped saving {weight_name} (already in top models)")
+            else:
+                print(f"⏩ Skipped saving {weight_name} (not in top-2 acc/recall)")
 
             # Delete models not in keep_paths and not '_full.pth'
             for fname in os.listdir(model_dir):
