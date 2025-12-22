@@ -387,12 +387,10 @@ def train_detr_model(
 
             # Top-2 by accuracy
             related_weights = sorted(related_weights, key=lambda x: x[0], reverse=True)
-            top2_accs = set(acc for acc, _ in related_weights[:2])
             top2_paths = set(path for _, path in related_weights[:2])
 
             # Top-2 by recall_iou25
             recall_weights = sorted(recall_weights, key=lambda x: x[0], reverse=True)
-            top2_recall_vals = set(recall for recall, _ in recall_weights[:2])
             top2_recall_paths = set(path for _, path in recall_weights[:2])
 
             keep_paths = top2_paths | top2_recall_paths
