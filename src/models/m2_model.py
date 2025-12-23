@@ -75,7 +75,7 @@ class TimmFeatureWrapper(nn.Module):
 
 
 class DinoFeatureWrapper(nn.Module):
-    """Wrapper for Dino/ViT models to extract both CLS token and spatial features"""
+    """Wrapper for Dino/ViT models to extract spatial features only"""
 
     def __init__(self, base_model, patch_size=16):
         super().__init__()
@@ -104,12 +104,11 @@ class DinoFeatureWrapper(nn.Module):
 
         # Nếu là [B, N+1, C] (ViT/DINO), tách CLS và patch tokens
         if feat.ndim == 3:
-            cls_token = feat[:, 0, :]  # [B, C]
             # Tính số patch thực sự dựa trên input size
             num_patches = (H // self.patch_size) * (W // self.patch_size)
             print(f"[DEBUG] Expected num_patches: {num_patches}")
 
-            # Lấy đúng số patch tokens (bỏ qua CLS và các extra tokens)
+            # Lấy đúng số patch tokens (bỏ qua CLS token ở index 0)
             patch_tokens = feat[:, 1 : 1 + num_patches, :]
             B, N, C = patch_tokens.shape
             H_grid = W_grid = int(N**0.5)
@@ -128,11 +127,11 @@ class DinoFeatureWrapper(nn.Module):
                 )
             spatial_feat = patch_tokens.transpose(1, 2).reshape(B, C, H_grid, W_grid)
             print(f"[DEBUG] Spatial feature shape: {spatial_feat.shape}")
-            return {"cls": cls_token, "spatial": spatial_feat}
+            return spatial_feat  # Return [B, C, H, W] tensor
         # Nếu là [B, C, H, W] (ConvNeXt, ...), không có CLS
         elif feat.ndim == 4:
             print(f"[DEBUG] Feature is already spatial: {feat.shape}")
-            return {"cls": None, "spatial": feat}
+            return feat  # Return [B, C, H, W] tensor
         else:
             print(f"[ERROR] Unexpected feature shape: {feat.shape}")
             raise ValueError(f"Unexpected feature shape: {feat.shape}")
