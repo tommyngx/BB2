@@ -324,7 +324,20 @@ def get_detr_model(model_type="resnet50", num_classes=2, num_queries=5):
         backbone, feature_dim = get_timm_backbone(model_type)
         if hasattr(backbone, "forward_features"):
             backbone = TimmFeatureWrapper(backbone)
-    elif model_type in ["dinov2_small", "dinov2_base", "dinov3_vit16small"]:
+    elif model_type in [
+        "dinov2_small",
+        "dinov2_base",
+        "dinov3_convnext_tiny",
+        "dinov3_convnext_small",
+        "dinov3_vit16small",
+        "dinov3_vit16smallplus",
+        "dinov3_vit16base",
+        "dinov3_vit16large",
+        "dinov3_convnext_base",
+        "dinov3_convnext_large",
+        "medino_vitb16",
+        "dinov2uni_base",
+    ]:
         backbone, feature_dim = get_dino_backbone(model_type)
         backbone = DinoFeatureWrapper(backbone)
     elif model_type in ["mamba_t", "mamba_s"]:  # ADDED: mamba support
