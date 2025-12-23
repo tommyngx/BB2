@@ -145,7 +145,37 @@ class M2Model(nn.Module):
         return cls_output, bbox_output, attn_map
 
 
-def get_m2_model(model_type="resnet50", num_classes=2):
+def unfreeze_last_blocks(model, num_blocks=2):
+    """
+    Unfreeze the last `num_blocks` transformer blocks of a ViT/DINO backbone.
+    """
+    # Try common block names for timm/huggingface ViT/DINO
+    block_attrs = ["blocks", "layers", "transformer.blocks"]
+    for attr in block_attrs:
+        blocks = None
+        # Support nested attributes like 'transformer.blocks'
+        obj = model
+        for part in attr.split("."):
+            if hasattr(obj, part):
+                obj = getattr(obj, part)
+            else:
+                obj = None
+                break
+        blocks = obj
+        if blocks is not None and hasattr(blocks, "__getitem__"):
+            total_blocks = len(blocks)
+            for i in range(total_blocks - num_blocks, total_blocks):
+                for param in blocks[i].parameters():
+                    param.requires_grad = True
+            # Freeze all other blocks
+            for i in range(0, total_blocks - num_blocks):
+                for param in blocks[i].parameters():
+                    param.requires_grad = False
+            return  # Done
+    # If not found, do nothing
+
+
+def get_m2_model(model_type="resnet50", num_classes=2, dino_unfreeze_blocks=2):
     """Get multi-task model based on model_type"""
     # Get backbone
     if model_type in ["resnet34", "resnet50", "resnet101", "resnext50", "resnet152"]:
@@ -210,7 +240,11 @@ def get_m2_model(model_type="resnet50", num_classes=2):
     ]:
         backbone, feature_dim = get_dino_backbone(model_type)
         backbone = DinoFeatureWrapper(backbone)
-
+        # Unfreeze last blocks for dino/vit models
+        unfreeze_last_blocks(
+            backbone.base_model if hasattr(backbone, "base_model") else backbone,
+            dino_unfreeze_blocks,
+        )
     else:
         raise ValueError(f"Unsupported model_type: {model_type}")
 
