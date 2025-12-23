@@ -368,7 +368,8 @@ def get_detr_model(
         "dinov2uni_base",
     ]:
         backbone, feature_dim = get_dino_backbone(model_type)
-        backbone = DinoFeatureWrapper(backbone)
+        # Ensure patch_size=16 for ViT-16 models
+        backbone = DinoFeatureWrapper(backbone, patch_size=16)
         # Unfreeze last blocks for dino/vit models
         unfreeze_last_blocks(
             backbone.base_model if hasattr(backbone, "base_model") else backbone,
