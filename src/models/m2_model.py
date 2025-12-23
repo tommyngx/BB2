@@ -75,6 +75,40 @@ class TimmFeatureWrapper(nn.Module):
 
 
 class DinoFeatureWrapper(nn.Module):
+    """Wrapper for Dino/ViT models to extract both CLS token and spatial features"""
+
+    def __init__(self, base_model):
+        super().__init__()
+        self.base_model = base_model
+
+    def forward(self, x):
+        # Lấy đặc trưng từ backbone
+        if hasattr(self.base_model, "forward_features"):
+            feat = self.base_model.forward_features(x)
+        else:
+            feat = self.base_model(x)
+
+        # Nếu là [B, N+1, C] (ViT/DINO), tách CLS và patch tokens
+        if feat.ndim == 3:
+            cls_token = feat[:, 0, :]  # [B, C]
+            patch_tokens = feat[:, 1:, :]  # [B, N, C]
+            B, N, C = patch_tokens.shape
+            H = W = int(N**0.5)
+            if H * W != N:
+                raise ValueError(
+                    f"Cannot reshape: num_patches={N} is not a perfect square. "
+                    f"Check input size and patch size."
+                )
+            spatial_feat = patch_tokens.transpose(1, 2).reshape(B, C, H, W)
+            return {"cls": cls_token, "spatial": spatial_feat}
+        # Nếu là [B, C, H, W] (ConvNeXt, ...), không có CLS
+        elif feat.ndim == 4:
+            return {"cls": None, "spatial": feat}
+        else:
+            raise ValueError(f"Unexpected feature shape: {feat.shape}")
+
+
+class DinoFeatureWrapper_ori(nn.Module):
     """Wrapper for Dino/ViT models to extract spatial features"""
 
     def __init__(self, base_model):
