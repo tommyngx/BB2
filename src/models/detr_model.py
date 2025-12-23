@@ -324,17 +324,10 @@ class M2DETRModel(nn.Module):
 def get_detr_model(
     model_type="resnet50", num_classes=2, dino_unfreeze_blocks=2, num_queries=5
 ):
-    """Get multi-task model based on model_type"""
-    # Get backbone
+    """Get efficient M2 DETR model (num_queries=5 for mammography)"""
     if model_type in ["resnet34", "resnet50", "resnet101", "resnext50", "resnet152"]:
         backbone, feature_dim = get_resnet_backbone(model_type)
         backbone = ResNetFeatureWrapper(backbone)
-
-    elif model_type in ["mamba_t", "mamba_s"]:
-        raise ValueError(
-            f"Mamba models don't support spatial feature maps for M2. Use CNN-based models."
-        )
-
     elif model_type in [
         "resnest50",
         "resnest101",
@@ -356,25 +349,12 @@ def get_detr_model(
         "mambaout_tiny",
     ]:
         backbone, feature_dim = get_timm_backbone(model_type)
-
         if hasattr(backbone, "forward_features"):
             backbone = TimmFeatureWrapper(backbone)
-        else:
-            # Fallback: remove heads
-            if hasattr(backbone, "fc"):
-                backbone.fc = nn.Identity()
-            elif hasattr(backbone, "head") and hasattr(backbone.head, "fc"):
-                backbone.head.fc = nn.Identity()
-            elif hasattr(backbone, "head"):
-                backbone.head = nn.Identity()
-            elif hasattr(backbone, "classifier"):
-                backbone.classifier = nn.Identity()
 
     elif model_type in [
         "dinov2_small",
         "dinov2_base",
-        "dinov2_small_reg",
-        "dinov2_base_reg",
         "dinov3_convnext_tiny",
         "dinov3_convnext_small",
         "dinov3_vit16small",
@@ -393,6 +373,9 @@ def get_detr_model(
             backbone.base_model if hasattr(backbone, "base_model") else backbone,
             dino_unfreeze_blocks,
         )
+    elif model_type in ["mamba_t", "mamba_s"]:  # ADDED: mamba support
+        backbone, feature_dim = get_mamba_backbone(model_type)
+        # No wrapper needed for mamba backbone
     else:
         raise ValueError(f"Unsupported model_type: {model_type}")
 
