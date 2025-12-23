@@ -74,7 +74,7 @@ class TimmFeatureWrapper(nn.Module):
         return feat
 
 
-class DinoFeatureWrapper(nn.Module):
+class DinoFeatureWrapper_working(nn.Module):
     """Wrapper for Dino/ViT models to extract spatial features only"""
 
     def __init__(self, base_model, patch_size=16):
@@ -137,7 +137,7 @@ class DinoFeatureWrapper(nn.Module):
             raise ValueError(f"Unexpected feature shape: {feat.shape}")
 
 
-class DinoFeatureWrapper1(nn.Module):
+class DinoFeatureWrapper(nn.Module):
     """Wrapper for Dino/ViT models to extract both CLS token and spatial features"""
 
     def __init__(self, base_model, patch_size=16):
