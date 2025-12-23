@@ -148,12 +148,11 @@ class M2Model(nn.Module):
 def unfreeze_last_blocks(model, num_blocks=2):
     """
     Unfreeze the last `num_blocks` transformer blocks of a ViT/DINO backbone.
+    Print how many layers are unfrozen, which layers, and their submodules.
     """
-    # Try common block names for timm/huggingface ViT/DINO
     block_attrs = ["blocks", "layers", "transformer.blocks"]
     for attr in block_attrs:
         blocks = None
-        # Support nested attributes like 'transformer.blocks'
         obj = model
         for part in attr.split("."):
             if hasattr(obj, part):
@@ -164,13 +163,21 @@ def unfreeze_last_blocks(model, num_blocks=2):
         blocks = obj
         if blocks is not None and hasattr(blocks, "__getitem__"):
             total_blocks = len(blocks)
+            unfrozen_layers = []
             for i in range(total_blocks - num_blocks, total_blocks):
                 for param in blocks[i].parameters():
                     param.requires_grad = True
+                unfrozen_layers.append(i)
             # Freeze all other blocks
             for i in range(0, total_blocks - num_blocks):
                 for param in blocks[i].parameters():
                     param.requires_grad = False
+            # Print info
+            print(f"[INFO] Unfroze {len(unfrozen_layers)} layers: {unfrozen_layers}")
+            for i in unfrozen_layers:
+                print(f"  - Layer {i}: {blocks[i].__class__.__name__}")
+                for name, module in blocks[i].named_children():
+                    print(f"    - Submodule: {name} ({module.__class__.__name__})")
             return  # Done
     # If not found, do nothing
 
