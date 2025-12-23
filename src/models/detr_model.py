@@ -294,7 +294,11 @@ class M2DETRModel(nn.Module):
 
         # Classification: ưu tiên dùng CLS token nếu có, không thì dùng pooled spatial
         if cls_token is not None:
+            # cls_output = self.classifier(cls_token)
+            if cls_token.shape[-1] != feat_map.shape[1]:
+                cls_token = self.cls_token_proj(cls_token)
             cls_output = self.classifier(cls_token)
+
         else:
             cls_feat = self.global_pool(feat_map).flatten(1)
             cls_output = self.classifier(cls_feat)
