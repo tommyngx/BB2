@@ -275,8 +275,9 @@ class M2DETRModel(nn.Module):
 
         # Nếu là dict (ViT/DINO), lấy cls và spatial
         if isinstance(feat_map, dict):
-            feat_map = feat_map["spatial"]
-            cls_token = feat_map["cls"]
+            feat_map_dict = feat_map  # keep original dict
+            feat_map = feat_map_dict["spatial"]
+            cls_token = feat_map_dict.get("cls", None)
         else:
             feat_map = feat_map
             cls_token = None
