@@ -338,6 +338,7 @@ def get_detr_model(
         "efficientnetv2",
         "efficientnetv2s",
         "maxvit_tiny",
+        "maxvit_tiny512",
         "maxvit_small",
         "maxvit_base",
         "eva02_small",
