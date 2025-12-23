@@ -250,6 +250,7 @@ class M2DETRModel(nn.Module):
             self.feature_proj = None
 
         self.classifier = nn.Linear(feature_dim, num_classes)
+        self.cls_token_proj = nn.Linear(feature_dim, feature_dim)
 
         # UPDATED: Use improved multi-scale spatial attention
         self.spatial_attention = MultiScaleSpatialAttention(feature_dim, reduction=8)
