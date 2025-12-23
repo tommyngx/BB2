@@ -154,6 +154,9 @@ class DinoFeatureWrapper(nn.Module):
             x = nn.functional.pad(x, (0, pad_W, 0, pad_H), mode="constant", value=0)
         # --- END PATCH ---
 
+        # Update H, W after padding
+        _, _, H, W = x.shape
+
         # Lấy đặc trưng từ backbone
         if hasattr(self.base_model, "forward_features"):
             feat = self.base_model.forward_features(x)
@@ -162,17 +165,22 @@ class DinoFeatureWrapper(nn.Module):
 
         # Nếu là [B, N+1, C] (ViT/DINO), tách CLS và patch tokens
         if feat.ndim == 3:
-            cls_token = feat[:, 0, :]  # [B, C]
-            patch_tokens = feat[:, 1:, :]  # [B, N, C]
+            num_patches = (H // self.patch_size) * (W // self.patch_size)
+            patch_tokens = feat[:, 1 : 1 + num_patches, :]
             B, N, C = patch_tokens.shape
-            H = W = int(N**0.5)
-            if H * W != N:
+
+            # Tìm H_grid, W_grid sao cho H_grid * W_grid = N
+            H_grid = H // self.patch_size
+            W_grid = W // self.patch_size
+            if H_grid * W_grid != N:
+                print(f"[ERROR] H_grid={H_grid}, W_grid={W_grid}, N={N}")
                 raise ValueError(
-                    f"Cannot reshape: num_patches={N} is not a perfect square. "
+                    f"Cannot reshape: num_patches={N} != H_grid*W_grid={H_grid * W_grid}. "
                     f"Check input size and patch size."
                 )
-            spatial_feat = patch_tokens.transpose(1, 2).reshape(B, C, H, W)
-            return {"cls": cls_token, "spatial": spatial_feat}
+            spatial_feat = patch_tokens.transpose(1, 2).reshape(B, C, H_grid, W_grid)
+            return {"cls": feat[:, 0, :], "spatial": spatial_feat}
+
         # Nếu là [B, C, H, W] (ConvNeXt, ...), không có CLS
         elif feat.ndim == 4:
             return {"cls": None, "spatial": feat}
