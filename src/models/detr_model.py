@@ -250,10 +250,17 @@ class M2DETRModel(nn.Module):
             self.feature_proj = None
 
         self.classifier = nn.Linear(feature_dim, num_classes)
-        self.cls_token_proj = nn.Linear(feature_dim, feature_dim)
 
         # UPDATED: Use improved multi-scale spatial attention
         self.spatial_attention = MultiScaleSpatialAttention(feature_dim, reduction=8)
+
+        self.cls_token_proj = nn.Linear(
+            backbone.base_model.embed_dim
+            if hasattr(backbone, "base_model")
+            and hasattr(backbone.base_model, "embed_dim")
+            else feature_dim,
+            feature_dim,
+        )
 
         self.detr_decoder = EfficientDETRDecoder(
             feature_dim,
