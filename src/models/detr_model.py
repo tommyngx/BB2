@@ -391,6 +391,7 @@ def unfreeze_last_blocks(model, num_blocks=2):
     Unfreeze the last `num_blocks` transformer blocks of a ViT/DINO backbone.
     Print how many layers are unfrozen, which layers, and their submodules.
     """
+    print(f"[INFO] Unfreezing last {num_blocks} blocks of the model...")
     block_attrs = ["blocks", "layers", "transformer.blocks"]
     for attr in block_attrs:
         blocks = None
