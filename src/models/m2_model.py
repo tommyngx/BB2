@@ -84,14 +84,15 @@ class DinoFeatureWrapper(nn.Module):
 
     def forward(self, x):
         print(f"[DEBUG] Input shape: {x.shape}")
-        # --- PATCH: Pad input so H, W chia hết cho patch_size ---
         _, _, H, W = x.shape
         pad_H = (self.patch_size - (H % self.patch_size)) % self.patch_size
         pad_W = (self.patch_size - (W % self.patch_size)) % self.patch_size
         if pad_H > 0 or pad_W > 0:
             print(f"[DEBUG] Padding input: pad_H={pad_H}, pad_W={pad_W}")
             x = nn.functional.pad(x, (0, pad_W, 0, pad_H), mode="constant", value=0)
-        # --- END PATCH ---
+
+        # Update H, W after padding
+        _, _, H, W = x.shape
 
         # Lấy đặc trưng từ backbone
         if hasattr(self.base_model, "forward_features"):
@@ -104,11 +105,20 @@ class DinoFeatureWrapper(nn.Module):
         # Nếu là [B, N+1, C] (ViT/DINO), tách CLS và patch tokens
         if feat.ndim == 3:
             cls_token = feat[:, 0, :]  # [B, C]
-            patch_tokens = feat[:, 1:, :]  # [B, N, C]
+            # Tính số patch thực sự dựa trên input size
+            num_patches = (H // self.patch_size) * (W // self.patch_size)
+            print(f"[DEBUG] Expected num_patches: {num_patches}")
+
+            # Lấy đúng số patch tokens (bỏ qua CLS và các extra tokens)
+            patch_tokens = feat[:, 1 : 1 + num_patches, :]
             B, N, C = patch_tokens.shape
-            H = W = int(N**0.5)
-            print(f"[DEBUG] Patch tokens: B={B}, N={N}, C={C}, H={H}, W={W}")
-            if H * W != N:
+            H_grid = W_grid = int(N**0.5)
+
+            print(
+                f"[DEBUG] Patch tokens: B={B}, N={N}, C={C}, H_grid={H_grid}, W_grid={W_grid}"
+            )
+
+            if H_grid * W_grid != N:
                 print(
                     f"[ERROR] Cannot reshape: num_patches={N} is not a perfect square. Check input size and patch size."
                 )
@@ -116,7 +126,7 @@ class DinoFeatureWrapper(nn.Module):
                     f"Cannot reshape: num_patches={N} is not a perfect square. "
                     f"Check input size and patch size."
                 )
-            spatial_feat = patch_tokens.transpose(1, 2).reshape(B, C, H, W)
+            spatial_feat = patch_tokens.transpose(1, 2).reshape(B, C, H_grid, W_grid)
             print(f"[DEBUG] Spatial feature shape: {spatial_feat.shape}")
             return {"cls": cls_token, "spatial": spatial_feat}
         # Nếu là [B, C, H, W] (ConvNeXt, ...), không có CLS
