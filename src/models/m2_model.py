@@ -77,20 +77,11 @@ class TimmFeatureWrapper(nn.Module):
 class DinoFeatureWrapper(nn.Module):
     """Wrapper for Dino/ViT models to extract both CLS token and spatial features"""
 
-    def __init__(self, base_model, patch_size=16):
+    def __init__(self, base_model):
         super().__init__()
         self.base_model = base_model
-        self.patch_size = patch_size
 
     def forward(self, x):
-        # --- PATCH: Pad input so H, W chia hết cho patch_size ---
-        _, _, H, W = x.shape
-        pad_H = (self.patch_size - (H % self.patch_size)) % self.patch_size
-        pad_W = (self.patch_size - (W % self.patch_size)) % self.patch_size
-        if pad_H > 0 or pad_W > 0:
-            x = nn.functional.pad(x, (0, pad_W, 0, pad_H), mode="constant", value=0)
-        # --- END PATCH ---
-
         # Lấy đặc trưng từ backbone
         if hasattr(self.base_model, "forward_features"):
             feat = self.base_model.forward_features(x)
