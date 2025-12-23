@@ -271,14 +271,15 @@ class M2DETRModel(nn.Module):
             dict with cls_logits, pred_bboxes, obj_scores, attn_maps [B, H, W]
         """
         # Backbone
-        feat_output = self.backbone(x)
+        feat_map = self.backbone(x)
 
-        # Handle dict output from DinoFeatureWrapper
-        if isinstance(feat_output, dict):
-            feat_map = feat_output["spatial"]  # [B, C, H, W]
-            cls_token = feat_output.get("cls", None)  # [B, C] or None
+        # Nếu là dict (ViT/DINO), lấy cls và spatial
+        if isinstance(feat_map, dict):
+            feat_map_dict = feat_map  # keep original dict
+            feat_map = feat_map_dict["spatial"]
+            cls_token = feat_map_dict.get("cls", None)
         else:
-            feat_map = feat_output  # [B, C, H, W]
+            feat_map = feat_map
             cls_token = None
 
         # Ensure 4D
@@ -291,12 +292,15 @@ class M2DETRModel(nn.Module):
         if self.feature_proj is not None:
             feat_map = self.feature_proj(feat_map)
 
-        # Classification: prefer CLS token if available, else use pooled spatial
+        # Classification: ưu tiên dùng CLS token nếu có, không thì dùng pooled spatial
         if cls_token is not None:
             cls_output = self.classifier(cls_token)
         else:
             cls_feat = self.global_pool(feat_map).flatten(1)
             cls_output = self.classifier(cls_feat)
+
+        # cls_feat = self.global_pool(feat_map).flatten(1)
+        # cls_output = self.classifier(cls_feat)
 
         # Get spatial attention (keep for feature enhancement)
         attn_feat, spatial_attn_map = self.spatial_attention(feat_map)
@@ -310,8 +314,10 @@ class M2DETRModel(nn.Module):
             "obj_scores": detr_outputs["obj_scores"],
             "aux_outputs": detr_outputs["aux_outputs"],
             "dn_outputs": detr_outputs.get("dn_outputs", []),
-            "attn_maps": detr_outputs.get("cross_attn_maps"),
-            "spatial_attn": spatial_attn_map,
+            "attn_maps": detr_outputs.get(
+                "cross_attn_maps"
+            ),  # UPDATED: [B, H, W] global attention map
+            "spatial_attn": spatial_attn_map,  # [B, 1, H, W]
         }
 
 
