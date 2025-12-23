@@ -305,28 +305,60 @@ class M2DETRModel(nn.Module):
         }
 
 
-def get_detr_model(model_type="resnet50", num_classes=2, num_queries=5):
-    """Get efficient M2 DETR model (num_queries=5 for mammography)"""
-    # Get backbone (reuse from m2_model.py)
+def get_detr_model(
+    model_type="resnet50", num_classes=2, dino_unfreeze_blocks=2, num_queries=5
+):
+    """Get multi-task model based on model_type"""
+    # Get backbone
     if model_type in ["resnet34", "resnet50", "resnet101", "resnext50", "resnet152"]:
         backbone, feature_dim = get_resnet_backbone(model_type)
         backbone = ResNetFeatureWrapper(backbone)
+
+    elif model_type in ["mamba_t", "mamba_s"]:
+        raise ValueError(
+            f"Mamba models don't support spatial feature maps for M2. Use CNN-based models."
+        )
+
     elif model_type in [
         "resnest50",
-        "convnextv2_tiny",
+        "resnest101",
+        "resnest50s2",
+        "regnety",
         "convnextv2base",
+        "convnextv2_tiny",
+        "efficientnetv2",
         "efficientnetv2s",
         "maxvit_tiny",
-        "maxvit_tiny512",
-        "swinv2_tiny",
+        "maxvit_small",
+        "maxvit_base",
         "eva02_small",
+        "eva02_base",
+        "vit_small",
+        "swinv2_tiny",
+        "swinv2_base",
+        "swinv2_small",
+        "mambaout_tiny",
     ]:
         backbone, feature_dim = get_timm_backbone(model_type)
+
         if hasattr(backbone, "forward_features"):
             backbone = TimmFeatureWrapper(backbone)
+        else:
+            # Fallback: remove heads
+            if hasattr(backbone, "fc"):
+                backbone.fc = nn.Identity()
+            elif hasattr(backbone, "head") and hasattr(backbone.head, "fc"):
+                backbone.head.fc = nn.Identity()
+            elif hasattr(backbone, "head"):
+                backbone.head = nn.Identity()
+            elif hasattr(backbone, "classifier"):
+                backbone.classifier = nn.Identity()
+
     elif model_type in [
         "dinov2_small",
         "dinov2_base",
+        "dinov2_small_reg",
+        "dinov2_base_reg",
         "dinov3_convnext_tiny",
         "dinov3_convnext_small",
         "dinov3_vit16small",
@@ -340,9 +372,11 @@ def get_detr_model(model_type="resnet50", num_classes=2, num_queries=5):
     ]:
         backbone, feature_dim = get_dino_backbone(model_type)
         backbone = DinoFeatureWrapper(backbone)
-    elif model_type in ["mamba_t", "mamba_s"]:  # ADDED: mamba support
-        backbone, feature_dim = get_mamba_backbone(model_type)
-        # No wrapper needed for mamba backbone
+        # Unfreeze last blocks for dino/vit models
+        unfreeze_last_blocks(
+            backbone.base_model if hasattr(backbone, "base_model") else backbone,
+            dino_unfreeze_blocks,
+        )
     else:
         raise ValueError(f"Unsupported model_type: {model_type}")
 
@@ -350,3 +384,40 @@ def get_detr_model(model_type="resnet50", num_classes=2, num_queries=5):
         backbone, feature_dim, num_classes, num_queries, reduced_dim=256
     )
     return model
+
+
+def unfreeze_last_blocks(model, num_blocks=2):
+    """
+    Unfreeze the last `num_blocks` transformer blocks of a ViT/DINO backbone.
+    Print how many layers are unfrozen, which layers, and their submodules.
+    """
+    block_attrs = ["blocks", "layers", "transformer.blocks"]
+    for attr in block_attrs:
+        blocks = None
+        obj = model
+        for part in attr.split("."):
+            if hasattr(obj, part):
+                obj = getattr(obj, part)
+            else:
+                obj = None
+                break
+        blocks = obj
+        if blocks is not None and hasattr(blocks, "__getitem__"):
+            total_blocks = len(blocks)
+            unfrozen_layers = []
+            for i in range(total_blocks - num_blocks, total_blocks):
+                for param in blocks[i].parameters():
+                    param.requires_grad = True
+                unfrozen_layers.append(i)
+            # Freeze all other blocks
+            for i in range(0, total_blocks - num_blocks):
+                for param in blocks[i].parameters():
+                    param.requires_grad = False
+            # Print info
+            print(f"[INFO] Unfroze {len(unfrozen_layers)} layers: {unfrozen_layers}")
+            for i in unfrozen_layers:
+                print(f"  - Layer {i}: {blocks[i].__class__.__name__}")
+                for name, module in blocks[i].named_children():
+                    print(f"    - Submodule: {name} ({module.__class__.__name__})")
+            return  # Done
+    # If not found, do nothing
