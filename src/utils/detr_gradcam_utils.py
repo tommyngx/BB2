@@ -309,9 +309,24 @@ def get_gradcam_layer(model, model_name):
             )
         return f"{prefix}feature_proj"
 
-    # DINOv2
-    elif "dinov2" in model_name or "dinov3" in model_name:
-        return f"{prefix}transformer.blocks.23.norm1"
+    # DINOv2 and DINOv3
+    # elif "dinov2" in model_name or "dinov3" in model_name:
+    #    return f"{prefix}transformer.blocks.23.norm1"
+
+    elif "dinov2" in model_name or "dinov3" in model_name or "vit" in model_name:
+        # Tìm block cuối cùng của backbone.base_model.blocks
+        named_modules = dict([*model.named_modules()])
+        block_names = [
+            k for k in named_modules if k.endswith("norm1") and "blocks." in k
+        ]
+        if block_names:
+            # Lấy block.norm1 có số lớn nhất
+            last_block = sorted(
+                block_names, key=lambda x: int(x.split("blocks.")[1].split(".")[0])
+            )[-1]
+            return last_block
+        # Fallback
+        return f"{prefix}base_model.blocks.0.norm1"
 
     # Swin Transformer
     elif "swin" in model_name:
