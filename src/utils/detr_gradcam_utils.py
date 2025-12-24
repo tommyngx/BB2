@@ -204,6 +204,15 @@ def gradcam(
     elif is_vit and acts.ndim == 3:
         pass
 
+    # Thêm kiểm tra shape trước khi tính GradCAM
+    if acts.ndim != 4 or grads.ndim != 4:
+        handle_f.remove()
+        handle_b.remove()
+        raise RuntimeError(
+            f"GradCAM expects activations and gradients to have 4 dims ([B, C, H, W]), "
+            f"but got acts: {acts.shape}, grads: {grads.shape}."
+        )
+
     # GradCAM logic
     weights = grads.mean(dim=(2, 3), keepdim=True)
     cam = (weights * acts).sum(dim=1, keepdim=True)
