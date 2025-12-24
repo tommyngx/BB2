@@ -49,6 +49,96 @@ def vit_reshape_transform(x, grid_h, grid_w):
     return x.permute(0, 3, 1, 2)  # [B, C, H, W]
 
 
+def _detect_vit_grid_size(model, input_h, input_w):
+    """
+    Detect if model is ViT and calculate grid size from input dimensions
+
+    Returns:
+        tuple: (is_vit, grid_h, grid_w)
+    """
+
+    # Helper function to extract patch_size
+    def get_patch_size(patch_embed):
+        if not hasattr(patch_embed, "patch_size"):
+            return None
+        ps = patch_embed.patch_size
+        return ps[0] if hasattr(ps, "__getitem__") else ps
+
+    # Helper function to get grid from patch_embed
+    def get_grid_from_patch_embed(patch_embed):
+        patch_size = get_patch_size(patch_embed)
+        if patch_size is not None:
+            return True, input_h // patch_size, input_w // patch_size
+
+        # Fallback: use grid_size attribute
+        if hasattr(patch_embed, "grid_size"):
+            return True, patch_embed.grid_size[0], patch_embed.grid_size[1]
+
+        # Fallback: calculate from num_patches
+        if hasattr(patch_embed, "num_patches"):
+            num_patches = patch_embed.num_patches
+            grid = int(num_patches**0.5)
+            return True, grid, grid
+
+        return False, None, None
+
+    # Case 1: model.transformer.patch_embed (DinoVisionTransformerClassifier wrapper)
+    if hasattr(model, "transformer") and hasattr(model.transformer, "patch_embed"):
+        return get_grid_from_patch_embed(model.transformer.patch_embed)
+
+    # Case 2: model.backbone.base_model.patch_embed (DETR with ViT backbone)
+    if hasattr(model, "backbone") and hasattr(model.backbone, "base_model"):
+        if hasattr(model.backbone.base_model, "patch_embed"):
+            return get_grid_from_patch_embed(model.backbone.base_model.patch_embed)
+
+    # Case 3: model.patch_embed (direct ViT model)
+    if hasattr(model, "patch_embed"):
+        return get_grid_from_patch_embed(model.patch_embed)
+
+    return False, None, None
+
+
+def _process_vit_activations(acts, grads, model, input_shape):
+    """
+    Process ViT activations: detect grid size and reshape if needed
+
+    Returns:
+        tuple: (acts, grads) - reshaped to [B, C, H, W] if ViT, unchanged otherwise
+    """
+    # Skip if already 4D (CNN activations)
+    if acts.ndim == 4:
+        return acts, grads
+
+    # Only process 3D tensors (ViT format [B, N, C])
+    if acts.ndim != 3:
+        return acts, grads
+
+    # Detect ViT and get grid size
+    input_h, input_w = input_shape[2], input_shape[3]
+    is_vit, grid_h, grid_w = _detect_vit_grid_size(model, input_h, input_w)
+
+    if not is_vit:
+        return acts, grads
+
+    if grid_h is None or grid_w is None:
+        raise RuntimeError(
+            f"ViT model detected but grid_size is None. Cannot reshape activations.\n"
+            f"Acts shape: {acts.shape}, Input shape: {input_shape}"
+        )
+
+    # Reshape ViT activations
+    try:
+        acts = vit_reshape_transform(acts, grid_h, grid_w)
+        grads = vit_reshape_transform(grads, grid_h, grid_w)
+        print(f"[DEBUG] ViT reshape: {acts.shape} (grid: {grid_h}x{grid_w})")
+        return acts, grads
+    except ValueError as e:
+        raise RuntimeError(
+            f"Failed to reshape ViT activations: {e}\n"
+            f"Input: {input_shape}, Acts: {acts.shape}, Grid: ({grid_h}, {grid_w})"
+        )
+
+
 def gradcam(
     model: nn.Module,
     input_tensor: torch.Tensor,
@@ -58,27 +148,14 @@ def gradcam(
     """
     GradCAM for both CNN and ViT. Auto-detects model type and reshapes accordingly.
     """
-    # Giữ model ở eval mode nhưng enable gradient
+    # Setup model for gradient computation
     model.eval()
-
-    # Enable gradient cho tất cả parameters
     for param in model.parameters():
         param.requires_grad = True
 
+    # Prepare hooks
     activations = []
     gradients = []
-
-    # Cho phép truyền tên lớp hoặc module
-    if isinstance(target_layer, str):
-        try:
-            layer = dict([*model.named_modules()])[target_layer]
-        except KeyError:
-            raise ValueError(
-                f"Layer '{target_layer}' not found in model. "
-                f"Available layers: {list(dict([*model.named_modules()]).keys())}"
-            )
-    else:
-        layer = target_layer
 
     def forward_hook(module, input, output):
         activations.append(output.detach())
@@ -86,178 +163,77 @@ def gradcam(
     def backward_hook(module, grad_in, grad_out):
         gradients.append(grad_out[0].detach())
 
+    # Get target layer
+    if isinstance(target_layer, str):
+        try:
+            layer = dict([*model.named_modules()])[target_layer]
+        except KeyError:
+            available = list(dict([*model.named_modules()]).keys())
+            raise ValueError(
+                f"Layer '{target_layer}' not found. Available: {available}"
+            )
+    else:
+        layer = target_layer
+
+    # Register hooks
     handle_f = layer.register_forward_hook(forward_hook)
     handle_b = layer.register_full_backward_hook(backward_hook)
 
-    # Enable gradient computation cho forward pass
-    with torch.set_grad_enabled(True):
-        output = model(input_tensor)
+    try:
+        # Forward pass
+        with torch.set_grad_enabled(True):
+            output = model(input_tensor)
 
-        # ADDED: Handle DETR model output (returns dict instead of tensor)
-        if isinstance(output, dict):
-            # DETR models return dict with 'cls_logits' key
-            if "cls_logits" in output:
-                output = output[
-                    "cls_logits"
-                ]  # Extract classification logits [B, num_classes]
-            else:
-                raise ValueError(
-                    f"Model returned dict but no 'cls_logits' key found. "
-                    f"Available keys: {list(output.keys())}"
-                )
+            # Handle DETR output (dict with 'cls_logits')
+            if isinstance(output, dict):
+                if "cls_logits" not in output:
+                    raise ValueError(
+                        f"Model returned dict without 'cls_logits'. Keys: {list(output.keys())}"
+                    )
+                output = output["cls_logits"]
 
-        if class_idx is None:
-            class_idx = output.argmax(dim=1).item()
+            if class_idx is None:
+                class_idx = output.argmax(dim=1).item()
 
-        model.zero_grad()
-        output[0, class_idx].backward()
+            # Backward pass
+            model.zero_grad()
+            output[0, class_idx].backward()
 
-    # Kiểm tra hooks có capture được không
-    if len(activations) == 0 or len(gradients) == 0:
-        handle_f.remove()
-        handle_b.remove()
-        raise RuntimeError(
-            f"Hooks failed for layer '{target_layer}'. "
-            f"Activations: {len(activations)}, Gradients: {len(gradients)}\n"
-            f"This may happen if the model is frozen or layer doesn't participate in backward pass."
-        )
-
-    acts = activations[0]
-    grads = gradients[0]
-
-    print(f"[DEBUG] acts shape: {acts.shape}, grads shape: {grads.shape}")
-
-    # ===== Kiểm tra cấu trúc wrapper và lấy grid_size =====
-    is_vit = False
-    grid_h, grid_w = None, None
-
-    # **TÍNH GRID_SIZE TỪ INPUT TENSOR THỰC TẾ**
-    actual_input_h, actual_input_w = input_tensor.shape[2], input_tensor.shape[3]
-
-    # Kiểm tra DinoVisionTransformerClassifier wrapper hoặc DETR backbone
-    if hasattr(model, "transformer"):
-        if hasattr(model.transformer, "patch_embed"):
-            patch_size = None
-
-            # Lấy patch_size
-            if hasattr(model.transformer.patch_embed, "patch_size"):
-                patch_size = (
-                    model.transformer.patch_embed.patch_size[0]
-                    if hasattr(model.transformer.patch_embed.patch_size, "__getitem__")
-                    else model.transformer.patch_embed.patch_size
-                )
-
-            if patch_size is not None:
-                is_vit = True
-                grid_h = actual_input_h // patch_size
-                grid_w = actual_input_w // patch_size
-            else:
-                # Fallback
-                if hasattr(model.transformer.patch_embed, "grid_size"):
-                    is_vit = True
-                    grid_h, grid_w = model.transformer.patch_embed.grid_size
-                elif hasattr(model.transformer.patch_embed, "num_patches"):
-                    is_vit = True
-                    num_patches = model.transformer.patch_embed.num_patches
-                    grid_h = grid_w = int(num_patches**0.5)
-
-    # **THÊM: Kiểm tra DETR model với backbone.base_model (DinoV3/ViT)**
-    elif hasattr(model, "backbone") and hasattr(model.backbone, "base_model"):
-        base_model = model.backbone.base_model
-        if hasattr(base_model, "patch_embed"):
-            patch_size = None
-
-            if hasattr(base_model.patch_embed, "patch_size"):
-                patch_size = (
-                    base_model.patch_embed.patch_size[0]
-                    if hasattr(base_model.patch_embed.patch_size, "__getitem__")
-                    else base_model.patch_embed.patch_size
-                )
-
-            if patch_size is not None:
-                is_vit = True
-                grid_h = actual_input_h // patch_size
-                grid_w = actual_input_w // patch_size
-            else:
-                if hasattr(base_model.patch_embed, "grid_size"):
-                    is_vit = True
-                    grid_h, grid_w = base_model.patch_embed.grid_size
-                elif hasattr(base_model.patch_embed, "num_patches"):
-                    is_vit = True
-                    num_patches = base_model.patch_embed.num_patches
-                    grid_h = grid_w = int(num_patches**0.5)
-
-    # Kiểm tra direct ViT model
-    elif hasattr(model, "patch_embed"):
-        patch_size = None
-
-        if hasattr(model.patch_embed, "patch_size"):
-            patch_size = (
-                model.patch_embed.patch_size[0]
-                if hasattr(model.patch_embed.patch_size, "__getitem__")
-                else model.patch_embed.patch_size
-            )
-
-        if patch_size is not None:
-            is_vit = True
-            # **TÍNH TỪ INPUT THỰC TẾ**
-            grid_h = actual_input_h // patch_size
-            grid_w = actual_input_w // patch_size
-        else:
-            # Fallback
-            if hasattr(model.patch_embed, "grid_size"):
-                is_vit = True
-                grid_h, grid_w = model.patch_embed.grid_size
-            elif hasattr(model.patch_embed, "num_patches"):
-                is_vit = True
-                num_patches = model.patch_embed.num_patches
-                grid_h = grid_w = int(num_patches**0.5)
-                # print(
-                #     f"DEBUG: Calculated from num_patches, grid_size=({grid_h}, {grid_w})"
-                # )
-
-    # Reshape nếu là ViT và activation có dạng [B, N, C]
-    if is_vit and acts.ndim == 3 and grid_h is not None and grid_w is not None:
-        try:
-            acts = vit_reshape_transform(acts, grid_h, grid_w)  # [B, C, H, W]
-            grads = vit_reshape_transform(grads, grid_h, grid_w)  # [B, C, H, W]
-        except ValueError as e:
-            handle_f.remove()
-            handle_b.remove()
+        # Check hooks captured data
+        if len(activations) == 0 or len(gradients) == 0:
             raise RuntimeError(
-                f"Failed to reshape ViT activations: {e}\n"
-                f"Input shape: {input_tensor.shape}, Acts: {acts.shape}, "
-                f"Grid: ({grid_h}, {grid_w})"
+                f"Hooks failed for '{target_layer}'. "
+                f"Acts: {len(activations)}, Grads: {len(gradients)}"
             )
-    elif is_vit and acts.ndim == 3:
+
+        acts = activations[0]
+        grads = gradients[0]
+
+        print(f"[DEBUG] Raw shapes - acts: {acts.shape}, grads: {grads.shape}")
+
+        # Process ViT activations if needed (reshape [B, N, C] -> [B, C, H, W])
+        acts, grads = _process_vit_activations(acts, grads, model, input_tensor.shape)
+
+        # Validate 4D tensors
+        if acts.ndim != 4 or grads.ndim != 4:
+            raise RuntimeError(
+                f"Expected 4D tensors [B,C,H,W], got acts: {acts.shape}, grads: {grads.shape}"
+            )
+
+        # Compute GradCAM
+        weights = grads.mean(dim=(2, 3), keepdim=True)
+        cam = (weights * acts).sum(dim=1, keepdim=True)
+        cam = torch.relu(cam)
+        cam = cam.squeeze().cpu().numpy()
+        cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
+        cam = np.uint8(cam * 255)
+
+        return cam
+
+    finally:
+        # Always cleanup hooks
         handle_f.remove()
         handle_b.remove()
-        raise RuntimeError(
-            f"ViT model detected but grid_size is None. Cannot reshape activations.\n"
-            f"Acts shape: {acts.shape}, model has patch_embed: {hasattr(model, 'patch_embed')}"
-        )
-
-    # Thêm kiểm tra shape trước khi tính GradCAM
-    if acts.ndim != 4 or grads.ndim != 4:
-        handle_f.remove()
-        handle_b.remove()
-        raise RuntimeError(
-            f"GradCAM expects activations and gradients to have 4 dims ([B, C, H, W]), "
-            f"but got acts: {acts.shape}, grads: {grads.shape}."
-        )
-
-    # GradCAM logic
-    weights = grads.mean(dim=(2, 3), keepdim=True)
-    cam = (weights * acts).sum(dim=1, keepdim=True)
-    cam = torch.relu(cam)
-    cam = cam.squeeze().cpu().numpy()
-    cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
-    cam = np.uint8(cam * 255)
-
-    handle_f.remove()
-    handle_b.remove()
-
-    return cam
 
 
 def get_gradcam_layer(model, model_name):
