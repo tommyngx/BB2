@@ -130,7 +130,7 @@ def _process_vit_activations(acts, grads, model, input_shape):
     try:
         acts = vit_reshape_transform(acts, grid_h, grid_w)
         grads = vit_reshape_transform(grads, grid_h, grid_w)
-        print(f"[DEBUG] ViT reshape: {acts.shape} (grid: {grid_h}x{grid_w})")
+        # print(f"[DEBUG] ViT reshape: {acts.shape} (grid: {grid_h}x{grid_w})")
         return acts, grads
     except ValueError as e:
         raise RuntimeError(
@@ -209,7 +209,7 @@ def gradcam(
         acts = activations[0]
         grads = gradients[0]
 
-        print(f"[DEBUG] Raw shapes - acts: {acts.shape}, grads: {grads.shape}")
+        # print(f"[DEBUG] Raw shapes - acts: {acts.shape}, grads: {grads.shape}")
 
         # Process ViT activations if needed (reshape [B, N, C] -> [B, C, H, W])
         acts, grads = _process_vit_activations(acts, grads, model, input_tensor.shape)
