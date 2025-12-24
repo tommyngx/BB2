@@ -401,10 +401,13 @@ def get_detr_model(
 
 def unfreeze_last_blocks(model, num_blocks=2):
     """
-    Unfreeze the last `num_blocks` transformer blocks of a ViT/DINO backbone.
-    Print how many layers are unfrozen, which layers, and their submodules.
+    Unfreeze the last `num_blocks` transformer blocks of a ViT/DINO backbone,
+    hoặc các block cuối của ConvNeXt/DINOv3 (có thuộc tính stages).
+    Print how many layers are unfrozen, which layers, và các submodules.
     """
     print(f"[INFO] Unfreezing last {num_blocks} blocks of the model...")
+
+    # --- ViT-style (blocks/layers/transformer.blocks) ---
     block_attrs = ["blocks", "layers", "transformer.blocks"]
     for attr in block_attrs:
         blocks = None
@@ -427,11 +430,47 @@ def unfreeze_last_blocks(model, num_blocks=2):
             for i in range(0, total_blocks - num_blocks):
                 for param in blocks[i].parameters():
                     param.requires_grad = False
-            # Print info
             print(f"[INFO] Unfroze {len(unfrozen_layers)} layers: {unfrozen_layers}")
             for i in unfrozen_layers:
                 print(f"  - Layer {i}: {blocks[i].__class__.__name__}")
                 for name, module in blocks[i].named_children():
                     print(f"    - Submodule: {name} ({module.__class__.__name__})")
             return  # Done
+
+    # --- ConvNeXt/DINOv3-style (stages) ---
+    if hasattr(model, "stages"):
+        stages = model.stages
+        print(f"[INFO] Model has {len(stages)} stages.")
+        for stage_idx, stage in enumerate(stages):
+            if hasattr(stage, "blocks"):
+                blocks = stage.blocks
+                total_blocks = len(blocks)
+                unfrozen_layers = []
+                for i in range(total_blocks - num_blocks, total_blocks):
+                    for param in blocks[i].parameters():
+                        param.requires_grad = True
+                    unfrozen_layers.append(i)
+                # Freeze all other blocks
+                for i in range(0, total_blocks - num_blocks):
+                    for param in blocks[i].parameters():
+                        param.requires_grad = False
+                print(
+                    f"[INFO] Stage {stage_idx}: Unfroze {len(unfrozen_layers)} blocks: {unfrozen_layers}"
+                )
+                for i in unfrozen_layers:
+                    print(f"  - Block {i}: {blocks[i].__class__.__name__}")
+                    for name, module in blocks[i].named_children():
+                        print(f"    - Submodule: {name} ({module.__class__.__name__})")
+            else:
+                print(f"[WARN] Stage {stage_idx} has no 'blocks' attribute.")
+        # Optionally, unfreeze stem if needed
+        if hasattr(model, "stem"):
+            print("[INFO] Unfreezing stem layers...")
+            for name, module in model.stem.named_modules():
+                for param in module.parameters(recurse=False):
+                    param.requires_grad = True
+                    print(f"  - stem.{name}.{param.shape}: requires_grad=True")
+        return
+
     # If not found, do nothing
+    print("[WARN] No recognized block structure found for unfreezing.")
