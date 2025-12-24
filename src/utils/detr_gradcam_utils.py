@@ -125,6 +125,8 @@ def gradcam(
     acts = activations[0]
     grads = gradients[0]
 
+    print(f"[DEBUG] acts shape: {acts.shape}, grads shape: {grads.shape}")
+
     # ===== Kiểm tra cấu trúc wrapper và lấy grid_size =====
     is_vit = False
     grid_h, grid_w = None, None
