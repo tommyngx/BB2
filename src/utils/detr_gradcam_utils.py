@@ -134,7 +134,7 @@ def gradcam(
     # **TÍNH GRID_SIZE TỪ INPUT TENSOR THỰC TẾ**
     actual_input_h, actual_input_w = input_tensor.shape[2], input_tensor.shape[3]
 
-    # Kiểm tra DinoVisionTransformerClassifier wrapper
+    # Kiểm tra DinoVisionTransformerClassifier wrapper hoặc DETR backbone
     if hasattr(model, "transformer"):
         if hasattr(model.transformer, "patch_embed"):
             patch_size = None
@@ -149,7 +149,6 @@ def gradcam(
 
             if patch_size is not None:
                 is_vit = True
-                # **TÍNH TỪ INPUT THỰC TẾ, KHÔNG DÙNG model.patch_embed.img_size**
                 grid_h = actual_input_h // patch_size
                 grid_w = actual_input_w // patch_size
             else:
@@ -161,9 +160,32 @@ def gradcam(
                     is_vit = True
                     num_patches = model.transformer.patch_embed.num_patches
                     grid_h = grid_w = int(num_patches**0.5)
-                    # print(
-                    #     f"DEBUG: Calculated from num_patches, grid_size=({grid_h}, {grid_w})"
-                    # )
+
+    # **THÊM: Kiểm tra DETR model với backbone.base_model (DinoV3/ViT)**
+    elif hasattr(model, "backbone") and hasattr(model.backbone, "base_model"):
+        base_model = model.backbone.base_model
+        if hasattr(base_model, "patch_embed"):
+            patch_size = None
+
+            if hasattr(base_model.patch_embed, "patch_size"):
+                patch_size = (
+                    base_model.patch_embed.patch_size[0]
+                    if hasattr(base_model.patch_embed.patch_size, "__getitem__")
+                    else base_model.patch_embed.patch_size
+                )
+
+            if patch_size is not None:
+                is_vit = True
+                grid_h = actual_input_h // patch_size
+                grid_w = actual_input_w // patch_size
+            else:
+                if hasattr(base_model.patch_embed, "grid_size"):
+                    is_vit = True
+                    grid_h, grid_w = base_model.patch_embed.grid_size
+                elif hasattr(base_model.patch_embed, "num_patches"):
+                    is_vit = True
+                    num_patches = base_model.patch_embed.num_patches
+                    grid_h = grid_w = int(num_patches**0.5)
 
     # Kiểm tra direct ViT model
     elif hasattr(model, "patch_embed"):
@@ -200,9 +222,20 @@ def gradcam(
             acts = vit_reshape_transform(acts, grid_h, grid_w)  # [B, C, H, W]
             grads = vit_reshape_transform(grads, grid_h, grid_w)  # [B, C, H, W]
         except ValueError as e:
-            is_vit = False
+            handle_f.remove()
+            handle_b.remove()
+            raise RuntimeError(
+                f"Failed to reshape ViT activations: {e}\n"
+                f"Input shape: {input_tensor.shape}, Acts: {acts.shape}, "
+                f"Grid: ({grid_h}, {grid_w})"
+            )
     elif is_vit and acts.ndim == 3:
-        pass
+        handle_f.remove()
+        handle_b.remove()
+        raise RuntimeError(
+            f"ViT model detected but grid_size is None. Cannot reshape activations.\n"
+            f"Acts shape: {acts.shape}, model has patch_embed: {hasattr(model, 'patch_embed')}"
+        )
 
     # Thêm kiểm tra shape trước khi tính GradCAM
     if acts.ndim != 4 or grads.ndim != 4:
