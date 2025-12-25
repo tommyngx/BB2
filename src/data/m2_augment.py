@@ -197,7 +197,7 @@ def get_m2_negative_augmentations(height, width, enable_rotate90=True):
         A.ToSepia(p=0.05),
         # Crop tối đa 10% mỗi cạnh (trái/phải/trên/dưới)
         A.CropAndPad(
-            percent=(-0.15, 0.0),  # chỉ crop, không pad, tối đa 15% mỗi cạnh
+            percent=(-0.20, 0.0),  # chỉ crop, không pad, tối đa 20% mỗi cạnh
             pad_mode=cv2.BORDER_CONSTANT,
             pad_cval=0,
             p=0.3,
