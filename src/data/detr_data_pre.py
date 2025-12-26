@@ -220,10 +220,10 @@ def group_bboxes_by_image_vectorized(
 
     # CHANGED: Group ALL images (not just valid ones)
     grouped = (
-        df.groupby("link")
+        df.groupby("image_id")
         .agg(
             {
-                "image_id": "first",
+                "link": "first",
                 "cancer": "first",
                 "split": "first",
                 "img_width": "first",
