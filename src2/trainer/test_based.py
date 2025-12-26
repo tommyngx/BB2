@@ -14,21 +14,17 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 import numpy as np
-import cv2
-import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
 
 from src2.data.based_data import get_dataloaders
 from src2.data.dataloader import load_metadata
 from src2.models.based_model import get_based_model
 from src2.utils.common import load_config, get_arg_or_config
 from src2.utils.gradcam_utils import get_gradcam_layer, gradcam
-from sklearn.metrics import (
-    classification_report,
-    roc_auc_score,
-    precision_score,
-    recall_score,
-    confusion_matrix,
+from src2.utils.based_viz_utils import visualize_classification_result
+from src2.utils.based_test_utils import (
+    evaluate_classification_model,
+    compute_classification_metrics,
+    print_test_metrics,
 )
 
 
@@ -43,183 +39,33 @@ def parse_img_size(val):
         return (s, s)
 
 
-def apply_otsu_threshold(heatmap):
-    """Apply Otsu thresholding to heatmap"""
-    _, binary = cv2.threshold(heatmap, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    return binary
+def load_image_metadata(data_folder, test_df):
+    """Load image metadata including original size and path"""
+    image_info = {}
 
+    for idx, row in test_df.iterrows():
+        image_id = str(row["image_id"])
+        image_path = os.path.join(data_folder, row["link"])
 
-def denormalize_image(tensor, mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]):
-    """Denormalize image tensor to [0, 255]"""
-    tensor = tensor.clone()
-    for t, m, s in zip(tensor, mean, std):
-        t.mul_(s).add_(m)
-    tensor = tensor.clamp(0, 1)
-    tensor = (tensor * 255).byte()
-    return tensor
+        # Get original size
+        try:
+            from PIL import Image
 
+            with Image.open(image_path) as img:
+                original_size = (img.height, img.width)
+        except:
+            original_size = (448, 448)  # fallback
 
-def visualize_result(
-    image_tensor,
-    gt_bboxes,
-    pred_class,
-    gt_label,
-    pred_prob,
-    gradcam_map,
-    gradcam_otsu,
-    save_path,
-    class_names,
-    image_path=None,
-):
-    """Visualize classification result with GradCAM"""
-    image_np = denormalize_image(image_tensor.cpu()).permute(1, 2, 0).numpy()
-    h, w = image_np.shape[:2]
+        # Get bboxes
+        gt_bboxes = row.get("bbox_list", None)
 
-    # Load original image if path provided
-    if image_path and os.path.exists(image_path):
-        original_image = cv2.imread(image_path)
-        original_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)
-    else:
-        original_image = image_np.copy()
+        image_info[image_id] = {
+            "original_size": original_size,
+            "image_path": image_path,
+            "bbx_list": gt_bboxes,
+        }
 
-    fig, axes = plt.subplots(1, 4, figsize=(20, 5))
-
-    # 1. Original image with GT bboxes
-    axes[0].imshow(original_image)
-    axes[0].set_title(f"Original (GT: {class_names[gt_label]})", fontsize=12)
-    axes[0].axis("off")
-    if gt_bboxes is not None and len(gt_bboxes) > 0:
-        for bbox in gt_bboxes:
-            x, y, bw, bh = bbox
-            rect = Rectangle(
-                (x, y), bw, bh, linewidth=2, edgecolor="lime", facecolor="none"
-            )
-            axes[0].add_patch(rect)
-
-    # 2. Predicted image with GradCAM overlay
-    axes[1].imshow(image_np)
-    if gradcam_map is not None:
-        heatmap_colored = cv2.applyColorMap(gradcam_map, cv2.COLORMAP_JET)
-        heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB)
-        heatmap_resized = cv2.resize(heatmap_colored, (w, h))
-        overlay = cv2.addWeighted(image_np, 0.6, heatmap_resized, 0.4, 0)
-        axes[1].imshow(overlay)
-    pred_label = class_names[pred_class]
-    color = "green" if pred_class == gt_label else "red"
-    axes[1].set_title(f"Pred: {pred_label} ({pred_prob:.2%})", fontsize=12, color=color)
-    axes[1].axis("off")
-
-    # 3. GradCAM heatmap
-    axes[2].imshow(image_np)
-    if gradcam_map is not None:
-        axes[2].imshow(gradcam_map, cmap="jet", alpha=0.5)
-    axes[2].set_title("GradCAM", fontsize=12)
-    axes[2].axis("off")
-
-    # 4. GradCAM with Otsu threshold
-    axes[3].imshow(image_np)
-    if gradcam_otsu is not None:
-        axes[3].imshow(gradcam_otsu, cmap="gray", alpha=0.5)
-    axes[3].set_title("GradCAM + Otsu", fontsize=12)
-    axes[3].axis("off")
-
-    plt.tight_layout()
-    plt.savefig(save_path, bbox_inches="tight", dpi=150)
-    plt.close()
-
-
-def evaluate_model_full(model, test_loader, device, class_names):
-    """Evaluate model and return detailed metrics"""
-    model.eval()
-    all_preds = []
-    all_labels = []
-    all_probs = []
-    correct = 0
-    total = 0
-
-    with torch.no_grad():
-        for batch in tqdm(test_loader, desc="Evaluating"):
-            images, labels = batch
-            images = images.to(device)
-            labels = labels.to(device)
-
-            outputs = model(images)
-            probs = torch.softmax(outputs, dim=1)
-            _, predicted = torch.max(outputs, 1)
-
-            all_preds.extend(predicted.cpu().numpy())
-            all_labels.extend(labels.cpu().numpy())
-            all_probs.extend(probs.cpu().numpy())
-
-            correct += (predicted == labels).sum().item()
-            total += labels.size(0)
-
-    accuracy = 100 * correct / total
-
-    # Compute metrics
-    metrics = {}
-    metrics["accuracy"] = accuracy
-
-    try:
-        if len(class_names) == 2:
-            probs_class1 = [p[1] for p in all_probs]
-            auc = roc_auc_score(all_labels, probs_class1)
-            metrics["auc"] = auc
-        else:
-            auc = roc_auc_score(
-                all_labels, all_probs, multi_class="ovo", average="macro"
-            )
-            metrics["auc"] = auc
-    except:
-        metrics["auc"] = None
-
-    try:
-        precision = precision_score(
-            all_labels,
-            all_preds,
-            average="macro" if len(class_names) > 2 else "binary",
-            zero_division=0,
-        )
-        recall = recall_score(
-            all_labels,
-            all_preds,
-            average="macro" if len(class_names) > 2 else "binary",
-            zero_division=0,
-        )
-        metrics["precision"] = precision * 100
-        metrics["recall"] = recall * 100
-    except:
-        metrics["precision"] = 0.0
-        metrics["recall"] = 0.0
-
-    cm = confusion_matrix(all_labels, all_preds)
-    if cm.shape == (2, 2):
-        tn, fp, fn, tp = cm.ravel()
-        sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-        specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
-        metrics["sensitivity"] = sensitivity * 100
-        metrics["specificity"] = specificity * 100
-
-    print("\n" + "=" * 60)
-    print("Test Metrics:")
-    print(f"  Accuracy: {metrics['accuracy']:.2f}%")
-    if metrics.get("auc") is not None:
-        print(f"  AUC: {metrics['auc']:.4f}")
-    print(f"  Precision: {metrics.get('precision', 0.0):.2f}%")
-    print(f"  Recall: {metrics.get('recall', 0.0):.2f}%")
-    if "sensitivity" in metrics:
-        print(f"  Sensitivity: {metrics['sensitivity']:.2f}%")
-        print(f"  Specificity: {metrics['specificity']:.2f}%")
-    print("=" * 60)
-
-    print("\nClassification Report:")
-    print(
-        classification_report(
-            all_labels, all_preds, target_names=class_names, digits=4, zero_division=0
-        )
-    )
-
-    return metrics, all_preds, all_labels, all_probs
+    return image_info
 
 
 def save_full_model(
@@ -284,6 +130,12 @@ def save_full_model(
         print(f"   Test Accuracy: {model_metadata['test_metrics']['accuracy']:.2f}%")
         if model_metadata["test_metrics"].get("auc"):
             print(f"   Test AUC: {model_metadata['test_metrics']['auc']:.4f}")
+        print(
+            f"   Test Precision: {model_metadata['test_metrics'].get('precision', 0.0):.2f}%"
+        )
+        print(
+            f"   Test Recall: {model_metadata['test_metrics'].get('recall', 0.0):.2f}%"
+        )
     except Exception as e:
         print(f"⚠️ Error saving full model: {e}")
 
@@ -292,13 +144,15 @@ def generate_visualizations(
     model,
     test_loader,
     test_df,
+    image_info,
     class_names,
     output,
     model_filename,
     batch_size,
-    data_folder,
-    gradcam_layer,
+    actual_input_size,
+    use_otsu,
     use_gradcam,
+    gradcam_layer,
     device,
 ):
     """Generate visualizations for test set"""
@@ -331,14 +185,16 @@ def generate_visualizations(
             gt_label = labels[i].item()
             pred_prob = probs[i, pred_class].item()
 
-            # Get GT bboxes if available
-            row = test_df.iloc[start_idx + i]
-            gt_bboxes = row.get("bbox_list", None)
-            image_path = os.path.join(data_folder, row["link"])
+            if image_id not in image_info:
+                continue
+
+            info = image_info[image_id]
+            original_size = info["original_size"]
+            image_path = info["image_path"]
+            gt_bboxes = info.get("bbx_list", None)
 
             # Generate GradCAM
             gradcam_map = None
-            gradcam_otsu = None
             if use_gradcam and gradcam_layer:
                 try:
                     input_tensor = images[i : i + 1].clone().requires_grad_(True)
@@ -346,30 +202,35 @@ def generate_visualizations(
                         model.module if isinstance(model, nn.DataParallel) else model
                     )
                     with torch.set_grad_enabled(True):
-                        gradcam_map = gradcam(
+                        result = gradcam(
                             test_model,
                             input_tensor,
                             gradcam_layer,
                             class_idx=pred_class,
                         )
-                        if gradcam_map is not None:
-                            gradcam_otsu = apply_otsu_threshold(gradcam_map)
+                        if (
+                            isinstance(result, np.ndarray)
+                            and result.ndim == 2
+                            and result.dtype == np.uint8
+                        ):
+                            gradcam_map = result
                 except Exception as e:
                     print(f"⚠️ GradCAM failed for {image_id}: {e}")
 
             save_path = os.path.join(vis_dir, f"{image_id}.png")
             try:
-                visualize_result(
+                visualize_classification_result(
                     images[i],
                     gt_bboxes,
                     pred_class,
                     gt_label,
                     pred_prob,
                     gradcam_map,
-                    gradcam_otsu,
                     save_path,
                     class_names,
+                    original_size,
                     image_path=image_path,
+                    use_otsu=use_otsu,
                 )
             except Exception as e:
                 print(f"⚠️ Error visualizing {image_id}: {e}")
@@ -389,6 +250,7 @@ def run_based_test(
     save_visualizations=True,
     only_viz=False,
     use_gradcam=True,
+    use_otsu=False,
 ):
     """Run classification model testing with GradCAM"""
     config = load_config(config_path)
@@ -402,6 +264,9 @@ def run_based_test(
 
     print(f"Found {len(class_names)} classes: {class_names}")
     print(f"Test samples: {len(test_df)}")
+
+    # Load image metadata
+    image_info = load_image_metadata(data_folder, test_df)
 
     _, test_loader = get_dataloaders(
         train_df,
@@ -457,9 +322,14 @@ def run_based_test(
         print("Evaluation on Test Set")
         print("=" * 60)
 
-        metrics, preds, labels, probs = evaluate_model_full(
-            model, test_loader, device, class_names
+        results = evaluate_classification_model(model, test_loader, device)
+
+        metrics = compute_classification_metrics(
+            results["preds"], results["labels"], results["probs"], class_names
         )
+        metrics["accuracy"] = results["accuracy"]
+
+        print_test_metrics(metrics, class_names, results["labels"], results["preds"])
 
         save_full_model(
             model,
@@ -482,13 +352,15 @@ def run_based_test(
             model,
             test_loader,
             test_df,
+            image_info,
             class_names,
             output,
             model_filename,
             batch_size,
-            data_folder,
-            gradcam_layer,
+            actual_input_size,
+            use_otsu,
             use_gradcam,
+            gradcam_layer,
             device,
         )
 
@@ -510,6 +382,7 @@ if __name__ == "__main__":
     parser.add_argument("--no_viz", action="store_true")
     parser.add_argument("--only_viz", action="store_true")
     parser.add_argument("--no_gradcam", action="store_true")
+    parser.add_argument("--use_otsu", action="store_true")
 
     args = parser.parse_args()
     config = load_config(args.config)
@@ -532,4 +405,5 @@ if __name__ == "__main__":
         save_visualizations=not args.no_viz,
         only_viz=args.only_viz,
         use_gradcam=not args.no_gradcam,
+        use_otsu=args.use_otsu,
     )
