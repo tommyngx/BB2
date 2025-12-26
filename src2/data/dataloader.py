@@ -123,42 +123,48 @@ def load_metadata(
     print_stats=True,
     target_column=None,
 ):
-    # Ưu tiên target_column truyền vào, nếu không thì lấy từ config
+    """
+    Load metadata with automatic bbox grouping and validation (basic workflow)
+    """
+    from .data_pre import prepare_from_metadata
+
     if target_column is None:
         target_column = get_target_column_from_config(config_path)
+
     metadata_path = os.path.join(data_folder, "metadata.csv")
-    df = pd.read_csv(metadata_path)
-    df = df.drop_duplicates(subset=["link"])
-    # Filter NaN in target label column
-    df = df[df[target_column].notna()]
-    if not np.issubdtype(df[target_column].dtype, np.number):
-        df["target_label"], class_names = pd.factorize(df[target_column])
-        for idx, name in enumerate(class_names):
-            print(f"Factorize: {idx} -> {name}")
+    if not os.path.exists(metadata_path):
+        raise FileNotFoundError(f"Metadata not found: {metadata_path}")
+
+    train_df, test_df, _ = prepare_from_metadata(
+        metadata_path,
+        data_folder=data_folder,
+        validate_bbox=True,
+        min_area=100,
+        verbose=print_stats,
+    )
+
+    # Factorize labels
+    if not np.issubdtype(train_df[target_column].dtype, np.number):
+        combined_df = pd.concat([train_df, test_df])
+        combined_df["target_label"], class_names = pd.factorize(
+            combined_df[target_column]
+        )
+        train_df["target_label"] = combined_df.loc[train_df.index, "target_label"]
+        test_df["target_label"] = combined_df.loc[test_df.index, "target_label"]
         label_col = "target_label"
     else:
         label_col = target_column
-        unique_vals = df[target_column].unique()
-        # Nếu tất cả giá trị là số nguyên (dù kiểu float), chuyển về int
+        unique_vals = train_df[target_column].unique()
         if np.all(np.mod(unique_vals, 1) == 0):
-            df[target_column] = df[target_column].astype(int)
+            train_df[target_column] = train_df[target_column].astype(int)
+            test_df[target_column] = test_df[target_column].astype(int)
             class_names = sorted([int(x) for x in unique_vals])
         else:
             class_names = sorted(unique_vals)
-        class_names = sorted(df[target_column].unique())
-    train_df = df[df["split"] == "train"].copy()
-    test_df = df[df["split"] == "test"].copy()
+
     train_df["cancer"] = train_df[label_col]
     test_df["cancer"] = test_df[label_col]
 
-    if print_stats:
-        print_dataset_stats2(train_df, test_df, name="Dataset")
-        # Nếu có nhiều hơn 2 class, in ra danh sách class
-        if train_df[label_col].nunique() > 2:
-            print(
-                "Detected multi-class classification. Classes:",
-                list(class_names),
-            )
     return train_df, test_df, class_names
 
 
