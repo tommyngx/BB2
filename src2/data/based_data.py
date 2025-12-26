@@ -101,11 +101,8 @@ class BasicImageDataset(Dataset):
         else:
             raise RuntimeError("No valid transform found for this sample.")
 
-        return {
-            "image": image,
-            "label": label,
-            "image_id": str(row["image_id"]),
-        }
+        # Return tuple (image, label) for compatibility with train_based.py
+        return image, label
 
 
 def get_dataloaders(
