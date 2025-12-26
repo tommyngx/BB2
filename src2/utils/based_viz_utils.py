@@ -103,8 +103,8 @@ def visualize_classification_result(
 
     Panel 1: Original image + GT bboxes (lime)
     Panel 2: GradCAM overlay (colored heatmap blended with original)
-    Panel 3 (if use_otsu): Otsu-masked GradCAM overlay
-             (important regions from GradCAM colored blend, background darkened)
+    Panel 3 (if use_otsu): Otsu mask overlaid on original image
+             (original image with Otsu binary mask displayed on top)
     """
     import cv2
 
@@ -114,7 +114,7 @@ def visualize_classification_result(
 
     # Prepare GradCAM overlay
     gradcam_blend = None
-    gradcam_otsu_blend = None
+    gradcam_otsu_overlay = None
 
     if gradcam_map is not None:
         # Resize GradCAM to original size
@@ -125,28 +125,26 @@ def visualize_classification_result(
         gradcam_colored = cv2.cvtColor(gradcam_colored, cv2.COLOR_BGR2RGB) / 255.0
         gradcam_blend = np.clip(0.6 * img_original_np + 0.4 * gradcam_colored, 0, 1)
 
-        # Panel 3: Apply Otsu threshold to GradCAM to create binary mask
+        # Panel 3: Apply Otsu threshold and overlay on original image
         if use_otsu:
             # Apply Otsu to get threshold value
             otsu_thresh = cv2.threshold(
                 gradcam_resized, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
             )[0]
-            mask = gradcam_resized > otsu_thresh
+            otsu_mask = gradcam_resized > otsu_thresh
 
-            # Create blended image using colored heatmap (same as panel 2)
-            # but only blend on masked regions, darken unmasked regions
-            gradcam_otsu_blend = img_original_np.copy()
+            # Convert Otsu mask to colored overlay (use jet colormap)
+            otsu_mask_uint8 = (otsu_mask * 255).astype(np.uint8)
+            otsu_colored = cv2.applyColorMap(otsu_mask_uint8, cv2.COLORMAP_JET)
+            otsu_colored = cv2.cvtColor(otsu_colored, cv2.COLOR_BGR2RGB) / 255.0
 
-            # On masked regions: blend colored heatmap (60% original + 40% colored)
-            gradcam_otsu_blend[mask] = np.clip(
-                0.6 * img_original_np[mask] + 0.4 * gradcam_colored[mask], 0, 1
+            # Overlay on original: show colored mask on top with transparency
+            gradcam_otsu_overlay = np.clip(
+                0.6 * img_original_np + 0.4 * otsu_colored, 0, 1
             )
 
-            # On unmasked regions: darken the image
-            gradcam_otsu_blend[~mask] = gradcam_otsu_blend[~mask] * 0.3
-
     # Create figure with 2-3 panels
-    num_plots = 3 if use_otsu and gradcam_otsu_blend is not None else 2
+    num_plots = 3 if use_otsu and gradcam_otsu_overlay is not None else 2
     fig, axs = plt.subplots(1, num_plots, figsize=(8 * num_plots, 8))
 
     if num_plots == 2:
@@ -174,9 +172,9 @@ def visualize_classification_result(
     ax2.set_title(title_right, fontsize=12, fontweight="bold", color=color)
     ax2.axis("off")
 
-    # Panel 3: Otsu-masked GradCAM overlay
-    if num_plots == 3 and gradcam_otsu_blend is not None:
-        ax3.imshow(gradcam_otsu_blend)
+    # Panel 3: Otsu mask overlaid on original
+    if num_plots == 3 and gradcam_otsu_overlay is not None:
+        ax3.imshow(gradcam_otsu_overlay)
         ax3.set_title(
             f"Pred + Otsu: {pred_label}", fontsize=12, fontweight="bold", color=color
         )
