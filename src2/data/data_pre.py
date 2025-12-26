@@ -102,9 +102,25 @@ def group_bboxes_by_image_vectorized(
     df, data_folder=None, validate_bbox=True, min_area=100
 ):
     """
-    Group multiple bbox annotations by image_id using VECTORIZED operations
-    Keep ALL images, even those without valid bboxes
+    Group multiple bbox annotations by link (image file path)
+
+    Steps:
+    1. Validate and clip bboxes (negative values, max bounds, area)
+    2. Group by link (each unique image file)
+    3. Aggregate bboxes into lists per link
+    4. Use patient_id/id/image_id for statistics
+
+    Args:
+        df: DataFrame with bbox annotations
+        data_folder: Root folder (for loading image dimensions if needed)
+        validate_bbox: Whether to validate bboxes
+        min_area: Minimum bbox area
+
+    Returns:
+        DataFrame grouped by link with bbox_list column
     """
+
+    # Step 1: Get image dimensions if not in CSV
     if "img_width" not in df.columns or "img_height" not in df.columns:
         print("  ⚠️ Missing img_width/img_height in CSV, loading from images...")
         if data_folder is None:
@@ -112,15 +128,41 @@ def group_bboxes_by_image_vectorized(
                 "data_folder required when img_width/img_height not in CSV"
             )
         img_dims = get_image_dimensions(df, data_folder)
-        df["img_height"] = df["image_id"].map(lambda x: img_dims.get(x, (0, 0))[0])
-        df["img_width"] = df["image_id"].map(lambda x: img_dims.get(x, (0, 0))[1])
+
+        # Map dimensions by link (not image_id)
+        def get_dims_by_link(link):
+            # Find any image_id associated with this link
+            matching_rows = df[df["link"] == link]
+            if len(matching_rows) > 0:
+                img_id = matching_rows.iloc[0].get("image_id", None)
+                if img_id and img_id in img_dims:
+                    return img_dims[img_id]
+            # Fallback: load from file directly
+            img_path = os.path.join(data_folder, link)
+            try:
+                import cv2
+
+                img = cv2.imread(img_path)
+                if img is not None:
+                    return (img.shape[0], img.shape[1])
+            except:
+                pass
+            return (0, 0)
+
+        unique_links = df["link"].unique()
+        link_dims = {link: get_dims_by_link(link) for link in unique_links}
+
+        df["img_height"] = df["link"].map(lambda x: link_dims.get(x, (0, 0))[0])
+        df["img_width"] = df["link"].map(lambda x: link_dims.get(x, (0, 0))[1])
         df = df[(df["img_height"] > 0) & (df["img_width"] > 0)].copy()
 
+    # Step 1: Validate and clip bboxes
     if validate_bbox:
         df = validate_bboxes_vectorized(df, min_area=min_area)
     else:
         df["is_valid_bbox"] = True
 
+    # Step 2: Group by link and aggregate bboxes
     def aggregate_bboxes(group):
         bbox_cols = ["x", "y", "width", "height"]
         if all(col in group.columns for col in bbox_cols):
@@ -142,11 +184,11 @@ def group_bboxes_by_image_vectorized(
             bboxes = []
         return bboxes
 
+    # Group by link (primary key for grouping)
     grouped = (
-        df.groupby("image_id")
+        df.groupby("link")
         .agg(
             {
-                "link": "first",
                 "cancer": "first",
                 "split": "first",
                 "img_width": "first",
@@ -155,19 +197,42 @@ def group_bboxes_by_image_vectorized(
         )
         .reset_index()
     )
-    grouped["bbox_list"] = df.groupby("image_id").apply(aggregate_bboxes).values
+
+    # Add bbox_list column
+    grouped["bbox_list"] = df.groupby("link").apply(aggregate_bboxes).values
     grouped["num_bboxes"] = grouped["bbox_list"].apply(len)
 
+    # Step 3: Copy metadata columns for statistics (patient_id, id, image_id, etc.)
     metadata_cols = [
+        "image_id",
+        "patient_id",
+        "id",
         "original_width",
         "original_height",
-        "patient_id",
         "laterality",
         "view",
     ]
     for col in metadata_cols:
         if col in df.columns:
-            grouped[col] = df.groupby("image_id")[col].first().values
+            grouped[col] = df.groupby("link")[col].first().values
+
+    # Step 4: Validate grouped data
+    if validate_bbox:
+        # Check for duplicate links
+        if grouped["link"].duplicated().any():
+            print(
+                f"  ⚠️ Warning: Found {grouped['link'].duplicated().sum()} duplicate links after grouping"
+            )
+
+        # Check for missing critical columns
+        critical_cols = ["link", "cancer", "split"]
+        for col in critical_cols:
+            if col not in grouped.columns:
+                raise ValueError(f"Critical column '{col}' missing after grouping")
+            if grouped[col].isna().any():
+                n_missing = grouped[col].isna().sum()
+                print(f"  ⚠️ Warning: {n_missing} rows have missing '{col}'")
+
     return grouped
 
 
