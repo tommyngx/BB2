@@ -12,7 +12,7 @@ def get_positive_augmentations(height, width, enable_rotate90=True):
     crop_w = int(width * 0.80)
     aug_list = [
         A.RandomSizedBBoxSafeCrop(
-            height=crop_h, width=crop_w, erosion_rate=0.0, p=0.5
+            height=crop_h, width=crop_w, erosion_rate=0.0, p=0.3
         ),  # Tăng p và erosion
         A.HorizontalFlip(p=0.5),
         A.VerticalFlip(p=0.5),
@@ -89,7 +89,7 @@ def get_positive_augmentations(height, width, enable_rotate90=True):
 def get_negative_augmentations(height, width, enable_rotate90=True):
     aug_list = [
         A.CropAndPad(
-            percent=(-0.25, 0.0), pad_mode=cv2.BORDER_CONSTANT, pad_cval=0, p=0.5
+            percent=(-0.20, 0.0), pad_mode=cv2.BORDER_CONSTANT, pad_cval=0, p=0.3
         ),  # Align p with positive crop
         A.HorizontalFlip(p=0.5),
         A.VerticalFlip(p=0.5),
@@ -170,8 +170,8 @@ def get_negative_augmentations(height, width, enable_rotate90=True):
 
 # Compose for positive (with bbox)
 def get_train_augmentation_positive(height, width, enable_rotate90=True):
-    big_h = int(height * 1.3)  # Tăng resize để đa dạng hơn
-    big_w = int(width * 1.3)
+    big_h = int(height * 1.2)  # Tăng resize để đa dạng hơn
+    big_w = int(width * 1.2)
     aug_list = [A.Resize(big_h, big_w)]
     aug_list += get_positive_augmentations(
         height, width, enable_rotate90=enable_rotate90
