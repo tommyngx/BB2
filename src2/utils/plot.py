@@ -161,29 +161,113 @@ def plot_metrics_orig(train_losses, train_accs, test_losses, test_accs, save_pat
 
 
 def plot_metrics2(train_losses, train_accs, test_losses, test_accs, save_path):
-    epochs = range(1, len(train_losses) + 1)
-    plt.figure(figsize=(12, 5))
+    """
+    Plot training and test loss/accuracy with top-2 highlighted epochs in fivethirtyeight style.
 
-    # Loss
-    plt.subplot(1, 2, 1)
-    plt.plot(epochs, train_losses, "-o", label="Train Loss")
-    plt.plot(epochs, test_losses, "-o", label="Test Loss")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.legend()
-    plt.title("Loss per Epoch")
+    Args:
+        train_losses: List of training losses per epoch
+        train_accs: List of training accuracies per epoch
+        test_losses: List of test/validation losses per epoch
+        test_accs: List of test/validation accuracies per epoch
+        save_path: Path to save the plot (e.g., 'output/figures/model.png')
+    """
+    epochs = list(range(1, len(train_losses) + 1))
 
-    # Accuracy
-    plt.subplot(1, 2, 2)
-    plt.plot(epochs, train_accs, "-o", label="Train Acc")
-    plt.plot(epochs, test_accs, "-o", label="Test Acc")
-    plt.xlabel("Epoch")
-    plt.ylabel("Accuracy")
-    plt.legend()
-    plt.title("Accuracy per Epoch")
+    # Find top-2 best epochs for loss (lowest 2)
+    idx_loss = np.argsort(test_losses)[:2]
+    val_loss_top = [test_losses[i] for i in idx_loss]
 
-    plt.tight_layout()
-    plt.savefig(save_path)
+    # Find top-2 best epochs for accuracy (highest 2)
+    idx_acc = np.argsort(test_accs)[-2:][::-1]  # descending order
+    val_acc_top = [test_accs[i] for i in idx_acc]
+
+    # Set plot style
+    plt.style.use("fivethirtyeight")
+    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(20, 8))
+
+    # Set lighter background color
+    fig.patch.set_facecolor("#f7f7f7")
+    for ax in axes:
+        ax.set_facecolor("#f7f7f7")
+
+    # Plot Loss
+    axes[0].plot(epochs, train_losses, "r", label="Training Loss")
+    axes[0].plot(epochs, test_losses, "g", label="Test Loss")
+    # Top-1 best loss
+    axes[0].scatter(
+        idx_loss[0] + 1,
+        val_loss_top[0],
+        s=150,
+        c="blue",
+        label=f"Best Loss: {val_loss_top[0]:.4f} (Epoch {idx_loss[0] + 1})",
+        zorder=10,
+    )
+    # Top-2 best loss (if exists)
+    if len(idx_loss) > 1:
+        axes[0].scatter(
+            idx_loss[1] + 1,
+            val_loss_top[1],
+            s=120,
+            c="orange",
+            label=f"2nd Loss: {val_loss_top[1]:.4f} (Epoch {idx_loss[1] + 1})",
+            zorder=10,
+        )
+    axes[0].set_title("Training and Test Loss")
+    axes[0].set_xlabel("Epochs", color="#222831")
+    axes[0].set_ylabel("Loss", color="#222831")
+    axes[0].tick_params(axis="x", colors="#222831")
+    axes[0].tick_params(axis="y", colors="#222831")
+    axes[0].grid(True, linestyle="--", alpha=0.5, color="navy")
+    legend = axes[0].legend()
+    legend.get_frame().set_facecolor("white")
+    legend.get_frame().set_edgecolor("#222831")
+    for text in legend.get_texts():
+        text.set_color("#222831")
+
+    # Plot Accuracy
+    axes[1].plot(epochs, train_accs, "r", label="Training Accuracy")
+    axes[1].plot(epochs, test_accs, "g", label="Test Accuracy")
+    # Top-1 best accuracy
+    axes[1].scatter(
+        idx_acc[0] + 1,
+        val_acc_top[0],
+        s=150,
+        c="blue",
+        label=f"Best Acc: {val_acc_top[0]:.4f} (Epoch {idx_acc[0] + 1})",
+        zorder=10,
+    )
+    # Top-2 best accuracy (if exists)
+    if len(idx_acc) > 1:
+        axes[1].scatter(
+            idx_acc[1] + 1,
+            val_acc_top[1],
+            s=120,
+            c="orange",
+            label=f"2nd Acc: {val_acc_top[1]:.4f} (Epoch {idx_acc[1] + 1})",
+            zorder=10,
+        )
+    axes[1].set_title("Training and Test Accuracy")
+    axes[1].set_xlabel("Epochs", color="#222831")
+    axes[1].set_ylabel("Accuracy", color="#222831")
+    axes[1].tick_params(axis="x", colors="#222831")
+    axes[1].tick_params(axis="y", colors="#222831")
+    axes[1].grid(True, linestyle="--", alpha=0.5, color="navy")
+    legend = axes[1].legend()
+    legend.get_frame().set_facecolor("white")
+    legend.get_frame().set_edgecolor("#222831")
+    for text in legend.get_texts():
+        text.set_color("#222831")
+
+    # Add border around plot area
+    for ax in axes:
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(2)
+            spine.set_color("#161A1F")
+
+    # Adjust layout
+    fig.subplots_adjust(left=0.07, right=0.84, wspace=0.15)
+    plt.savefig(save_path, bbox_inches="tight", pad_inches=0.1)
     plt.close()
 
 

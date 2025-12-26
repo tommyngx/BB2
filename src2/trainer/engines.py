@@ -15,8 +15,8 @@ from sklearn.metrics import (
 import csv
 from datetime import datetime
 
-from src.utils.loss import FocalLoss, LDAMLoss, FocalLoss2
-from src.utils.plot import plot_metrics, plot_confusion_matrix
+from src2.utils.loss import FocalLoss, LDAMLoss, FocalLoss2
+from src2.utils.plot import plot_metrics2, plot_confusion_matrix
 
 
 def evaluate_model(
@@ -459,7 +459,7 @@ def train_model(
                         print(f"⚠️ Could not delete {fname_path}: {e}")
 
         plot_path = os.path.join(plot_dir, f"{model_key}.png")
-        plot_metrics(train_losses, train_accs, test_losses, test_accs, plot_path)
+        plot_metrics2(train_losses, train_accs, test_losses, test_accs, plot_path)
 
         all_labels = []
         all_preds = []
