@@ -140,8 +140,16 @@ def get_based_model(model_type="resnet50", num_classes=2, dino_unfreeze_blocks=2
 
         model = DinoVisionTransformerClassifier(transformer, feature_dim, num_classes)
 
-        # Unfreeze last blocks for DINO models
+        # DEBUG: In ra class của transformer để kiểm tra
+        print(f"[DEBUG] DINO backbone type: {type(transformer)}")
+        # Freeze toàn bộ backbone trước
+        for param in model.transformer.parameters():
+            param.requires_grad = False
+        # Unfreeze last blocks cho đúng backbone gốc
         unfreeze_last_blocks(model.transformer, dino_unfreeze_blocks)
+        # Đảm bảo head classifier luôn trainable
+        for param in model.classifier.parameters():
+            param.requires_grad = True
     else:
         raise ValueError("Unsupported model_type for base model")
     return model
