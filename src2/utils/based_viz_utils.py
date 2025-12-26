@@ -99,7 +99,12 @@ def visualize_classification_result(
     image_path=None,
     use_otsu=False,
 ):
-    """Create classification visualization with 3 panels"""
+    """Create classification visualization with 2-3 panels
+
+    Panel 1: Original image + GT bboxes (lime)
+    Panel 2: GradCAM overlay (colored heatmap blended with original)
+    Panel 3 (if use_otsu): Otsu threshold overlay (binary mask + colored on original)
+    """
     import cv2
 
     img_original_np = load_original_image(image_path, original_size, image_tensor)
@@ -108,23 +113,32 @@ def visualize_classification_result(
 
     # Prepare GradCAM overlay
     gradcam_blend = None
-    gradcam_otsu_overlay = None
+    gradcam_otsu_blend = None
+
     if gradcam_map is not None:
         # Resize GradCAM to original size
         gradcam_resized = cv2.resize(gradcam_map, original_size[::-1])
 
-        # Create colored heatmap
+        # Panel 2: Create colored heatmap blend
         gradcam_colored = cv2.applyColorMap(gradcam_resized, cv2.COLORMAP_JET)
         gradcam_colored = cv2.cvtColor(gradcam_colored, cv2.COLOR_BGR2RGB) / 255.0
         gradcam_blend = np.clip(0.6 * img_original_np + 0.4 * gradcam_colored, 0, 1)
 
-        # Otsu threshold
+        # Panel 3: Apply Otsu threshold and blend with original
         if use_otsu:
             gradcam_otsu = apply_otsu_threshold(gradcam_resized)
-            gradcam_otsu_overlay = img_original_np.copy()
 
-    # Create figure with 3 panels
-    num_plots = 3 if use_otsu and gradcam_otsu_overlay is not None else 2
+            # Convert binary mask to colored overlay (use same colormap as GradCAM)
+            otsu_colored = cv2.applyColorMap(gradcam_otsu, cv2.COLORMAP_JET)
+            otsu_colored = cv2.cvtColor(otsu_colored, cv2.COLOR_BGR2RGB) / 255.0
+
+            # Blend: original image + colored Otsu mask
+            gradcam_otsu_blend = np.clip(
+                0.6 * img_original_np + 0.4 * otsu_colored, 0, 1
+            )
+
+    # Create figure with 2-3 panels
+    num_plots = 3 if use_otsu and gradcam_otsu_blend is not None else 2
     fig, axs = plt.subplots(1, num_plots, figsize=(8 * num_plots, 8))
 
     if num_plots == 2:
@@ -152,11 +166,12 @@ def visualize_classification_result(
     ax2.set_title(title_right, fontsize=12, fontweight="bold", color=color)
     ax2.axis("off")
 
-    # Panel 3: GradCAM + Otsu (optional)
-    if num_plots == 3 and gradcam_otsu_overlay is not None:
-        ax3.imshow(gradcam_otsu_overlay)
-        ax3.imshow(gradcam_otsu / 255.0, cmap="gray", alpha=0.5)
-        ax3.set_title("GradCAM + Otsu", fontsize=12, fontweight="bold")
+    # Panel 3: GradCAM + Otsu blend (similar to Panel 2 but with Otsu threshold)
+    if num_plots == 3 and gradcam_otsu_blend is not None:
+        ax3.imshow(gradcam_otsu_blend)
+        ax3.set_title(
+            f"Pred + Otsu: {pred_label}", fontsize=12, fontweight="bold", color=color
+        )
         ax3.axis("off")
 
     plt.tight_layout()
