@@ -82,6 +82,12 @@ def get_positive_augmentations(height, width, enable_rotate90=True):
 # Negative augmentations (aggressive, no bbox)
 def get_negative_augmentations(height, width, enable_rotate90=True):
     aug_list = [
+        A.CropAndPad(
+            percent=(-0.25, 0.0),
+            pad_mode=cv2.BORDER_CONSTANT,
+            pad_cval=0,
+            p=0.3,
+        ),
         A.CoarseDropout(
             num_holes_range=(1, 5),
             hole_height_range=(0.01, 0.1),
@@ -170,12 +176,6 @@ def get_negative_augmentations(height, width, enable_rotate90=True):
         A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.2),
         A.ToGray(p=0.05),
         A.ToSepia(p=0.05),
-        A.CropAndPad(
-            percent=(-0.20, 0.0),
-            pad_mode=cv2.BORDER_CONSTANT,
-            pad_cval=0,
-            p=0.3,
-        ),
     ]
     if enable_rotate90:
         aug_list.insert(4, A.RandomRotate90(p=0.5))
