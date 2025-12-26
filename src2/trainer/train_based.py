@@ -6,12 +6,12 @@ warnings.filterwarnings("ignore", category=UserWarning)
 import argparse
 import os
 import torch
-from src.data.based_data import get_dataloaders
-from src.data.dataloader import load_metadata
+from src2.data.based_data import get_dataloaders
+from src2.data.dataloader import load_metadata
 
-from src.data.dataloader import load_metadata
-from src.trainer.engines import train_model, evaluate_model
-from src.utils.common import load_config, get_arg_or_config, clear_cuda_memory
+from src2.data.dataloader import load_metadata
+from src2.trainer.engines import train_model, evaluate_model
+from src2.utils.common import load_config, get_arg_or_config, clear_cuda_memory
 
 
 def parse_img_size(val):
