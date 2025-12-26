@@ -76,7 +76,6 @@ def unfreeze_last_blocks(model, num_blocks=2):
 
 
 def get_based_model(model_type="resnet50", num_classes=2, dino_unfreeze_blocks=2):
-    print(f"[DEBUG] get_based_model called with model_type={model_type}")
     if model_type in ["resnet34", "resnet50", "resnet101", "resnext50", "resnet152"]:
         backbone, feature_dim = get_resnet_backbone(model_type)
         # Replace the head with a linear classifier
@@ -137,27 +136,21 @@ def get_based_model(model_type="resnet50", num_classes=2, dino_unfreeze_blocks=2
         "medino_vitb16",
         "dinov2uni_base",
     ]:
-        print(f"[DEBUG] Loading DINO backbone for model_type={model_type}")
         transformer, feature_dim = get_dino_backbone(model_type)
-        print(f"[DEBUG] Loaded transformer: {transformer}")
-        print(f"[DEBUG] transformer type: {type(transformer)}")
-        print(f"[DEBUG] transformer dir: {dir(transformer)}")
-        model = DinoVisionTransformerClassifier(transformer, feature_dim, num_classes)
-        print(f"[DEBUG] Created DinoVisionTransformerClassifier")
 
+        model = DinoVisionTransformerClassifier(transformer, feature_dim, num_classes)
+
+        # DEBUG: In ra class của transformer để kiểm tra
+        print(f"[DEBUG] DINO backbone type: {type(transformer)}")
         # Freeze toàn bộ backbone trước
         for param in model.transformer.parameters():
             param.requires_grad = False
-        print(f"[DEBUG] Froze all transformer params")
         # Unfreeze last blocks cho đúng backbone gốc
-        print(f"[DEBUG] Calling unfreeze_last_blocks...")
         unfreeze_last_blocks(model.transformer, dino_unfreeze_blocks)
         # Đảm bảo head classifier luôn trainable
         for param in model.classifier.parameters():
             param.requires_grad = True
-        print(f"[DEBUG] Classifier params set to trainable")
     else:
-        print(f"[DEBUG] model_type {model_type} not recognized in get_based_model")
         raise ValueError("Unsupported model_type for base model")
     return model
 
