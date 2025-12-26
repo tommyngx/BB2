@@ -43,6 +43,10 @@ def unfreeze_last_blocks(model, num_blocks=2):
                 for param in blocks[i].parameters():
                     param.requires_grad = False
             print(f"[INFO] Unfroze {len(unfrozen_layers)} layers: {unfrozen_layers}")
+            for i in unfrozen_layers:
+                print(f"  - Layer {i}: {blocks[i].__class__.__name__}")
+                for name, module in blocks[i].named_children():
+                    print(f"    - Submodule: {name} ({module.__class__.__name__})")
             return
 
     # --- ConvNeXt/DINOv3-style (stages) ---
