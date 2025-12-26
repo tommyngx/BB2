@@ -11,6 +11,7 @@ from src2.data.dataloader import load_metadata
 
 from src2.trainer.engines import train_model, evaluate_model
 from src2.utils.common import load_config, get_arg_or_config, clear_cuda_memory
+from src2.models.based_model import get_based_model
 
 
 def parse_img_size(val):
@@ -300,8 +301,6 @@ if __name__ == "__main__":
     )
     if img_size is not None and isinstance(img_size, str):
         img_size = parse_img_size(img_size)
-
-    from src.models.based_model import get_based_model
 
     train_df, test_df, class_names = load_metadata(
         data_folder, args.config, print_stats=False, target_column=target_column
