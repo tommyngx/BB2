@@ -247,6 +247,14 @@ def prepare_dataframe(
             )
         print("=" * 60)
 
+        # Thêm thống kê cơ bản từ print_dataset_stats2
+        try:
+            from .dataloader import print_dataset_stats2
+
+            print_dataset_stats2(train_df, test_df, name="Detection (grouped)")
+        except Exception as e:
+            print(f"[WARN] Could not print print_dataset_stats2: {e}")
+
     return train_df, test_df
 
 
