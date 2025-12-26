@@ -245,7 +245,7 @@ def run_detr_test(
     only_viz=False,
     sample_viz=False,
     obj_threshold=0.5,
-    use_otsu=False,
+    use_otsu=True,  # Changed: default=True
     use_gradcam=False,
 ):
     """Run DETR testing"""
@@ -407,7 +407,9 @@ if __name__ == "__main__":
     parser.add_argument("--only_viz", action="store_true")
     parser.add_argument("--sample_viz", action="store_true")
     parser.add_argument("--obj_threshold", type=float, default=0.5)
-    parser.add_argument("--use_otsu", action="store_true")
+    parser.add_argument(
+        "--no_otsu", action="store_true"
+    )  # Changed: use --no_otsu to disable
     parser.add_argument("--gradcam", action="store_true")
 
     args = parser.parse_args()
@@ -434,6 +436,6 @@ if __name__ == "__main__":
         only_viz=args.only_viz,
         sample_viz=args.sample_viz,
         obj_threshold=args.obj_threshold,
-        use_otsu=args.use_otsu,
+        use_otsu=not args.no_otsu,  # Changed: invert logic
         use_gradcam=args.gradcam,
     )

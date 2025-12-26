@@ -250,7 +250,7 @@ def run_based_test(
     save_visualizations=True,
     only_viz=False,
     use_gradcam=True,
-    use_otsu=False,
+    use_otsu=True,  # Changed: default=True
 ):
     """Run classification model testing with GradCAM"""
     config = load_config(config_path)
@@ -382,7 +382,9 @@ if __name__ == "__main__":
     parser.add_argument("--no_viz", action="store_true")
     parser.add_argument("--only_viz", action="store_true")
     parser.add_argument("--no_gradcam", action="store_true")
-    parser.add_argument("--use_otsu", action="store_true")
+    parser.add_argument(
+        "--no_otsu", action="store_true"
+    )  # Changed: use --no_otsu to disable
 
     args = parser.parse_args()
     config = load_config(args.config)
@@ -405,5 +407,5 @@ if __name__ == "__main__":
         save_visualizations=not args.no_viz,
         only_viz=args.only_viz,
         use_gradcam=not args.no_gradcam,
-        use_otsu=args.use_otsu,
+        use_otsu=not args.no_otsu,  # Changed: invert logic
     )
