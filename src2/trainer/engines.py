@@ -392,8 +392,21 @@ def train_model(
             patience_counter = 0
             last_lr = current_lr
         else:
+            # Check if loss improved OR accuracy improved
+            improved = False
+
+            # Check if accuracy improved
             if test_acc > best_acc:
                 best_acc = test_acc
+                improved = True
+                # print(f"[INFO] Accuracy improved to {test_acc:.6f}")
+
+            # Check if loss improved (compare with previous losses)
+            if len(test_losses) > 1 and test_loss < min(test_losses[:-1]):
+                improved = True
+                # print(f"[INFO] Loss improved to {test_loss:.6f}")
+
+            if improved:
                 patience_counter = 0
             else:
                 patience_counter += 1
