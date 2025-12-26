@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from PIL import Image
 import pandas as pd
+from skimage.filters import threshold_otsu
 
 
 def denormalize_image(tensor, mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]):
@@ -78,14 +79,6 @@ def draw_bboxes_on_axis(ax, bbox_list, original_size, color="lime", linewidth=2)
     return num_valid
 
 
-def apply_otsu_threshold(heatmap):
-    """Apply Otsu thresholding to heatmap"""
-    import cv2
-
-    _, binary = cv2.threshold(heatmap, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    return binary
-
-
 def visualize_classification_result(
     image_tensor,
     gt_bboxes,
@@ -127,10 +120,8 @@ def visualize_classification_result(
 
         # Panel 3: Apply Otsu threshold and overlay only masked regions
         if use_otsu:
-            # Apply Otsu to get threshold value
-            otsu_thresh = cv2.threshold(
-                gradcam_resized, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
-            )[0]
+            # Apply Otsu using skimage (same as gradcam_utils_based.py)
+            otsu_thresh = threshold_otsu(gradcam_resized)
             mask = gradcam_resized > otsu_thresh
 
             # Start with original image
