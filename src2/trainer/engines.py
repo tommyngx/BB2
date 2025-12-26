@@ -416,47 +416,99 @@ def train_model(
                         )
                     break
 
-        # Save/load model: handle DataParallel
+        # Save top-2 models by accuracy and top-2 by loss
         acc4 = int(round(test_acc * 10000))
-        weight_name = f"{model_key}_{acc4}.pth"
+        loss4 = int(round(test_loss * 10000))
+        weight_name = f"{model_key}_{acc4}_{loss4}.pth"
         weight_path = os.path.join(model_dir, weight_name)
 
-        related_weights = []
+        # Gather all existing models for accuracy ranking
+        acc_candidates = []
         for fname in os.listdir(model_dir):
-            if fname.startswith(model_key) and fname.endswith(".pth"):
+            if (
+                fname.startswith(model_key)
+                and fname.endswith(".pth")
+                and not fname.endswith("_full.pth")
+            ):
+                parts = fname.replace(".pth", "").split("_")
                 try:
-                    acc_part = fname.replace(".pth", "").split("_")[-1]
+                    acc_part = parts[-2] if len(parts) > 2 else parts[-1]
                     acc_val = float(acc_part) / 10000
-                    related_weights.append((acc_val, os.path.join(model_dir, fname)))
+                    fpath = os.path.join(model_dir, fname)
+                    acc_candidates.append((acc_val, fpath))
                 except Exception:
                     print(f"Skipping invalid model file: {fname}")
                     continue
 
-        related_weights = sorted(related_weights, key=lambda x: x[0], reverse=True)
-        top2_accs = set(acc for acc, _ in related_weights[:2])
+        # Gather all existing models for loss ranking (lower is better)
+        loss_candidates = []
+        for fname in os.listdir(model_dir):
+            if (
+                fname.startswith(model_key)
+                and fname.endswith(".pth")
+                and not fname.endswith("_full.pth")
+            ):
+                parts = fname.replace(".pth", "").split("_")
+                try:
+                    loss_part = parts[-1]
+                    loss_val = float(loss_part) / 10000
+                    fpath = os.path.join(model_dir, fname)
+                    loss_candidates.append((loss_val, fpath))
+                except Exception:
+                    continue
 
-        if test_acc in top2_accs:
+        # Sort existing candidates
+        acc_candidates = sorted(acc_candidates, key=lambda x: x[0], reverse=True)
+        loss_candidates = sorted(
+            loss_candidates, key=lambda x: x[0]
+        )  # ascending for loss
+
+        # Get top-2 values before adding current
+        top2_accs = set(acc for acc, _ in acc_candidates[:2])
+        top2_losses = set(loss for loss, _ in loss_candidates[:2])
+
+        # Check if current model already in top-2 by VALUE
+        if test_acc in top2_accs and test_loss in top2_losses:
             print(
-                f"⏩ Skipped saving {weight_name} (accuracy {test_acc:.6f} already in top 2)"
+                f"⏩ Skipped saving {weight_name} (acc {test_acc:.6f} and loss {test_loss:.6f} already in top-2)"
             )
         else:
-            related_weights.append((test_acc, weight_path))
-            related_weights = sorted(related_weights, key=lambda x: x[0], reverse=True)
-            top2_paths = set(path for _, path in related_weights[:2])
-            if weight_path in top2_paths:
-                # Save only model.module if DataParallel
+            # Add current model to candidates
+            acc_candidates.append((test_acc, weight_path))
+            loss_candidates.append((test_loss, weight_path))
+
+            # Re-sort and get top-2 paths
+            acc_candidates = sorted(acc_candidates, key=lambda x: x[0], reverse=True)
+            loss_candidates = sorted(loss_candidates, key=lambda x: x[0])
+
+            top2_acc_paths = set(path for _, path in acc_candidates[:2])
+            top2_loss_paths = set(path for _, path in loss_candidates[:2])
+            keep_paths = top2_acc_paths | top2_loss_paths
+
+            # Save if current model is in keep_paths
+            if weight_path in keep_paths:
                 if isinstance(model, nn.DataParallel):
                     torch.save(model.module.state_dict(), weight_path)
                 else:
                     torch.save(model.state_dict(), weight_path)
-                print(f"✅ Saved new model: {weight_name} (acc = {test_acc:.6f})")
-            for _, fname_path in related_weights:
-                if fname_path not in top2_paths and os.path.exists(fname_path):
+                print(
+                    f"✅ Saved new model: {weight_name} (acc = {test_acc:.6f}, loss = {test_loss:.6f})"
+                )
+
+            # Delete models not in keep_paths
+            for fname in os.listdir(model_dir):
+                fpath = os.path.join(model_dir, fname)
+                if (
+                    fname.startswith(model_key)
+                    and fname.endswith(".pth")
+                    and not fname.endswith("_full.pth")
+                    and fpath not in keep_paths
+                ):
                     try:
-                        os.remove(fname_path)
-                        print(f"🗑️ Deleted model: {fname_path}")
+                        os.remove(fpath)
+                        print(f"🗑️ Deleted model: {fpath}")
                     except Exception as e:
-                        print(f"⚠️ Could not delete {fname_path}: {e}")
+                        print(f"⚠️ Could not delete {fpath}: {e}")
 
         plot_path = os.path.join(plot_dir, f"{model_key}.png")
         plot_metrics2(train_losses, train_accs, test_losses, test_accs, plot_path)
@@ -483,16 +535,32 @@ def train_model(
             [datetime.now().isoformat(), "finished", "", "", "", "", "", "", ""]
         )
 
-    # Evaluate best weight trong top2_accs
-    if top2_accs:
-        best_acc = max(top2_accs)
-        best_weight_name = f"{model_key}_{int(round(best_acc * 10000))}.pth"
-        best_weight_path = os.path.join(model_dir, best_weight_name)
+    # Evaluate best weight in top2_accs or top2_losses
+    all_weights = []
+    for fname in os.listdir(model_dir):
+        if (
+            fname.startswith(model_key)
+            and fname.endswith(".pth")
+            and not fname.endswith("_full.pth")
+        ):
+            parts = fname.replace(".pth", "").split("_")
+            try:
+                acc_part = parts[-2] if len(parts) > 2 else parts[-1]
+                loss_part = parts[-1]
+                acc_val = float(acc_part) / 10000
+                loss_val = float(loss_part) / 10000
+                all_weights.append((acc_val, loss_val, fname))
+            except Exception:
+                continue
+
+    if all_weights:
+        # Find best by accuracy
+        best_acc_weight = max(all_weights, key=lambda x: x[0])
+        best_weight_path = os.path.join(model_dir, best_acc_weight[2])
         if os.path.exists(best_weight_path):
             print(
-                f"\n🔎 Evaluating best model: {best_weight_name} (acc={best_acc:.4f})"
+                f"\n🔎 Evaluating best model: {best_acc_weight[2]} (acc={best_acc_weight[0]:.4f}, loss={best_acc_weight[1]:.4f})"
             )
-            # Load weights into model.module if DataParallel
             if isinstance(model, nn.DataParallel):
                 model.module.load_state_dict(
                     torch.load(best_weight_path, map_location=device)
@@ -503,7 +571,7 @@ def train_model(
                 model, test_loader, device=device, mode="Best Test", criterion=criterion
             )
         else:
-            print(f"Best weight file {best_weight_name} not found.")
+            print(f"Best weight file {best_acc_weight[2]} not found.")
     else:
         print("No best weight found for evaluation.")
 
