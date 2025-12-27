@@ -279,18 +279,10 @@ def draw_predicted_bboxes_on_pil(
     PIL.Image.Image
         Image with drawn bounding boxes
     """
-    from PIL import ImageDraw, ImageFont
+    from PIL import ImageDraw
 
     img_draw = img_pil.copy()
     draw = ImageDraw.Draw(img_draw)
-
-    try:
-        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 20)
-    except:
-        try:
-            font = ImageFont.truetype("arial.ttf", 20)
-        except:
-            font = ImageFont.load_default()
 
     for bbox, score in zip(bboxes, scores):
         if score >= threshold:
@@ -305,26 +297,11 @@ def draw_predicted_bboxes_on_pil(
             x1, y1, x2, y2 = bbox
             draw.rectangle([x1, y1, x2, y2], outline=color, width=width)
 
-            # Draw confidence score with black background
+            # Draw confidence score with black background (no font needed)
             label = f"{score:.2f}"
 
-            # Get text size - try modern method first, fallback to legacy
-            try:
-                bbox_text = draw.textbbox((x1, y1 - 25), label, font=font)
-            except AttributeError:
-                # Fallback for older PIL versions
-                text_width, text_height = draw.textsize(label, font=font)
-                bbox_text = (
-                    x1,
-                    y1 - 25,
-                    x1 + text_width + 4,
-                    y1 - 25 + text_height + 2,
-                )
-
-            # Draw black background for text
-            draw.rectangle(bbox_text, fill="black")
-            # Draw text
-            draw.text((x1, y1 - 25), label, fill=color, font=font)
+            # Simple text without font specification
+            draw.text((x1 + 2, y1 - 20), label, fill=color)
 
     return img_draw
 
