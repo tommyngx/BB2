@@ -282,7 +282,7 @@ def detr_predict_folder(
 
         # Save original with bboxes
         img_with_bbox = draw_bboxes_on_image(img, bboxes, scores, obj_threshold)
-        img_with_bbox.save(out_dir / f"{img_path.stem}_bbox.png", format="PNG")
+        img_with_bbox.save(out_dir / f"{img_path.stem}.png", format="PNG")
 
         # Save GradCAM + Otsu + bboxes
         if gradcam_map is not None:
