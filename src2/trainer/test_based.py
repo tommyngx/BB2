@@ -287,7 +287,7 @@ def run_based_test(
 
     try:
         model.load_state_dict(
-            torch.load(pretrained_model_path, map_location=device), strict=False
+            torch.load(pretrained_model_path, map_location=device),  # trict=False
         )
         print(f"✅ Loaded pretrained model from {pretrained_model_path}")
     except Exception as e:
