@@ -10,6 +10,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
 from torchvision import transforms
+import matplotlib.pyplot as plt
 
 from zdetr.utils.detr_gradcam_utils import gradcam
 from skimage.filters import threshold_otsu
@@ -79,33 +80,6 @@ def rescale_bbox(
     return x1, y1, x2, y2
 
 
-def draw_bboxes_on_image(
-    img_pil: Image.Image,
-    bboxes: List[Tuple[int, int, int, int]],
-    scores: List[float],
-    threshold: float = 0.5,
-    color: str = "red",
-    width: int = 3,
-) -> Image.Image:
-    """Draw bounding boxes on PIL image"""
-    img_draw = img_pil.copy()
-    draw = ImageDraw.Draw(img_draw)
-
-    try:
-        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 16)
-    except:
-        font = ImageFont.load_default()
-
-    for bbox, score in zip(bboxes, scores):
-        if score >= threshold:
-            x1, y1, x2, y2 = bbox
-            draw.rectangle([x1, y1, x2, y2], outline=color, width=width)
-            label = f"{score:.2f}"
-            draw.text((x1, y1 - 20), label, fill=color, font=font)
-
-    return img_draw
-
-
 def overlay_heatmap(
     img_rgb: Image.Image,
     heatmap: np.ndarray,
@@ -116,23 +90,63 @@ def overlay_heatmap(
     cam_img = Image.fromarray(heatmap).resize(img_rgb.size, Image.Resampling.BILINEAR)
     cam_np = np.array(cam_img)
 
+    # Apply Otsu thresholding to mask out low activation regions
     if use_otsu:
         thr = threshold_otsu(cam_np)
-        cam_np = (cam_np >= thr) * cam_np
+        mask = cam_np > thr
+    else:
+        mask = np.ones_like(cam_np, dtype=bool)
 
     # Create colormap
-    x = cam_np.astype(np.float32) / 255.0
-    r = np.clip(1.5 - np.abs(4 * x - 3), 0, 1)
-    g = np.clip(1.5 - np.abs(4 * x - 2), 0, 1)
-    b = np.clip(1.5 - np.abs(4 * x - 1), 0, 1)
-    heat = np.stack([r, g, b], axis=-1)
+    cam_color = plt.cm.jet(cam_np / 255.0)[..., :3]
 
-    # Blend
+    # Blend with original image
     base = np.array(img_rgb).astype(np.float32) / 255.0
-    out = (1 - alpha) * base + alpha * heat
+    out = base.copy()
+
+    # Only blend where mask is True (Otsu filtered regions)
+    out[mask] = (1 - alpha) * base[mask] + alpha * cam_color[mask]
     out = (np.clip(out, 0, 1) * 255).astype(np.uint8)
 
     return Image.fromarray(out)
+
+
+def draw_bboxes_on_image(
+    img_pil: Image.Image,
+    bboxes: List[Tuple[int, int, int, int]],
+    scores: List[float],
+    threshold: float = 0.5,
+    width: int = 3,
+) -> Image.Image:
+    """Draw bounding boxes on PIL image with color-coded confidence"""
+    img_draw = img_pil.copy()
+    draw = ImageDraw.Draw(img_draw)
+
+    try:
+        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 16)
+    except:
+        font = ImageFont.load_default()
+
+    for bbox, score in zip(bboxes, scores):
+        if score >= threshold:
+            # Color based on confidence score
+            if score >= 0.8:
+                color = "red"
+            elif score >= 0.6:
+                color = "orange"
+            else:
+                color = "yellow"
+
+            x1, y1, x2, y2 = bbox
+            draw.rectangle([x1, y1, x2, y2], outline=color, width=width)
+
+            # Draw confidence score with background
+            label = f"{score:.2f}"
+            bbox_obj = draw.textbbox((x1, y1 - 20), label, font=font)
+            draw.rectangle(bbox_obj, fill="black")
+            draw.text((x1, y1 - 20), label, fill=color, font=font)
+
+    return img_draw
 
 
 def predict_detr_image(
@@ -219,8 +233,8 @@ def detr_predict_folder(
 ):
     """
     Run DETR inference on all images in folder
-    - Saves original + bbox visualization
-    - Saves GradCAM + Otsu + bbox visualization
+    - Saves original image (no bbox)
+    - Saves GradCAM with Otsu + colored bbox + confidence scores
     - Saves CSV with predictions per subfolder
     """
     in_root = Path(input_root).expanduser().resolve()
@@ -280,15 +294,16 @@ def detr_predict_folder(
         scores = result["scores"]
         gradcam_map = result["gradcam_map"]
 
-        # Save original with bboxes
-        img_with_bbox = draw_bboxes_on_image(img, bboxes, scores, obj_threshold)
-        img_with_bbox.save(out_dir / f"{img_path.stem}.png", format="PNG")
+        # Save original image (no bboxes)
+        img.save(out_dir / f"{img_path.stem}.png", format="PNG")
 
-        # Save GradCAM + Otsu + bboxes
+        # Save GradCAM + Otsu + bboxes with confidence
         if gradcam_map is not None:
+            # Apply Otsu thresholding
             img_gradcam = overlay_heatmap(
                 img, gradcam_map, alpha=0.55, use_otsu=use_otsu
             )
+            # Draw color-coded bboxes with confidence scores
             img_gradcam_bbox = draw_bboxes_on_image(
                 img_gradcam, bboxes, scores, obj_threshold
             )
