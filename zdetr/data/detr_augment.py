@@ -16,7 +16,9 @@ def get_m2_positive_augmentations(height, width, enable_rotate90=True):
 
     aug_list = [
         # Bổ sung crop an toàn cho bbox
-        A.RandomSizedBBoxSafeCrop(height=crop_h, width=crop_w, erosion_rate=0.0, p=0.5),
+        A.RandomSizedBBoxSafeCrop(
+            height=crop_h, width=crop_w, erosion_rate=0.0, p=0.35
+        ),
         A.HorizontalFlip(p=0.5),
         A.VerticalFlip(p=0.5),
         A.Transpose(p=0.5),
@@ -99,53 +101,43 @@ def get_m2_negative_augmentations(height, width, enable_rotate90=True):
     Tận dụng lại augmentation mạnh từ base (có thể dùng CoarseDropout, ElasticTransform...)
     """
     aug_list = [
-        # Spatial dropout - ONLY for negative
-        A.CoarseDropout(
-            num_holes_range=(1, 5),
-            hole_height_range=(0.01, 0.1),
-            hole_width_range=(0.01, 0.15),
-            fill=0,
-            p=0.2,
+        # Crop tối đa 10% mỗi cạnh (trái/phải/trên/dưới)
+        A.CropAndPad(
+            percent=(-0.20, 0.0),  # chỉ crop, không pad, tối đa 20% mỗi cạnh
+            pad_mode=cv2.BORDER_CONSTANT,
+            pad_cval=0,
+            p=0.35,
         ),
         # Geometric transforms - có thể mạnh hơn
         A.HorizontalFlip(p=0.5),
         A.VerticalFlip(p=0.5),
         A.Transpose(p=0.5),
         A.Affine(
-            scale=(0.8, 1.2),
-            translate_percent=(-0.15, 0.15),
+            scale=(0.85, 1.15),
+            translate_percent=(-0.1, 0.1),
             rotate=(-45, 45),
-            shear=(-20, 20),
+            shear=(-15, 15),
             p=0.5,
         ),
         A.ShiftScaleRotate(
-            shift_limit=0.15,
-            scale_limit=0.25,
-            rotate_limit=45,
+            shift_limit=0.1,
+            scale_limit=0.2,
+            rotate_limit=30,
             p=0.4,
         ),
-        # Elastic transforms - ONLY for negative
-        A.ElasticTransform(alpha=1, sigma=30, p=0.15),
-        A.GridDistortion(num_steps=5, distort_limit=0.4, p=0.2),
-        A.OpticalDistortion(distort_limit=0.5, shift_limit=0.5, p=0.2),
         # Color/Intensity
-        A.RandomBrightnessContrast(brightness_limit=0.3, contrast_limit=0.3, p=0.5),
-        A.RandomGamma(gamma_limit=(60, 140), p=0.3),
-        A.CLAHE(clip_limit=4.0, tile_grid_size=(8, 8), p=0.4),
-        A.Equalize(p=0.3),
-        A.HueSaturationValue(
-            hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.3
-        ),
-        A.RGBShift(r_shift_limit=20, g_shift_limit=20, b_shift_limit=20, p=0.2),
-        A.ChannelShuffle(p=0.15),
+        A.RandomBrightnessContrast(brightness_limit=0.25, contrast_limit=0.25, p=0.5),
+        A.RandomGamma(gamma_limit=(70, 130), p=0.3),
+        A.CLAHE(clip_limit=3.0, tile_grid_size=(8, 8), p=0.4),
+        A.Equalize(p=0.2),
         # Blur/Sharpen
         A.OneOf(
             [
                 A.Sharpen(alpha=(0.2, 0.5), lightness=(0.5, 1.5), p=1.0),
                 A.Blur(blur_limit=5, p=1.0),
                 A.MotionBlur(blur_limit=7, p=1.0),
-                A.MedianBlur(blur_limit=5, p=1.0),
-                A.GaussianBlur(blur_limit=(3, 7), p=1.0),
+                # A.MedianBlur(blur_limit=5, p=1.0),
+                # A.GaussianBlur(blur_limit=(3, 7), p=1.0),
             ],
             p=0.3,
         ),
@@ -153,55 +145,54 @@ def get_m2_negative_augmentations(height, width, enable_rotate90=True):
             blur_limit=(3, 7), sigma_limit=(0.0, 3.0), alpha=(0.2, 0.5), p=0.2
         ),
         # Noise
-        A.OneOf(
-            [
-                A.GaussNoise(var_limit=(10, 80), p=1.0),
-                A.ISONoise(color_shift=(0.01, 0.1), intensity=(0.1, 0.8), p=1.0),
-                A.MultiplicativeNoise(multiplier=(0.9, 1.1), p=1.0),
-            ],
-            p=0.25,
-        ),
+        A.GaussNoise(var_limit=(10, 50), p=0.2),
+        A.ISONoise(color_shift=(0.01, 0.05), intensity=(0.1, 0.5), p=0.1),
+        A.GridDistortion(num_steps=5, distort_limit=0.2, p=0.2),
+        A.OpticalDistortion(distort_limit=0.3, shift_limit=0.3, p=0.2),
         # Downscale
         A.OneOf(
             [
                 A.Downscale(
-                    scale_range=(0.5, 0.75),
-                    interpolation_pair={
-                        "downscale": cv2.INTER_AREA,
-                        "upscale": cv2.INTER_LINEAR,
-                    },
-                    p=0.2,
-                ),
-                A.Downscale(
                     scale_range=(0.75, 0.75),
                     interpolation_pair={
                         "downscale": cv2.INTER_AREA,
-                        "upscale": cv2.INTER_LANCZOS4,
+                        "upscale": cv2.INTER_LINEAR,
                     },
                     p=0.3,
                 ),
                 A.Downscale(
-                    scale_range=(0.85, 0.95),
+                    scale_range=(0.85, 0.85),
                     interpolation_pair={
                         "downscale": cv2.INTER_AREA,
-                        "upscale": cv2.INTER_LINEAR,
+                        "upscale": cv2.INTER_LANCZOS4,
                     },
-                    p=0.5,
+                    p=0.7,
                 ),
             ],
-            p=0.2,
+            p=0.15,
         ),
+        A.HueSaturationValue(
+            hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.3
+        ),
+        A.RGBShift(r_shift_limit=20, g_shift_limit=20, b_shift_limit=20, p=0.2),
+        A.ChannelShuffle(p=0.1),
+        # Elastic transforms - ONLY for negative
+        # A.ElasticTransform(alpha=1, sigma=30, p=0.15),
+        # A.GridDistortion(num_steps=5, distort_limit=0.4, p=0.2),
+        # A.OpticalDistortion(distort_limit=0.5, shift_limit=0.5, p=0.2),
+        # A.ChannelShuffle(p=0.15),
+        # Spatial dropout - ONLY for negative
+        # A.CoarseDropout(
+        #    num_holes_range=(1, 5),
+        #    hole_height_range=(0.01, 0.1),
+        #    hole_width_range=(0.01, 0.15),
+        #    fill=0,
+        #    p=0.2,
+        # ),
         # Advanced color
-        A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.2),
-        A.ToGray(p=0.05),
-        A.ToSepia(p=0.05),
-        # Crop tối đa 10% mỗi cạnh (trái/phải/trên/dưới)
-        A.CropAndPad(
-            percent=(-0.20, 0.0),  # chỉ crop, không pad, tối đa 20% mỗi cạnh
-            pad_mode=cv2.BORDER_CONSTANT,
-            pad_cval=0,
-            p=0.3,
-        ),
+        # A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.2),
+        # A.ToGray(p=0.05),
+        # A.ToSepia(p=0.05),
     ]
 
     if enable_rotate90:
