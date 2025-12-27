@@ -1,7 +1,3 @@
-"""
-DETR Inference script - Run predictions on images with bbox visualization
-"""
-
 import os
 import csv
 import argparse
@@ -16,7 +12,7 @@ from tqdm import tqdm
 from torchvision import transforms
 
 from zdetr.utils.detr_gradcam_utils import gradcam
-from zdetr.utils.detr_viz_utils import apply_otsu_threshold
+from skimage.filters import threshold_otsu
 
 
 def load_full_detr_model(model_path: str):
@@ -121,7 +117,8 @@ def overlay_heatmap(
     cam_np = np.array(cam_img)
 
     if use_otsu:
-        cam_np = apply_otsu_threshold(cam_np)
+        thr = threshold_otsu(cam_np)
+        cam_np = (cam_np >= thr) * cam_np
 
     # Create colormap
     x = cam_np.astype(np.float32) / 255.0
@@ -361,7 +358,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--no_otsu", action="store_true", help="Disable Otsu thresholding"
     )
-    parser.add_argument("--gradcam", action="store_true", help="Enable GradCAM")
+    parser.add_argument(
+        "--no_gradcam", action="store_true", help="Disable GradCAM overlay"
+    )
     parser.add_argument(
         "--class_names", type=str, nargs="+", default=None, help="Class names"
     )
@@ -375,6 +374,6 @@ if __name__ == "__main__":
         device=args.device,
         obj_threshold=args.obj_threshold,
         use_otsu=not args.no_otsu,
-        use_gradcam=args.gradcam,
+        use_gradcam=not args.no_gradcam,  # GradCAM enabled by default
         class_names=args.class_names,
     )
