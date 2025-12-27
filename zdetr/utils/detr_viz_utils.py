@@ -287,7 +287,10 @@ def draw_predicted_bboxes_on_pil(
     try:
         font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 20)
     except:
-        font = ImageFont.load_default()
+        try:
+            font = ImageFont.truetype("arial.ttf", 20)
+        except:
+            font = ImageFont.load_default()
 
     for bbox, score in zip(bboxes, scores):
         if score >= threshold:
@@ -304,8 +307,23 @@ def draw_predicted_bboxes_on_pil(
 
             # Draw confidence score with black background
             label = f"{score:.2f}"
-            bbox_text = draw.textbbox((x1, y1 - 25), label, font=font)
+
+            # Get text size - try modern method first, fallback to legacy
+            try:
+                bbox_text = draw.textbbox((x1, y1 - 25), label, font=font)
+            except AttributeError:
+                # Fallback for older PIL versions
+                text_width, text_height = draw.textsize(label, font=font)
+                bbox_text = (
+                    x1,
+                    y1 - 25,
+                    x1 + text_width + 4,
+                    y1 - 25 + text_height + 2,
+                )
+
+            # Draw black background for text
             draw.rectangle(bbox_text, fill="black")
+            # Draw text
             draw.text((x1, y1 - 25), label, fill=color, font=font)
 
     return img_draw
