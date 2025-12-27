@@ -13,6 +13,10 @@ from torchvision import transforms
 import matplotlib.pyplot as plt
 
 from zdetr.utils.detr_gradcam_utils import gradcam
+from zdetr.utils.detr_viz_utils import (
+    draw_predicted_bboxes_on_pil,
+    overlay_gradcam_with_otsu,
+)
 from skimage.filters import threshold_otsu
 
 
@@ -78,147 +82,6 @@ def rescale_bbox(
     y2 = int((cy + h / 2) * img_h)
 
     return x1, y1, x2, y2
-
-
-def overlay_heatmap(
-    img_rgb: Image.Image,
-    heatmap: np.ndarray,
-    alpha: float = 0.55,
-    use_otsu: bool = True,
-) -> Image.Image:
-    """Overlay heatmap on image with optional Otsu thresholding"""
-    cam_img = Image.fromarray(heatmap).resize(img_rgb.size, Image.Resampling.BILINEAR)
-    cam_np = np.array(cam_img)
-
-    # Apply Otsu thresholding to mask out low activation regions
-    if use_otsu:
-        thr = threshold_otsu(cam_np)
-        mask = cam_np > thr
-    else:
-        mask = np.ones_like(cam_np, dtype=bool)
-
-    # Create colormap
-    cam_color = plt.cm.jet(cam_np / 255.0)[..., :3]
-
-    # Blend with original image
-    base = np.array(img_rgb).astype(np.float32) / 255.0
-    out = base.copy()
-
-    # Only blend where mask is True (Otsu filtered regions)
-    out[mask] = (1 - alpha) * base[mask] + alpha * cam_color[mask]
-    out = (np.clip(out, 0, 1) * 255).astype(np.uint8)
-
-    return Image.fromarray(out)
-
-
-def draw_bboxes_on_image(
-    img_pil: Image.Image,
-    bboxes: List[Tuple[int, int, int, int]],
-    scores: List[float],
-    threshold: float = 0.5,
-    width: int = 3,
-) -> Image.Image:
-    """Draw bounding boxes on PIL image with color-coded confidence"""
-    img_draw = img_pil.copy()
-    draw = ImageDraw.Draw(img_draw)
-
-    try:
-        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 16)
-    except:
-        font = ImageFont.load_default()
-
-    for bbox, score in zip(bboxes, scores):
-        if score >= threshold:
-            # Color based on confidence score
-            if score >= 0.8:
-                color = "red"
-            elif score >= 0.6:
-                color = "orange"
-            else:
-                color = "yellow"
-
-            x1, y1, x2, y2 = bbox
-            draw.rectangle([x1, y1, x2, y2], outline=color, width=width)
-
-            # Draw confidence score with background
-            label = f"{score:.2f}"
-            bbox_obj = draw.textbbox((x1, y1 - 20), label, font=font)
-            draw.rectangle(bbox_obj, fill="black")
-            draw.text((x1, y1 - 20), label, fill=color, font=font)
-
-    return img_draw
-
-
-def predict_detr_image(
-    model: nn.Module,
-    img_path: Path,
-    preprocess,
-    device: torch.device,
-    obj_threshold: float = 0.5,
-    use_gradcam: bool = False,
-    gradcam_layer: Optional[str] = None,
-) -> Dict:
-    """Run DETR prediction on single image"""
-    img = Image.open(img_path).convert("RGB")
-    original_size = img.size
-
-    x = preprocess(img).unsqueeze(0).to(device)
-
-    with torch.no_grad():
-        outputs = model(x, return_attention_maps=True)
-
-    cls_logits = outputs["cls_logits"]
-    pred_bboxes = outputs["pred_bboxes"]
-    obj_scores = torch.sigmoid(outputs["obj_scores"])
-    spatial_attn = outputs.get("spatial_attn", None)
-
-    # Get predicted class
-    _, predicted = torch.max(cls_logits[0], 0)
-    pred_class = predicted.item()
-    probs = torch.softmax(cls_logits[0], dim=0)
-    confidence = probs[pred_class].item()
-
-    # Filter bboxes by objectness score
-    valid_indices = (obj_scores[0].squeeze(-1) >= obj_threshold).cpu().numpy()
-    filtered_bboxes = pred_bboxes[0][valid_indices].cpu().numpy()
-    filtered_scores = obj_scores[0][valid_indices].cpu().numpy().flatten()
-
-    # Rescale bboxes to original image size
-    pixel_bboxes = [rescale_bbox(bbox, original_size) for bbox in filtered_bboxes]
-
-    # Generate GradCAM if requested
-    gradcam_map = None
-    if use_gradcam and gradcam_layer:
-        try:
-            input_tensor = x.clone().requires_grad_(True)
-            with torch.set_grad_enabled(True):
-                result = gradcam(
-                    model, input_tensor, gradcam_layer, class_idx=pred_class
-                )
-                if isinstance(result, np.ndarray) and result.ndim == 2:
-                    gradcam_map = result
-        except Exception as e:
-            print(f"⚠️ GradCAM failed: {e}")
-
-    # Use attention map as fallback
-    if gradcam_map is None and spatial_attn is not None:
-        attn_map = spatial_attn[0].cpu().numpy()
-        if attn_map.ndim == 3:
-            attn_map = attn_map.mean(axis=0)
-        attn_map = (attn_map - attn_map.min()) / (
-            attn_map.max() - attn_map.min() + 1e-8
-        )
-        gradcam_map = (attn_map * 255).astype(np.uint8)
-
-    return {
-        "image": img,
-        "pred_class": pred_class,
-        "confidence": confidence,
-        "bboxes": pixel_bboxes,
-        "scores": filtered_scores,
-        "gradcam_map": gradcam_map,
-        "tensor": x[0],
-    }
 
 
 def detr_predict_folder(
@@ -299,13 +162,13 @@ def detr_predict_folder(
 
         # Save GradCAM + Otsu + bboxes with confidence
         if gradcam_map is not None:
-            # Apply Otsu thresholding
-            img_gradcam = overlay_heatmap(
+            # Apply Otsu thresholding using new function
+            img_gradcam = overlay_gradcam_with_otsu(
                 img, gradcam_map, alpha=0.55, use_otsu=use_otsu
             )
-            # Draw color-coded bboxes with confidence scores
-            img_gradcam_bbox = draw_bboxes_on_image(
-                img_gradcam, bboxes, scores, obj_threshold
+            # Draw color-coded bboxes with confidence scores using new function
+            img_gradcam_bbox = draw_predicted_bboxes_on_pil(
+                img_gradcam, bboxes, scores, obj_threshold, width=5
             )
             img_gradcam_bbox.save(
                 out_dir / f"{img_path.stem}_gradcam.png", format="PNG"

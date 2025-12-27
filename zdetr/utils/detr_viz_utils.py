@@ -248,3 +248,120 @@ def clean_image_filename(filename):
     if filename.endswith(".png.png"):
         return filename[: filename.find(".png") + 4]
     return filename
+
+
+def draw_predicted_bboxes_on_pil(
+    img_pil: Image.Image,
+    bboxes: list,
+    scores: list,
+    threshold: float = 0.5,
+    width: int = 5,
+) -> Image.Image:
+    """
+    Draw predicted bounding boxes on PIL Image with color-coded confidence scores.
+    This function is designed for detr_run.py visualization.
+
+    Parameters
+    ----------
+    img_pil : PIL.Image.Image
+        Input PIL image
+    bboxes : list
+        List of bounding boxes in format [x1, y1, x2, y2]
+    scores : list
+        List of confidence scores for each bbox
+    threshold : float
+        Minimum confidence threshold to display bbox
+    width : int
+        Line width for bbox borders
+
+    Returns
+    -------
+    PIL.Image.Image
+        Image with drawn bounding boxes
+    """
+    from PIL import ImageDraw, ImageFont
+
+    img_draw = img_pil.copy()
+    draw = ImageDraw.Draw(img_draw)
+
+    try:
+        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 20)
+    except:
+        font = ImageFont.load_default()
+
+    for bbox, score in zip(bboxes, scores):
+        if score >= threshold:
+            # Color based on confidence score (matching draw_predicted_bboxes)
+            if score >= 0.8:
+                color = "red"
+            elif score >= 0.6:
+                color = "orange"
+            else:
+                color = "yellow"
+
+            x1, y1, x2, y2 = bbox
+            draw.rectangle([x1, y1, x2, y2], outline=color, width=width)
+
+            # Draw confidence score with black background
+            label = f"{score:.2f}"
+            bbox_text = draw.textbbox((x1, y1 - 25), label, font=font)
+            draw.rectangle(bbox_text, fill="black")
+            draw.text((x1, y1 - 25), label, fill=color, font=font)
+
+    return img_draw
+
+
+def overlay_gradcam_with_otsu(
+    img_pil: Image.Image,
+    gradcam_map: np.ndarray,
+    alpha: float = 0.55,
+    use_otsu: bool = True,
+) -> Image.Image:
+    """
+    Overlay GradCAM heatmap on image with Otsu thresholding.
+    This function matches the visualization style in post_gradcam option 5.
+
+    Parameters
+    ----------
+    img_pil : PIL.Image.Image
+        Original RGB image
+    gradcam_map : np.ndarray
+        GradCAM heatmap (uint8, 0-255)
+    alpha : float
+        Blending factor (0-1)
+    use_otsu : bool
+        Whether to apply Otsu thresholding
+
+    Returns
+    -------
+    PIL.Image.Image
+        Blended image with heatmap overlay
+    """
+    import matplotlib.pyplot as plt
+    from skimage.filters import threshold_otsu
+
+    # Resize heatmap to match image size
+    cam_img = Image.fromarray(gradcam_map).resize(
+        img_pil.size, Image.Resampling.BILINEAR
+    )
+    cam_np = np.array(cam_img)
+
+    # Apply Otsu thresholding
+    if use_otsu:
+        otsu_thresh = threshold_otsu(cam_np)
+        mask = cam_np > otsu_thresh
+    else:
+        mask = np.ones_like(cam_np, dtype=bool)
+
+    # Create colormap (jet)
+    cam_color = plt.cm.jet(cam_np / 255.0)[..., :3]
+
+    # Blend with original image
+    base = np.array(img_pil).astype(np.float32) / 255.0
+    blend_img = base.copy()
+
+    # Only blend where mask is True (Otsu filtered regions)
+    blend_img[mask] = (1 - alpha) * base[mask] + alpha * cam_color[mask]
+    blend_img = (np.clip(blend_img, 0, 1) * 255).astype(np.uint8)
+
+    return Image.fromarray(blend_img)
