@@ -55,15 +55,15 @@ def build_preprocess(input_size: Tuple[int, int]):
         [
             transforms.Resize(input_size),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
         ]
     )
 
 
 def denormalize_image(tensor: torch.Tensor) -> np.ndarray:
     """Denormalize image tensor to numpy array"""
-    mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
-    std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+    mean = torch.tensor([0.5, 0.5, 0.5]).view(3, 1, 1)
+    std = torch.tensor([0.5, 0.5, 0.5]).view(3, 1, 1)
     img = tensor.cpu() * std + mean
     img = torch.clamp(img, 0, 1)
     return (img.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
