@@ -14,6 +14,16 @@
 /src/config/__pycache__
 /src/trainer/__pycache__
 
+/project/__pycache__
+/zdetr/__pycache__
+/zdetr/data/__pycache__
+/zdetr/models/__pycache__
+/zdetr/gradcam/__pycache__
+/zdetr/utils/__pycache__
+/zdetr/config/__pycache__
+/zdetr/trainer/__pycache__
+
+
 #.env.example
 
 src/.DS_Store
