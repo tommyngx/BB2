@@ -252,7 +252,7 @@ def detr_predict_folder(
     images = list_images(in_root)
 
     if not class_names:
-        class_names = ["background", "defect"]
+        class_names = ["negative", "positive"]
 
     rows_by_folder: Dict[Path, List[Dict[str, str]]] = {}
 
@@ -305,7 +305,7 @@ def detr_predict_folder(
         rows_by_folder.setdefault(rel_dir, []).append(
             {
                 "image_id": img_path.name,
-                "pred_class": str(pred_class),
+                "label": str(pred_class),
                 "class_name": class_name,
                 "confidence": f"{confidence:.6f}",
                 "num_objects": str(len(bboxes)),
