@@ -324,7 +324,7 @@ def detr_predict_folder(
                 f,
                 fieldnames=[
                     "image_id",
-                    "pred_class",
+                    "label",
                     "class_name",
                     "confidence",
                     "num_objects",
