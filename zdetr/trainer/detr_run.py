@@ -84,6 +84,78 @@ def rescale_bbox(
     return x1, y1, x2, y2
 
 
+def predict_detr_image(
+    model: nn.Module,
+    img_path: Path,
+    preprocess,
+    device: torch.device,
+    obj_threshold: float = 0.5,
+    use_gradcam: bool = False,
+    gradcam_layer: Optional[str] = None,
+) -> Dict:
+    """Run DETR prediction on single image"""
+    img = Image.open(img_path).convert("RGB")
+    original_size = img.size
+
+    x = preprocess(img).unsqueeze(0).to(device)
+
+    with torch.no_grad():
+        outputs = model(x, return_attention_maps=True)
+
+    cls_logits = outputs["cls_logits"]
+    pred_bboxes = outputs["pred_bboxes"]
+    obj_scores = torch.sigmoid(outputs["obj_scores"])
+    spatial_attn = outputs.get("spatial_attn", None)
+
+    # Get predicted class
+    _, predicted = torch.max(cls_logits[0], 0)
+    pred_class = predicted.item()
+    probs = torch.softmax(cls_logits[0], dim=0)
+    confidence = probs[pred_class].item()
+
+    # Filter bboxes by objectness score
+    valid_indices = (obj_scores[0].squeeze(-1) >= obj_threshold).cpu().numpy()
+    filtered_bboxes = pred_bboxes[0][valid_indices].cpu().numpy()
+    filtered_scores = obj_scores[0][valid_indices].cpu().numpy().flatten()
+
+    # Rescale bboxes to original image size
+    pixel_bboxes = [rescale_bbox(bbox, original_size) for bbox in filtered_bboxes]
+
+    # Generate GradCAM if requested
+    gradcam_map = None
+    if use_gradcam and gradcam_layer:
+        try:
+            input_tensor = x.clone().requires_grad_(True)
+            with torch.set_grad_enabled(True):
+                result = gradcam(
+                    model, input_tensor, gradcam_layer, class_idx=pred_class
+                )
+                if isinstance(result, np.ndarray) and result.ndim == 2:
+                    gradcam_map = result
+        except Exception as e:
+            print(f"⚠️ GradCAM failed: {e}")
+
+    # Use attention map as fallback
+    if gradcam_map is None and spatial_attn is not None:
+        attn_map = spatial_attn[0].cpu().numpy()
+        if attn_map.ndim == 3:
+            attn_map = attn_map.mean(axis=0)
+        attn_map = (attn_map - attn_map.min()) / (
+            attn_map.max() - attn_map.min() + 1e-8
+        )
+        gradcam_map = (attn_map * 255).astype(np.uint8)
+
+    return {
+        "image": img,
+        "pred_class": pred_class,
+        "confidence": confidence,
+        "bboxes": pixel_bboxes,
+        "scores": filtered_scores,
+        "gradcam_map": gradcam_map,
+        "tensor": x[0],
+    }
+
+
 def detr_predict_folder(
     input_root: str,
     model_path: str,
