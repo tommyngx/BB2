@@ -61,6 +61,7 @@ def get_positive_augmentations(height, width, enable_rotate90=True):
             p=0.3,
         ),
         # Bỏ ElasticTransform vì không bbox-safe, thay bằng GridDistortion nhẹ nếu cần, nhưng align bằng cách giữ nguyên các transform safe
+        A.ElasticTransform(alpha=1, sigma=20, p=0.1),
         A.RandomGamma(gamma_limit=(80, 120), p=0.2),
         A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.3),
         A.Equalize(p=0.3),
