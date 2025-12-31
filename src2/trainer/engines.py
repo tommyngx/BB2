@@ -296,7 +296,7 @@ def train_model(
     best_loss = float("inf")
     epochs_without_loss_improvement = 0
     weight_decay_increased = False
-    label_smoothing_value = 0.1  # Bật label smoothing từ đầu
+    label_smoothing_value = 0.15  # Bật label smoothing từ đầu
     initial_weight_decay = 1e-2
 
     # Áp dụng label smoothing ngay từ đầu
