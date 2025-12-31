@@ -72,6 +72,9 @@ def get_positive_augmentations(height, width, enable_rotate90=True):
             blur_limit=(3, 5), sigma_limit=(1.0, 2.0), alpha=(0.1, 0.3), p=0.2
         ),
         A.GaussNoise(p=0.1),
+        A.GaussianBlur(blur_limit=(3, 7), p=0.1),
+        A.RandomShadow(p=0.05),
+        A.RandomFog(p=0.05),
     ]
     if enable_rotate90:
         aug_list.insert(5, A.RandomRotate90(p=0.5))  # Align insert position
@@ -141,6 +144,9 @@ def get_negative_augmentations(height, width, enable_rotate90=True):
             blur_limit=(3, 5), sigma_limit=(1.0, 2.0), alpha=(0.1, 0.3), p=0.2
         ),
         A.GaussNoise(p=0.1),
+        A.GaussianBlur(blur_limit=(3, 7), p=0.1),
+        A.RandomShadow(p=0.05),
+        A.RandomFog(p=0.05),
     ]
     if enable_rotate90:
         aug_list.insert(5, A.RandomRotate90(p=0.5))  # Insert after VerticalFlip
