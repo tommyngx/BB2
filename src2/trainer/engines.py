@@ -358,7 +358,7 @@ def train_model(
                 epochs_without_loss_improvement += 1
 
             # Tăng weight decay sau 30 epoch không cải thiện
-            if epochs_without_loss_improvement >= 30:
+            if epochs_without_loss_improvement >= 20:
                 weight_decay_increased = True
                 new_weight_decay = 5e-2
 
