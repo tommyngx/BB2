@@ -15,7 +15,7 @@ from sklearn.metrics import (
 import csv
 from datetime import datetime
 
-from src2.utils.loss import FocalLoss, LDAMLoss, FocalLoss2
+from src2.utils.loss import FocalLoss, LDAMLoss, FocalLoss2, FocalLoss3
 from src2.utils.plot import plot_metrics2, plot_confusion_matrix
 
 
@@ -292,6 +292,13 @@ def train_model(
     patience_counter = 0
     last_lr = lr
 
+    # Thêm biến tracking cho anti-overfitting
+    best_loss = float("inf")
+    epochs_without_loss_improvement = 0
+    anti_overfit_activated = False
+    label_smoothing_value = 0.0
+    initial_weight_decay = 1e-2
+
     log_file = os.path.join(log_dir, f"{model_key}.csv")
     # Ghi header nếu file chưa tồn tại
     if not os.path.exists(log_file):
@@ -312,6 +319,63 @@ def train_model(
             )
 
     for epoch in range(num_epochs):
+        # Kiểm tra sau 30 epoch không cải thiện loss
+        if epoch > 0 and not anti_overfit_activated:
+            current_min_loss = min(test_losses)
+            if current_min_loss < best_loss:
+                best_loss = current_min_loss
+                epochs_without_loss_improvement = 0
+            else:
+                epochs_without_loss_improvement += 1
+
+            # Kích hoạt anti-overfitting sau 30 epoch không cải thiện
+            if epochs_without_loss_improvement >= 30:
+                anti_overfit_activated = True
+                label_smoothing_value = 0.1
+                new_weight_decay = 5e-2
+
+                print(f"\n{'=' * 60}")
+                print(f"⚠️  ANTI-OVERFITTING ACTIVATED at epoch {epoch + 1}")
+                print(
+                    f"   - Loss not improved for {epochs_without_loss_improvement} epochs"
+                )
+                print(f"   - Enabling label smoothing: {label_smoothing_value}")
+                print(
+                    f"   - Increasing weight decay: {initial_weight_decay} -> {new_weight_decay}"
+                )
+                print(f"{'=' * 60}\n")
+
+                # Cập nhật optimizer với weight decay mới
+                for param_group in optimizer.param_groups:
+                    param_group["weight_decay"] = new_weight_decay
+
+                # Chuyển sang loss function với label smoothing
+                if loss_type == "focal":
+                    criterion = FocalLoss3(
+                        alpha=weights, gamma=2.0, smoothing=label_smoothing_value
+                    )
+                    print("Switched to FocalLoss3 with label smoothing")
+                elif loss_type == "focal2":
+                    # Update smoothing cho FocalLoss2 nếu đang dùng
+                    criterion = FocalLoss2(
+                        alpha=weights, gamma=2.0, smoothing=label_smoothing_value
+                    )
+                    print("Updated FocalLoss2 smoothing parameter")
+                elif loss_type == "ce":
+                    # Tạo CE loss mới với label smoothing thông qua FocalLoss3
+                    criterion = FocalLoss3(
+                        alpha=weights, gamma=0.0, smoothing=label_smoothing_value
+                    )
+                    print(
+                        "Switched to CrossEntropyLoss with label smoothing (via FocalLoss3)"
+                    )
+                # LDAM giữ nguyên vì đã có cơ chế riêng
+
+                criterion = criterion.to(device)
+
+                # Reset patience counter
+                epochs_without_loss_improvement = 0
+
         model.train()
         running_loss, correct, total = 0.0, 0, 0
         loop = tqdm(train_loader, desc=f"Epoch [{epoch + 1}/{num_epochs}]", leave=False)
@@ -346,9 +410,11 @@ def train_model(
         train_losses.append(epoch_loss)
         train_accs.append(epoch_acc)
 
+        wd_info = f" WD: {optimizer.param_groups[0]['weight_decay']:.4f}"
+        ls_info = f" LS: {label_smoothing_value:.2f}" if anti_overfit_activated else ""
         print(
             f"\nEpoch [{epoch + 1}/{num_epochs}] Train Loss: {epoch_loss:.4f} Train Acc: {epoch_acc:.4f} "
-            f"Learning Rate: {optimizer.param_groups[0]['lr']:.6f}"
+            f"Learning Rate: {optimizer.param_groups[0]['lr']:.6f}{wd_info}{ls_info}"
         )
 
         test_loss, test_acc = evaluate_model(

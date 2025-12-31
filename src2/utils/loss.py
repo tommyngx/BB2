@@ -182,3 +182,57 @@ class LDAMLoss(nn.Module):
             None if self.weight is None else self.weight.to(logits.device, logits.dtype)
         )
         return F.cross_entropy(logits_s, targets, weight=weight)
+
+
+class FocalLoss3(nn.Module):
+    """
+    Focal Loss with configurable label smoothing (can be changed dynamically).
+    Designed for anti-overfitting when loss plateaus.
+    """
+
+    def __init__(self, alpha=None, gamma=2.0, smoothing=0.0, reduction="mean"):
+        super(FocalLoss3, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.smoothing = smoothing  # có thể thay đổi sau
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        # inputs: [B, C], targets: [B]
+        B, C = inputs.shape
+        device, dtype = inputs.device, inputs.dtype
+
+        # Label smoothing
+        if self.smoothing > 0:
+            with torch.no_grad():
+                true_dist = torch.full(
+                    (B, C), self.smoothing / (C - 1), device=device, dtype=dtype
+                )
+                true_dist.scatter_(1, targets.view(-1, 1), 1.0 - self.smoothing)
+        else:
+            true_dist = F.one_hot(targets, num_classes=C).float()
+
+        # Log softmax
+        log_probs = F.log_softmax(inputs, dim=1)
+        probs = log_probs.exp()
+
+        # Focal weight
+        focal_weight = (1.0 - probs) ** self.gamma
+
+        # Cross entropy with label smoothing
+        loss = -(true_dist * focal_weight * log_probs).sum(dim=1)
+
+        # Apply alpha weight if provided
+        if self.alpha is not None:
+            if isinstance(self.alpha, (float, int)):
+                loss = self.alpha * loss
+            else:
+                alpha_t = self.alpha[targets]
+                loss = alpha_t * loss
+
+        if self.reduction == "mean":
+            return loss.mean()
+        elif self.reduction == "sum":
+            return loss.sum()
+        else:
+            return loss
