@@ -236,6 +236,114 @@ def gradcam(
         handle_b.remove()
 
 
+def _get_mamba_gradcam_layer(model, model_name, has_backbone):
+    """
+    Tìm layer phù hợp cho GradCAM trong MambaVision models.
+    In ra cấu trúc để debug.
+
+    Args:
+        model: The model instance
+        model_name: Model architecture name (e.g., 'mamba_t', 'mamba_s')
+        has_backbone: Whether model has backbone wrapper
+
+    Returns:
+        str: Layer name for GradCAM
+    """
+    prefix = "backbone." if has_backbone else ""
+
+    print(f"\n{'=' * 60}")
+    print(f"DEBUG: MambaVision GradCAM Layer Detection")
+    print(f"Model: {model_name}")
+    print(f"Has backbone wrapper: {has_backbone}")
+    print(f"{'=' * 60}\n")
+
+    # In ra tất cả các named_modules
+    named_modules = dict([*model.named_modules()])
+    print("All available layers:")
+    for idx, name in enumerate(named_modules.keys()):
+        if name:  # Skip root module (empty name)
+            print(f"  [{idx:3d}] {name}")
+
+    print(f"\n{'=' * 60}\n")
+
+    # Tìm các lớp quan trọng trong MambaVision
+    # MambaVision thường có cấu trúc: base_model.model.levels.X.blocks.Y
+    candidates = []
+
+    # Pattern 1: base_model.model.levels (main architecture)
+    levels = [k for k in named_modules if "levels" in k and "blocks" in k]
+    if levels:
+        print(f"Found {len(levels)} level blocks:")
+        for l in levels[:5]:  # In 5 block đầu
+            print(f"  - {l}")
+        if len(levels) > 5:
+            print(f"  ... and {len(levels) - 5} more")
+        candidates.extend(levels)
+
+    # Pattern 2: base_model.model.head (classification head)
+    head_layers = [k for k in named_modules if "head" in k]
+    if head_layers:
+        print(f"\nFound {len(head_layers)} head layers:")
+        for h in head_layers:
+            print(f"  - {h}")
+
+    # Pattern 3: norm layers (thường ở cuối mỗi block)
+    norm_layers = [k for k in named_modules if "norm" in k and "levels" in k]
+    if norm_layers:
+        print(f"\nFound {len(norm_layers)} norm layers in levels:")
+        for n in norm_layers[-3:]:  # In 3 norm cuối
+            print(f"  - {n}")
+        candidates.extend(norm_layers)
+
+    print(f"\n{'=' * 60}\n")
+
+    # Chọn layer phù hợp: ưu tiên level cuối, block cuối
+    if candidates:
+        # Sắp xếp để lấy level cao nhất, block cao nhất
+        def extract_level_block(name):
+            import re
+
+            level_match = re.search(r"levels\.(\d+)", name)
+            block_match = re.search(r"blocks\.(\d+)", name)
+            level = int(level_match.group(1)) if level_match else -1
+            block = int(block_match.group(1)) if block_match else -1
+            return (level, block)
+
+        # Lọc các layer có cả level và block
+        valid_candidates = [c for c in candidates if "levels" in c and "blocks" in c]
+        if valid_candidates:
+            sorted_candidates = sorted(
+                valid_candidates, key=extract_level_block, reverse=True
+            )
+            selected = sorted_candidates[0]
+
+            # Ưu tiên norm layer nếu có
+            selected_with_norm = [c for c in sorted_candidates if "norm" in c]
+            if selected_with_norm:
+                selected = selected_with_norm[0]
+
+            print(f"SELECTED LAYER: {selected}")
+            print(f"{'=' * 60}\n")
+
+            return (
+                f"{prefix}{selected}" if not selected.startswith(prefix) else selected
+            )
+
+    # Fallback: thử tìm layer cuối cùng có conv hoặc linear
+    conv_layers = [k for k in named_modules if "conv" in k or "linear" in k]
+    if conv_layers:
+        print(f"Fallback: Using last conv/linear layer")
+        selected = conv_layers[-1]
+        print(f"SELECTED LAYER: {selected}")
+        print(f"{'=' * 60}\n")
+        return f"{prefix}{selected}" if not selected.startswith(prefix) else selected
+
+    # Fallback cuối: feature_proj
+    print(f"Fallback: Using feature_proj")
+    print(f"{'=' * 60}\n")
+    return f"{prefix}feature_proj"
+
+
 def get_gradcam_layer(model, model_name):
     """
     Return the appropriate layer name for GradCAM based on model_name.
@@ -260,6 +368,10 @@ def get_gradcam_layer(model, model_name):
                 if name.endswith(cand):
                     return name
         return None
+
+    # MambaVision models
+    if "mamba" in model_name:
+        return _get_mamba_gradcam_layer(model, model_name, has_backbone)
 
     # ResNet, ResNeXt, ResNeSt
     if "resnet" in model_name or "resnext" in model_name or "resnest" in model_name:
