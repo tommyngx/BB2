@@ -8,8 +8,9 @@ import cv2
 
 # Positive augmentations (bbox-safe, align tương ứng với negative mới)
 def get_positive_augmentations(height, width, enable_rotate90=True):
-    crop_h = int(height * 0.80)
-    crop_w = int(width * 0.80)
+    # turn off crop size to 80% to 100%
+    crop_h = int(height * 0.99)
+    crop_w = int(width * 0.99)
     aug_list = [
         A.RandomSizedBBoxSafeCrop(
             height=crop_h, width=crop_w, erosion_rate=0.0, p=0.3
@@ -84,8 +85,9 @@ def get_positive_augmentations(height, width, enable_rotate90=True):
 # Negative augmentations (sửa theo danh sách mới, giữ CropAndPad ở đầu)
 def get_negative_augmentations(height, width, enable_rotate90=True):
     aug_list = [
+        # crop từ 0% đến 20% để align với positive bbox-safe crop
         A.CropAndPad(
-            percent=(-0.20, 0.0), pad_mode=cv2.BORDER_CONSTANT, pad_cval=0, p=0.3
+            percent=(-0.01, 0.0), pad_mode=cv2.BORDER_CONSTANT, pad_cval=0, p=0.3
         ),
         A.OneOf(
             [
