@@ -176,6 +176,7 @@ def visualize_detr_result(
     class_names,
     original_size,
     image_path=None,
+    use_otsu=False,
     obj_threshold=0.5,
 ):
     """Visualize DETR result with GradCAM overlay (2 panels)"""
