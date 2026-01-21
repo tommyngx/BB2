@@ -35,14 +35,35 @@ def freeze_backbone_except_last_n_layers(model, n_layers=2):
     # Calculate number of layers to freeze
     n_freeze = max(0, len(children) - n_layers)
 
+    print(f"\n🔒 Freezing Backbone Layers:")
+    print(f"   Total layers: {len(children)}")
+    print(f"   Frozen layers: {n_freeze}")
+    print(f"   Trainable layers: {n_layers}")
+
+    frozen_layer_names = []
+    trainable_layer_names = []
+
     # Freeze first n_freeze layers
-    for i, layer in enumerate(children):
+    for i, (name, layer) in enumerate(model.named_children()):
         if i < n_freeze:
             for param in layer.parameters():
                 param.requires_grad = False
+            frozen_layer_names.append(f"{i}: {name}")
         else:
             for param in layer.parameters():
                 param.requires_grad = True
+            trainable_layer_names.append(f"{i}: {name}")
+
+    if frozen_layer_names:
+        print(f"\n   ❄️  Frozen layers:")
+        for layer_name in frozen_layer_names:
+            print(f"      - {layer_name}")
+
+    if trainable_layer_names:
+        print(f"\n   🔥 Trainable layers:")
+        for layer_name in trainable_layer_names:
+            print(f"      - {layer_name}")
+    print()
 
 
 def get_resnet_backbone(model_type="resnet50", freeze_backbone_except_last_n=None):

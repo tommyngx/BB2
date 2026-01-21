@@ -413,6 +413,23 @@ if __name__ == "__main__":
         else len(train_df["cancer"].unique())
     )
 
+    # In ra thông tin về freeze backbone
+    print("\n" + "=" * 60)
+    print("BACKBONE FREEZING CONFIGURATION")
+    print("=" * 60)
+    if freeze_backbone_except_last_n is None:
+        print("❄️  Freeze Mode: DISABLED (all layers trainable)")
+    elif freeze_backbone_except_last_n == 0:
+        print("❄️  Freeze Mode: ALL LAYERS FROZEN")
+    else:
+        print(f"❄️  Freeze Mode: ENABLED")
+        print(f"   - Keeping last {freeze_backbone_except_last_n} layer(s) trainable")
+        print(f"   - All other layers will be frozen")
+    print(f"   - Model Type: {model_type}")
+    print(f"   - Architecture: {arch_type}")
+    print(f"   - Number of Patches: {num_patches}")
+    print("=" * 60 + "\n")
+
     model = get_patch_model(
         model_type=model_type,
         num_patches=num_patches,

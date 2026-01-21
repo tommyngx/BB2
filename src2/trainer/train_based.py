@@ -320,6 +320,24 @@ if __name__ == "__main__":
     train_df, test_df, class_names = load_metadata(
         data_folder, args.config, print_stats=False, target_column=target_column
     )
+
+    # In ra thông tin về freeze backbone
+    print("\n" + "=" * 60)
+    print("BACKBONE FREEZING CONFIGURATION")
+    print("=" * 60)
+    if freeze_backbone_except_last_n is None:
+        print("❄️  Freeze Mode: DISABLED (all layers trainable)")
+    elif freeze_backbone_except_last_n == 0:
+        print("❄️  Freeze Mode: ALL LAYERS FROZEN")
+    else:
+        print(f"❄️  Freeze Mode: ENABLED")
+        print(f"   - Keeping last {freeze_backbone_except_last_n} layer(s) trainable")
+        print(f"   - All other layers will be frozen")
+    print(f"   - Model Type: {model_type}")
+    if "dino" in model_type.lower():
+        print(f"   - DINO Unfreeze Blocks (legacy): {dino_unfreeze_blocks}")
+    print("=" * 60 + "\n")
+
     model = get_based_model(
         model_type=model_type,
         num_classes=len(class_names),
