@@ -165,6 +165,64 @@ def draw_predicted_bboxes(
 
 def visualize_detr_result(
     image_tensor,
+    gradcam_map,
+    pred_bboxes,
+    pred_obj_scores,
+    gt_bbox_list,
+    pred_class,
+    gt_label,
+    pred_prob,
+    save_path,
+    class_names,
+    original_size,
+    image_path=None,
+    obj_threshold=0.5,
+):
+    """Visualize DETR result with GradCAM overlay (2 panels)"""
+
+    img_original_np = load_original_image(image_path, original_size, image_tensor)
+    if img_original_np is None or gradcam_map is None:
+        return
+
+    # Prepare GradCAM overlay
+    gradcam_resized = Image.fromarray(gradcam_map).resize(
+        original_size[::-1], Image.Resampling.BILINEAR
+    )
+    gradcam_np = np.array(gradcam_resized)
+    gradcam_color = plt.cm.jet(gradcam_np / 255.0)[..., :3]
+    gradcam_blend = np.clip(0.6 * img_original_np + 0.4 * gradcam_color, 0, 1)
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
+
+    # Panel 1: Original image + GT bbox
+    ax1.imshow(img_original_np)
+    num_valid = draw_bboxes_on_axis(ax1, gt_bbox_list, original_size, "lime")
+    title_left = f"GT: {class_names[gt_label]}"
+    title_left += f" | {num_valid} bbox(es)" if num_valid > 0 else " (No bbox)"
+    ax1.set_title(title_left, fontsize=12, fontweight="bold")
+    ax1.axis("off")
+
+    # Panel 2: GradCAM overlay + predicted bbox
+    ax2.imshow(gradcam_blend)
+    num_pred, max_iou = draw_predicted_bboxes(
+        ax2, pred_bboxes, pred_obj_scores, original_size, gt_bbox_list, obj_threshold
+    )
+    title_right = (
+        f"DETR: {class_names[pred_class]} | {pred_prob:.3f} | Boxes: {num_pred}"
+    )
+    if max_iou > 0:
+        title_right += f" | IoU: {max_iou:.3f}"
+    ax2.set_title(title_right, fontsize=12, fontweight="bold")
+    ax2.axis("off")
+
+    plt.tight_layout()
+    save_path = clean_image_filename(save_path)
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close()
+
+
+def visualize_detr_result_ori(
+    image_tensor,
     attn_map,
     pred_bboxes,
     pred_obj_scores,
