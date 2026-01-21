@@ -3,7 +3,7 @@ import torch.nn as nn
 from .backbone import (
     get_resnet_backbone,
     get_timm_backbone,
-    get_fastervit_backbone,
+    # get_fastervit_backbone,
     get_dino_backbone,
 )
 from .patch_architectures import (
