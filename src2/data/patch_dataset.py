@@ -3,11 +3,16 @@ import numpy as np
 from PIL import Image
 import torch
 from torch.utils.data import Dataset, DataLoader
-from .augment import get_train_augmentation, get_test_augmentation
 from .dataloader import (
     get_image_size_from_config,
     get_num_patches_from_config,
     get_weighted_sampler,
+)
+from .augment import (
+    get_train_augmentation_positive,
+    get_train_augmentation_negative,
+    get_test_augmentation_positive,
+    get_test_augmentation_negative,
 )
 from .based_data import get_num_workers
 import cv2
@@ -275,12 +280,6 @@ def get_dataloaders(
         height = width = 448
 
     # --- PATCH: Augment giống based: positive/negative ---
-    from .augment import (
-        get_train_augmentation_positive,
-        get_train_augmentation_negative,
-        get_test_augmentation_positive,
-        get_test_augmentation_negative,
-    )
 
     positive_train_transform = get_train_augmentation_positive(height, width)
     negative_train_transform = get_train_augmentation_negative(height, width)
