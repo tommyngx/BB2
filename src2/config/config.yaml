@@ -14,5 +14,5 @@ config:
   target_column: "cancer"
   num_patches: 3  # Số patch (2, 3, hoặc 4)
   arch_type: patch_resnet # patch_transformer
-  freeze_backbone_except_last_n: 2  # null = không đóng băng, 0 = đóng băng tất cả, 1,2,3... = giữ lại n layer cuối
+  freeze_backbone_except_last_n: 4  # null = không đóng băng, 0 = đóng băng tất cả, 1,2,3... = giữ lại n layer cuối
   dino_unfreeze_blocks: 2  # Giữ lại để tương thích ngược với code cũ
