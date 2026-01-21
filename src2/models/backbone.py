@@ -15,7 +15,37 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning, module="dinov2")
 
 
-def get_resnet_backbone(model_type="resnet50"):
+def freeze_backbone_except_last_n_layers(model, n_layers=2):
+    """
+    Freeze all layers except the last n layers.
+    Args:
+        model: The backbone model
+        n_layers: Number of layers to keep unfrozen from the end (default: 2)
+                 If None or n_layers <= 0, no freezing is applied
+    """
+    if n_layers is None or n_layers <= 0:
+        return
+
+    # Get all children modules
+    children = list(model.children())
+
+    if len(children) == 0:
+        return
+
+    # Calculate number of layers to freeze
+    n_freeze = max(0, len(children) - n_layers)
+
+    # Freeze first n_freeze layers
+    for i, layer in enumerate(children):
+        if i < n_freeze:
+            for param in layer.parameters():
+                param.requires_grad = False
+        else:
+            for param in layer.parameters():
+                param.requires_grad = True
+
+
+def get_resnet_backbone(model_type="resnet50", freeze_backbone_except_last_n=None):
     if model_type == "resnet50":
         model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
         feature_dim = model.fc.in_features
@@ -40,10 +70,12 @@ def get_resnet_backbone(model_type="resnet50"):
         model.fc = nn.Identity()
     else:
         raise ValueError("Unsupported resnet backbone type")
+
+    freeze_backbone_except_last_n_layers(model, freeze_backbone_except_last_n)
     return model, feature_dim
 
 
-def get_timm_backbone(model_type):
+def get_timm_backbone(model_type, freeze_backbone_except_last_n=None):
     if model_type == "resnest50":
         model = timm_models.create_model("resnest50d", pretrained=True)
         feature_dim = model.fc.in_features
@@ -182,10 +214,14 @@ def get_timm_backbone(model_type):
     # --- MambaVision-T support ---
     else:
         raise ValueError("Unsupported timm backbone type")
+
+    freeze_backbone_except_last_n_layers(model, freeze_backbone_except_last_n)
     return model, feature_dim
 
 
-def get_mamba_backbone(model_type, num_classes=None):
+def get_mamba_backbone(
+    model_type, num_classes=None, freeze_backbone_except_last_n=None
+):
     if model_type == "mamba_t":
         model_wrapper = MambaVisionLogitsWrapper(
             model_name="nvidia/MambaVision-T-1K",
@@ -193,7 +229,6 @@ def get_mamba_backbone(model_type, num_classes=None):
         )
         feature_dim = model_wrapper.feature_dim
         model = model_wrapper
-        return model, feature_dim
     elif model_type == "mamba_s":
         model_wrapper = MambaVisionLogitsWrapper(
             model_name="nvidia/MambaVision-S-1K",
@@ -201,9 +236,16 @@ def get_mamba_backbone(model_type, num_classes=None):
         )
         feature_dim = model_wrapper.feature_dim
         model = model_wrapper
-        return model, feature_dim
     else:
         raise ValueError("Unsupported mamba backbone type")
+
+    # For MambaVision, freeze the base_model's layers
+    if freeze_backbone_except_last_n is not None:
+        freeze_backbone_except_last_n_layers(
+            model.base_model.model, freeze_backbone_except_last_n
+        )
+
+    return model, feature_dim
 
 
 class MambaVisionLogitsWrapper(nn.Module):
@@ -228,7 +270,9 @@ class MambaVisionLogitsWrapper(nn.Module):
         return self.base_model(x)["logits"]
 
 
-def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
+def get_dino_backbone(
+    model_type="dinov2_vitb14", weights=None, freeze_backbone_except_last_n=None
+):
     dino_models = {
         "dinov2_small": "vit_small_patch14_dinov2.lvd142m",
         "dinov2_base": "vit_base_patch14_dinov2.lvd142m",
@@ -314,4 +358,5 @@ def get_dino_backbone(model_type="dinov2_vitb14", weights=None):
     # else:
     # feature_dim = model  # .num_features
 
+    freeze_backbone_except_last_n_layers(model, freeze_backbone_except_last_n)
     return model, feature_dim

@@ -32,10 +32,16 @@ warnings.filterwarnings("ignore", category=UserWarning, module="dinov2")
 
 
 def get_patch_model(
-    model_type="resnet50", num_classes=2, num_patches=2, arch_type="patch_resnet"
+    model_type="resnet50",
+    num_classes=2,
+    num_patches=2,
+    arch_type="patch_resnet",
+    freeze_backbone_except_last_n=None,
 ):
     if model_type in ["resnet34", "resnet50", "resnet101", "resnext50", "resnet152"]:
-        backbone, feature_dim = get_resnet_backbone(model_type)
+        backbone, feature_dim = get_resnet_backbone(
+            model_type, freeze_backbone_except_last_n=freeze_backbone_except_last_n
+        )
     elif model_type in [
         "resnest50",
         "resnest101",
@@ -57,11 +63,15 @@ def get_patch_model(
         "mambaout_tiny",
         "mamba_t",
     ]:
-        backbone, feature_dim = get_timm_backbone(model_type)
+        backbone, feature_dim = get_timm_backbone(
+            model_type, freeze_backbone_except_last_n=freeze_backbone_except_last_n
+        )
     # elif model_type == "fastervit":
     #    backbone, feature_dim = get_fastervit_backbone()
     elif model_type == "dinov2":
-        backbone, feature_dim = get_dino_backbone()
+        backbone, feature_dim = get_dino_backbone(
+            freeze_backbone_except_last_n=freeze_backbone_except_last_n
+        )
         # Nếu muốn dùng kiến trúc đặc biệt cho dinov2, có thể bổ sung ở đây
         # ...existing code...
     else:

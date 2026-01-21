@@ -79,14 +79,25 @@ def unfreeze_last_blocks(model, num_blocks=2):
     print("[WARN] No recognized block structure found for unfreezing.")
 
 
-def get_based_model(model_type="resnet50", num_classes=2, dino_unfreeze_blocks=2):
+def get_based_model(
+    model_type="resnet50",
+    num_classes=2,
+    dino_unfreeze_blocks=2,
+    freeze_backbone_except_last_n=None,
+):
     if model_type in ["resnet34", "resnet50", "resnet101", "resnext50", "resnet152"]:
-        backbone, feature_dim = get_resnet_backbone(model_type)
+        backbone, feature_dim = get_resnet_backbone(
+            model_type, freeze_backbone_except_last_n=freeze_backbone_except_last_n
+        )
         # Replace the head with a linear classifier
         model = backbone
         model.fc = get_linear_head(feature_dim, num_classes)
     elif model_type in ["mamba_t", "mamba_s"]:
-        model, feature_dim = get_mamba_backbone(model_type, num_classes=num_classes)
+        model, feature_dim = get_mamba_backbone(
+            model_type,
+            num_classes=num_classes,
+            freeze_backbone_except_last_n=freeze_backbone_except_last_n,
+        )
         # model.model.head = nn.Linear(feature_dim, num_classes)
         # print("Using Mamba_T backbone with custom head.", model)
     elif model_type in [
@@ -109,7 +120,9 @@ def get_based_model(model_type="resnet50", num_classes=2, dino_unfreeze_blocks=2
         "swinv2_small",
         "mambaout_tiny",
     ]:
-        model, feature_dim = get_timm_backbone(model_type)
+        model, feature_dim = get_timm_backbone(
+            model_type, freeze_backbone_except_last_n=freeze_backbone_except_last_n
+        )
         # Replace the head with a linear classifier for all timm backbones
         if hasattr(model, "fc"):
             model.fc = get_linear_head(feature_dim, num_classes)
@@ -140,7 +153,9 @@ def get_based_model(model_type="resnet50", num_classes=2, dino_unfreeze_blocks=2
         "medino_vitb16",
         "dinov2uni_base",
     ]:
-        transformer, feature_dim = get_dino_backbone(model_type)
+        transformer, feature_dim = get_dino_backbone(
+            model_type, freeze_backbone_except_last_n=freeze_backbone_except_last_n
+        )
 
         model = DinoVisionTransformerClassifier(transformer, feature_dim, num_classes)
 
@@ -150,7 +165,12 @@ def get_based_model(model_type="resnet50", num_classes=2, dino_unfreeze_blocks=2
         for param in model.transformer.parameters():
             param.requires_grad = False
         # Unfreeze last blocks cho đúng backbone gốc
-        unfreeze_last_blocks(model.transformer, dino_unfreeze_blocks)
+        if freeze_backbone_except_last_n is None:
+            # Sử dụng phương pháp cũ với dino_unfreeze_blocks
+            for param in model.transformer.parameters():
+                param.requires_grad = False
+            unfreeze_last_blocks(model.transformer, dino_unfreeze_blocks)
+
         # Đảm bảo head classifier luôn trainable
         for param in model.classifier.parameters():
             param.requires_grad = True

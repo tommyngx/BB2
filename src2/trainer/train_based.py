@@ -280,6 +280,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--target_column", type=str, default=None, help="Name of target column"
     )
+    parser.add_argument(
+        "--freeze_backbone_except_last_n",
+        type=int,
+        default=2,
+        help="Freeze all layers except last n layers. None = no freezing",
+    )
 
     args = parser.parse_args()
     config = load_config(args.config)
@@ -299,13 +305,27 @@ if __name__ == "__main__":
     target_column = get_arg_or_config(
         args.target_column, config.get("target_column"), None
     )
+    freeze_backbone_except_last_n = get_arg_or_config(
+        args.freeze_backbone_except_last_n,
+        config.get("freeze_backbone_except_last_n"),
+        None,
+    )
+    dino_unfreeze_blocks = get_arg_or_config(
+        None, config.get("dino_unfreeze_blocks"), 2
+    )
+
     if img_size is not None and isinstance(img_size, str):
         img_size = parse_img_size(img_size)
 
     train_df, test_df, class_names = load_metadata(
         data_folder, args.config, print_stats=False, target_column=target_column
     )
-    model = get_based_model(model_type=model_type, num_classes=len(class_names))
+    model = get_based_model(
+        model_type=model_type,
+        num_classes=len(class_names),
+        dino_unfreeze_blocks=dino_unfreeze_blocks,
+        freeze_backbone_except_last_n=freeze_backbone_except_last_n,
+    )
 
     if args.mode == "train":
         run_train(

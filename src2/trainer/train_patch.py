@@ -366,6 +366,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--target_column", type=str, default=None, help="Name of target column"
     )
+    parser.add_argument(
+        "--freeze_backbone_except_last_n",
+        type=int,
+        default=2,
+        help="Freeze all layers except last n layers. None = no freezing",
+    )
 
     args = parser.parse_args()
     config = load_config(args.config)
@@ -389,6 +395,12 @@ if __name__ == "__main__":
     target_column = get_arg_or_config(
         args.target_column, config.get("target_column"), None
     )
+    freeze_backbone_except_last_n = get_arg_or_config(
+        args.freeze_backbone_except_last_n,
+        config.get("freeze_backbone_except_last_n"),
+        None,
+    )
+
     if img_size is not None and isinstance(img_size, str):
         img_size = parse_img_size(img_size)
 
@@ -405,7 +417,8 @@ if __name__ == "__main__":
         model_type=model_type,
         num_patches=num_patches,
         arch_type=arch_type,
-        num_classes=num_classes,  # assuming binary classification; adjust as needed
+        num_classes=num_classes,
+        freeze_backbone_except_last_n=freeze_backbone_except_last_n,
     )
 
     if args.mode == "train":
