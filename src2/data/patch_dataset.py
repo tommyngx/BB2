@@ -96,7 +96,8 @@ class CancerPatchDataset(Dataset):
         self,
         df,
         data_folder,
-        transform=None,
+        positive_transform=None,
+        negative_transform=None,
         num_patches=2,
         augment_before_split=True,
         config_path="config/config.yaml",
@@ -112,7 +113,8 @@ class CancerPatchDataset(Dataset):
             )
         self.df = df.reset_index(drop=True)
         self.data_folder = data_folder
-        self.transform = transform
+        self.positive_transform = positive_transform
+        self.negative_transform = negative_transform
         self.num_patches = num_patches
         if img_size is None:
             self.img_size = get_image_size_from_config(config_path)
@@ -152,11 +154,50 @@ class CancerPatchDataset(Dataset):
         # Convert to numpy for processing
         image_np = np.array(image)
 
-        # Apply augmentation if available
-        if self.transform:
-            augmented = self.transform(image=image_np)
+        # --- PATCH: Augment giống based: positive/negative ---
+        # Lấy bbox_list nếu có
+        row = self.df.loc[idx]
+        bbox_list = row.get("bbox_list", [])
+        if not isinstance(bbox_list, list):
+            bbox_list = []
+
+        # Validate and clip bboxes
+        img_h, img_w = image_np.shape[:2]
+
+        def validate_and_clip_bbox(x, y, w, h, img_w, img_h, min_area=100):
+            x = max(0, float(x))
+            y = max(0, float(y))
+            w = max(0, float(w))
+            h = max(0, float(h))
+            x = min(x, img_w - 1)
+            y = min(y, img_h - 1)
+            if x + w > img_w:
+                w = img_w - x
+            if y + h > img_h:
+                h = img_h - y
+            is_valid = w > 0 and h > 0 and (w * h) >= min_area
+            return x, y, w, h, is_valid
+
+        valid_bboxes = []
+        for bbox in bbox_list:
+            x, y, w, h = bbox
+            x, y, w, h, is_valid = validate_and_clip_bbox(
+                x, y, w, h, img_w, img_h, min_area=100
+            )
+            if is_valid:
+                valid_bboxes.append([x, y, w, h])
+
+        # Apply augmentation: ALWAYS use bbox if available (both train and test)
+        if len(valid_bboxes) > 0 and self.positive_transform:
+            bbox_labels = [1] * len(valid_bboxes)
+            augmented = self.positive_transform(
+                image=image_np, bboxes=valid_bboxes, labels=bbox_labels
+            )
             image = augmented["image"]
-            # Xoay nếu cần
+            image = rotate_if_landscape(image)
+        elif len(valid_bboxes) == 0 and self.negative_transform:
+            augmented = self.negative_transform(image=image_np)
+            image = augmented["image"]
             image = rotate_if_landscape(image)
         else:
             image = image_np
@@ -232,24 +273,26 @@ def get_dataloaders(
         height = width = int(img_size)
     if height is None or width is None:
         height = width = 448
-    # Only pass height, width to get_train_augmentation if both are not None
-    if height is not None and width is not None:
-        train_transform = get_train_augmentation(
-            height, width, resize_first=False, extra_aug=None, enable_rotate90=False
-        )
-        test_transform = get_test_augmentation(height, width, resize_first=False)
-    else:
-        # fallback: no resize if height/width are not valid
-        train_transform = get_train_augmentation(
-            448, 448, resize_first=False, extra_aug=None, enable_rotate90=False
-        )
-        test_transform = get_test_augmentation(448, 448, resize_first=False)
-    # Use the same img_size for both train and test datasets
+
+    # --- PATCH: Augment giống based: positive/negative ---
+    from .augment import (
+        get_train_augmentation_positive,
+        get_train_augmentation_negative,
+        get_test_augmentation_positive,
+        get_test_augmentation_negative,
+    )
+
+    positive_train_transform = get_train_augmentation_positive(height, width)
+    negative_train_transform = get_train_augmentation_negative(height, width)
+    test_transform_pos = get_test_augmentation_positive(height, width)
+    test_transform_neg = get_test_augmentation_negative(height, width)
+
     train_dataset = CancerPatchDataset(
         train_df,
         data_folder,
-        train_transform,
-        num_patches,
+        positive_transform=positive_train_transform,
+        negative_transform=negative_train_transform,
+        num_patches=num_patches,
         augment_before_split=True,
         config_path=config_path,
         img_size=(height, width),
@@ -258,8 +301,9 @@ def get_dataloaders(
     test_dataset = CancerPatchDataset(
         test_df,
         data_folder,
-        test_transform,
-        num_patches,
+        positive_transform=test_transform_pos,
+        negative_transform=test_transform_neg,
+        num_patches=num_patches,
         augment_before_split=True,
         config_path=config_path,
         img_size=(height, width),
