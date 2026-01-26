@@ -339,11 +339,17 @@ def detr_evaluate_dataset(
     print(f"✓ Num queries: {num_queries}")
     print(f"✓ GradCAM layer: {gradcam_layer}")
 
-    # Load metadata
+    # Load metadata - only test split
     try:
         train_df, test_df, loaded_class_names = load_detr_metadata(
             str(data_folder_path), config_path, target_column=None
         )
+
+        # Filter to only test split
+        if "split" in test_df.columns:
+            test_df = test_df[test_df["split"] == "test"].copy()
+            print(f"✓ Filtered to test split only")
+
         _, _, image_info = load_image_metadata_with_bboxes(str(data_folder_path))
 
         if class_names is None:
@@ -365,10 +371,10 @@ def detr_evaluate_dataset(
             class_names,
         )
 
-    # Get dataloader
+    # Get dataloader - use empty train_df since we only need test data
     img_size = tuple(input_size) if isinstance(input_size, list) else input_size
     _, eval_loader = get_detr_dataloaders(
-        train_df,
+        test_df,  # Use test_df as train_df placeholder
         test_df,
         str(data_folder_path),
         batch_size=batch_size,
