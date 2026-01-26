@@ -440,6 +440,8 @@ def prepare_detr_from_metadata(
         if "image_path" not in df_raw.columns:
             df_raw["image_path"] = df_raw["link"]
 
+    print("áddssdss")
+
     if verbose:
         print(f"📂 Loading: {metadata_path}")
         print(f"  Raw rows: {len(df_raw)}")
