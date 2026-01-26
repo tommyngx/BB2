@@ -305,20 +305,20 @@ def _evaluate_from_dataframe(
     Evaluate model directly from test_df without using dataloader
     Processes each image individually to save predictions and visualizations
     """
-    print("[DEBUG] Start _evaluate_from_dataframe")
+    # print("[DEBUG] Start _evaluate_from_dataframe")
     preprocess = build_preprocess(input_size)
 
     rows_by_folder: Dict[Path, List[Dict[str, str]]] = {}
-    print(f"[DEBUG] Number of test samples: {len(test_df)} ")
-    print(test_df.columns)
+    # print(f"[DEBUG] Number of test samples: {len(test_df)} ")
+    # print(test_df.columns)
 
     for idx, row in tqdm(
         test_df.iterrows(), total=len(test_df), desc="Evaluating", unit="img"
     ):
-        print(f"[DEBUG] Processing idx={idx}")
+        # print(f"[DEBUG] Processing idx={idx}")
         image_id = str(row["image_id"])
         gt_label = int(row["cancer"])
-        print(f"[DEBUG] image_id={image_id}, gt_label={gt_label}")
+        # print(f"[DEBUG] image_id={image_id}, gt_label={gt_label}")
 
         # Get image info
         if image_id not in image_info:
@@ -326,12 +326,11 @@ def _evaluate_from_dataframe(
             continue
 
         info = image_info[image_id]
-        print(f"[DEBUG] info keys: {list(info.keys())}")
+        # print(f"[DEBUG] info keys: {list(info.keys())}")
         img_path = Path(info["image_path"])
         original_size = info["original_size"]
         gt_bbox_list = info.get("bbx_list", None)
-        print(f"[DEBUG] img_path={img_path}, original_size={original_size}")
-
+        # print(f"[DEBUG] img_path={img_path}, original_size={original_size}")
         if not img_path.exists():
             print(f"⚠️ [DEBUG] Image file not found: {img_path}, skipping...")
             continue
@@ -341,11 +340,11 @@ def _evaluate_from_dataframe(
         rel_dir = rel_path.parent
         out_dir = output_root / rel_dir
         out_dir.mkdir(parents=True, exist_ok=True)
-        print(f"[DEBUG] out_dir={out_dir}")
+        # print(f"[DEBUG] out_dir={out_dir}")
 
         # Run prediction
         try:
-            print("[DEBUG] Calling predict_detr_image")
+            # print("[DEBUG] Calling predict_detr_image")
             result = predict_detr_image(
                 model,
                 img_path,
@@ -355,7 +354,7 @@ def _evaluate_from_dataframe(
                 use_gradcam=use_gradcam,
                 gradcam_layer=gradcam_layer,
             )
-            print("[DEBUG] predict_detr_image returned")
+            # print("[DEBUG] predict_detr_image returned")
         except Exception as e:
             print(f"[DEBUG] Error in predict_detr_image: {e}")
             continue
@@ -366,14 +365,11 @@ def _evaluate_from_dataframe(
         bboxes = result["bboxes"]
         scores = result["scores"]
         gradcam_map = result["gradcam_map"]
-        print(
-            f"[DEBUG] pred_class={pred_class}, confidence={confidence}, num_bboxes={len(bboxes)}"
-        )
 
         # Save original image
         try:
             img.save(out_dir / f"{img_path.stem}.png", format="PNG")
-            print(f"[DEBUG] Saved original image to {out_dir / f'{img_path.stem}.png'}")
+            # print(f"[DEBUG] Saved original image to {out_dir / f'{img_path.stem}.png'}")
         except Exception as e:
             print(f"[DEBUG] Error saving original image: {e}")
 
@@ -388,9 +384,6 @@ def _evaluate_from_dataframe(
                 )
                 img_gradcam_bbox.save(
                     out_dir / f"{img_path.stem}_gradcam.png", format="PNG"
-                )
-                print(
-                    f"[DEBUG] Saved gradcam image to {out_dir / f'{img_path.stem}_gradcam.png'}"
                 )
             except Exception as e:
                 print(f"[DEBUG] Error saving gradcam image: {e}")
@@ -417,7 +410,7 @@ def _evaluate_from_dataframe(
                 "correct": str(int(pred_class == gt_label)),
             }
         )
-        print(f"[DEBUG] Recorded results for image_id={image_id}")
+        # print(f"[DEBUG] Recorded results for image_id={image_id}")
 
     # Write CSV per subfolder
     for rel_dir, rows in rows_by_folder.items():
