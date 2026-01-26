@@ -317,7 +317,7 @@ def _evaluate_from_dataframe(
     ):
         print(f"[DEBUG] Processing idx={idx}")
         image_id = str(row["image_id"])
-        gt_label = int(row["label"])
+        gt_label = int(row["cancer"])
         print(f"[DEBUG] image_id={image_id}, gt_label={gt_label}")
 
         # Get image info
