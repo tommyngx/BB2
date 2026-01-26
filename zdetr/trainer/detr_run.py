@@ -305,6 +305,7 @@ def _evaluate_from_dataframe(
     Evaluate model directly from test_df without using dataloader
     Processes each image individually to save predictions and visualizations
     """
+    print("[DEBUG] Start _evaluate_from_dataframe")
     preprocess = build_preprocess(input_size)
 
     rows_by_folder: Dict[Path, List[Dict[str, str]]] = {}
@@ -312,21 +313,25 @@ def _evaluate_from_dataframe(
     for idx, row in tqdm(
         test_df.iterrows(), total=len(test_df), desc="Evaluating", unit="img"
     ):
+        print(f"[DEBUG] Processing idx={idx}")
         image_id = str(row["image_id"])
         gt_label = int(row["label"])
+        print(f"[DEBUG] image_id={image_id}, gt_label={gt_label}")
 
         # Get image info
         if image_id not in image_info:
-            print(f"⚠️ Image {image_id} not found in image_info, skipping...")
+            print(f"⚠️ [DEBUG] Image {image_id} not found in image_info, skipping...")
             continue
 
         info = image_info[image_id]
+        print(f"[DEBUG] info keys: {list(info.keys())}")
         img_path = Path(info["image_path"])
         original_size = info["original_size"]
         gt_bbox_list = info.get("bbx_list", None)
+        print(f"[DEBUG] img_path={img_path}, original_size={original_size}")
 
         if not img_path.exists():
-            print(f"⚠️ Image file not found: {img_path}, skipping...")
+            print(f"⚠️ [DEBUG] Image file not found: {img_path}, skipping...")
             continue
 
         # Determine relative path for organizing outputs
@@ -334,17 +339,24 @@ def _evaluate_from_dataframe(
         rel_dir = rel_path.parent
         out_dir = output_root / rel_dir
         out_dir.mkdir(parents=True, exist_ok=True)
+        print(f"[DEBUG] out_dir={out_dir}")
 
         # Run prediction
-        result = predict_detr_image(
-            model,
-            img_path,
-            preprocess,
-            device,
-            obj_threshold=obj_threshold,
-            use_gradcam=use_gradcam,
-            gradcam_layer=gradcam_layer,
-        )
+        try:
+            print("[DEBUG] Calling predict_detr_image")
+            result = predict_detr_image(
+                model,
+                img_path,
+                preprocess,
+                device,
+                obj_threshold=obj_threshold,
+                use_gradcam=use_gradcam,
+                gradcam_layer=gradcam_layer,
+            )
+            print("[DEBUG] predict_detr_image returned")
+        except Exception as e:
+            print(f"[DEBUG] Error in predict_detr_image: {e}")
+            continue
 
         img = result["image"]
         pred_class = result["pred_class"]
@@ -352,21 +364,34 @@ def _evaluate_from_dataframe(
         bboxes = result["bboxes"]
         scores = result["scores"]
         gradcam_map = result["gradcam_map"]
+        print(
+            f"[DEBUG] pred_class={pred_class}, confidence={confidence}, num_bboxes={len(bboxes)}"
+        )
 
         # Save original image
-        img.save(out_dir / f"{img_path.stem}.png", format="PNG")
+        try:
+            img.save(out_dir / f"{img_path.stem}.png", format="PNG")
+            print(f"[DEBUG] Saved original image to {out_dir / f'{img_path.stem}.png'}")
+        except Exception as e:
+            print(f"[DEBUG] Error saving original image: {e}")
 
         # Save GradCAM + Otsu + bboxes with confidence
         if gradcam_map is not None:
-            img_gradcam = overlay_gradcam_with_otsu(
-                img, gradcam_map, alpha=0.55, use_otsu=use_otsu
-            )
-            img_gradcam_bbox = draw_predicted_bboxes_on_pil(
-                img_gradcam, bboxes, scores, obj_threshold, width=5
-            )
-            img_gradcam_bbox.save(
-                out_dir / f"{img_path.stem}_gradcam.png", format="PNG"
-            )
+            try:
+                img_gradcam = overlay_gradcam_with_otsu(
+                    img, gradcam_map, alpha=0.55, use_otsu=use_otsu
+                )
+                img_gradcam_bbox = draw_predicted_bboxes_on_pil(
+                    img_gradcam, bboxes, scores, obj_threshold, width=5
+                )
+                img_gradcam_bbox.save(
+                    out_dir / f"{img_path.stem}_gradcam.png", format="PNG"
+                )
+                print(
+                    f"[DEBUG] Saved gradcam image to {out_dir / f'{img_path.stem}_gradcam.png'}"
+                )
+            except Exception as e:
+                print(f"[DEBUG] Error saving gradcam image: {e}")
 
         # Record results
         class_name = (
@@ -390,6 +415,7 @@ def _evaluate_from_dataframe(
                 "correct": str(int(pred_class == gt_label)),
             }
         )
+        print(f"[DEBUG] Recorded results for image_id={image_id}")
 
     # Write CSV per subfolder
     for rel_dir, rows in rows_by_folder.items():
@@ -398,22 +424,26 @@ def _evaluate_from_dataframe(
             if str(rel_dir) != "."
             else (output_root / "predictions.csv")
         )
-        with open(csv_path, "w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(
-                f,
-                fieldnames=[
-                    "image_id",
-                    "gt_label",
-                    "gt_class_name",
-                    "pred_label",
-                    "pred_class_name",
-                    "confidence",
-                    "num_objects",
-                    "correct",
-                ],
-            )
-            w.writeheader()
-            w.writerows(rows)
+        try:
+            with open(csv_path, "w", newline="", encoding="utf-8") as f:
+                w = csv.DictWriter(
+                    f,
+                    fieldnames=[
+                        "image_id",
+                        "gt_label",
+                        "gt_class_name",
+                        "pred_label",
+                        "pred_class_name",
+                        "confidence",
+                        "num_objects",
+                        "correct",
+                    ],
+                )
+                w.writeheader()
+                w.writerows(rows)
+            print(f"[DEBUG] Saved CSV to {csv_path}")
+        except Exception as e:
+            print(f"[DEBUG] Error saving CSV: {e}")
 
     print(f"✅ Saved prediction outputs to: {output_root}")
 
