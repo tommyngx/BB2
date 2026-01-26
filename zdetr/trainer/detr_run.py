@@ -386,6 +386,8 @@ def detr_evaluate_dataset(
             if "image_path" not in test_df.columns:
                 test_df["image_path"] = test_df["link"]
 
+        print(f"✓ Evaluation samples: {len(test_df)}")
+
         _, _, image_info = load_image_metadata_with_bboxes(str(data_folder_path))
 
         if class_names is None:
