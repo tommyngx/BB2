@@ -287,10 +287,276 @@ def detr_predict_folder(
     return out_root
 
 
+def detr_evaluate_dataset(
+    data_folder: str,
+    model_path: str,
+    output_root: Optional[str] = None,
+    device: Optional[str] = None,
+    obj_threshold: float = 0.5,
+    use_otsu: bool = True,
+    use_gradcam: bool = False,
+    class_names: Optional[List[str]] = None,
+    batch_size: int = 16,
+    config_path: str = "config/config.yaml",
+    max_objects: int = 3,
+    save_visualizations: bool = True,
+):
+    """
+    Evaluate DETR model on dataset with metadata.csv
+    Similar to test mode but for inference script
+    """
+    from zdetr.data.detr_data import get_detr_dataloaders
+    from zdetr.data.detr_data_pre import load_detr_metadata
+    from zdetr.utils.detr_data_utils import load_image_metadata_with_bboxes
+    from zdetr.utils.detr_test_utils import (
+        evaluate_detr_model,
+        compute_classification_metrics,
+        print_test_metrics,
+    )
+
+    data_folder_path = Path(data_folder).expanduser().resolve()
+    out_root = (
+        Path(output_root).expanduser().resolve()
+        if output_root
+        else data_folder_path.parent / f"{data_folder_path.name}_detr_eval"
+    )
+    out_root.mkdir(parents=True, exist_ok=True)
+
+    dev = (
+        torch.device(device)
+        if device
+        else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    )
+
+    # Load model
+    model, input_size, model_type, model_name, num_queries, gradcam_layer = (
+        load_full_detr_model(model_path)
+    )
+    model = model.to(dev).eval()
+
+    print(f"✓ Loaded model: {model_name} ({model_type})")
+    print(f"✓ Input size: {input_size}")
+    print(f"✓ Num queries: {num_queries}")
+    print(f"✓ GradCAM layer: {gradcam_layer}")
+
+    # Load metadata
+    try:
+        train_df, test_df, loaded_class_names = load_detr_metadata(
+            str(data_folder_path), config_path, target_column=None
+        )
+        _, _, image_info = load_image_metadata_with_bboxes(str(data_folder_path))
+
+        if class_names is None:
+            class_names = loaded_class_names
+
+        print(f"✓ Found {len(class_names)} classes: {class_names}")
+        print(f"✓ Evaluation samples: {len(test_df)}")
+    except Exception as e:
+        print(f"⚠️ Error loading metadata: {e}")
+        print("Falling back to image inference mode...")
+        return detr_predict_folder(
+            str(data_folder_path),
+            model_path,
+            str(out_root),
+            device,
+            obj_threshold,
+            use_otsu,
+            use_gradcam,
+            class_names,
+        )
+
+    # Get dataloader
+    img_size = tuple(input_size) if isinstance(input_size, list) else input_size
+    _, eval_loader = get_detr_dataloaders(
+        train_df,
+        test_df,
+        str(data_folder_path),
+        batch_size=batch_size,
+        config_path=config_path,
+        img_size=img_size,
+        mode="test",
+        max_objects=max_objects,
+    )
+
+    # Evaluate model
+    print("\n" + "=" * 50)
+    print("Evaluation on Dataset (DETR)")
+    print("=" * 50)
+
+    results = evaluate_detr_model(model, eval_loader, dev)
+
+    metrics = compute_classification_metrics(
+        results["preds"], results["labels"], results["probs"], class_names
+    )
+
+    all_metrics = dict(metrics)
+    all_metrics["iou"] = results.get("iou", 0.0)
+    all_metrics["map50"] = results.get("map50", 0.0)
+    all_metrics["map25"] = results.get("map25", 0.0)
+    all_metrics["recall_iou25"] = results.get("recall_iou25", 0.0)
+
+    print_test_metrics(
+        all_metrics,
+        all_metrics["iou"],
+        all_metrics["map50"],
+        all_metrics["map25"],
+        all_metrics["recall_iou25"],
+    )
+
+    # Save metrics to CSV
+    metrics_path = out_root / "evaluation_metrics.csv"
+    with open(metrics_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["Metric", "Value"])
+        for key, value in all_metrics.items():
+            if isinstance(value, (int, float)):
+                writer.writerow([key, f"{value:.4f}"])
+            else:
+                writer.writerow([key, str(value)])
+    print(f"\n✅ Saved metrics to: {metrics_path}")
+
+    # Generate visualizations if requested
+    if save_visualizations and use_gradcam:
+        print("\n" + "=" * 50)
+        print("Generating Visualizations")
+        print("=" * 50)
+
+        vis_dir = out_root / "visualizations"
+        vis_dir.mkdir(parents=True, exist_ok=True)
+
+        _generate_eval_visualizations(
+            model,
+            eval_loader,
+            test_df,
+            image_info,
+            class_names,
+            vis_dir,
+            batch_size,
+            input_size,
+            obj_threshold,
+            use_otsu,
+            use_gradcam,
+            gradcam_layer,
+            dev,
+        )
+
+    return out_root, all_metrics
+
+
+def _generate_eval_visualizations(
+    model,
+    data_loader,
+    df,
+    image_info,
+    class_names,
+    vis_dir,
+    batch_size,
+    input_size,
+    obj_threshold,
+    use_otsu,
+    use_gradcam,
+    gradcam_layer,
+    device,
+):
+    """Generate visualizations for evaluation dataset"""
+    from zdetr.utils.detr_viz_utils import visualize_detr_result
+
+    image_ids = df["image_id"].unique().tolist()
+    model.eval()
+
+    with torch.no_grad():
+        for batch_idx, batch in enumerate(tqdm(data_loader, desc="Visualizing")):
+            images = batch["image"].to(device)
+            labels = batch["label"].to(device)
+
+            start_idx = batch_idx * batch_size
+            end_idx = min(start_idx + len(images), len(image_ids))
+            batch_image_ids = image_ids[start_idx:end_idx]
+
+            outputs = model(images, return_attention_maps=True)
+            cls_logits = outputs["cls_logits"]
+            pred_bboxes = outputs["pred_bboxes"]
+            pred_obj = torch.sigmoid(outputs["obj_scores"])
+            spatial_attn = outputs.get("spatial_attn", None)
+
+            _, predicted = torch.max(cls_logits, 1)
+            probs = torch.softmax(cls_logits, dim=1)
+
+            for i in range(len(images)):
+                if i >= len(batch_image_ids):
+                    continue
+
+                image_id = str(batch_image_ids[i])
+                pred_class = predicted[i].item()
+                gt_label = labels[i].item()
+                pred_prob = probs[i, pred_class].item()
+
+                if image_id not in image_info:
+                    continue
+
+                info = image_info[image_id]
+                original_size = info["original_size"]
+                image_path = info["image_path"]
+                gt_bbox_list = info.get("bbx_list", None)
+
+                attn_map = spatial_attn[i] if spatial_attn is not None else None
+
+                # GradCAM generation
+                gradcam_map = None
+                if use_gradcam and gradcam_layer is not None:
+                    try:
+                        input_tensor = images[i : i + 1].clone().requires_grad_(True)
+                        with torch.set_grad_enabled(True):
+                            result = gradcam(
+                                model,
+                                input_tensor,
+                                gradcam_layer,
+                                class_idx=pred_class,
+                            )
+                            if (
+                                isinstance(result, np.ndarray)
+                                and result.ndim == 2
+                                and result.dtype == np.uint8
+                            ):
+                                gradcam_map = result
+                    except Exception as e:
+                        print(f"⚠️ GradCAM failed for {image_id}: {e}")
+
+                save_path = vis_dir / f"{image_id}.png"
+                try:
+                    visualize_detr_result(
+                        images[i],
+                        attn_map,
+                        pred_bboxes[i],
+                        pred_obj[i].squeeze(-1),
+                        gt_bbox_list,
+                        pred_class,
+                        gt_label,
+                        pred_prob,
+                        str(save_path),
+                        class_names,
+                        original_size,
+                        image_path=image_path,
+                        obj_threshold=obj_threshold,
+                        use_otsu=use_otsu,
+                        gradcam_map=gradcam_map,
+                    )
+                except Exception as e:
+                    print(f"⚠️ Error visualizing {image_id}: {e}")
+
+    print(f"✅ Saved visualizations to: {vis_dir}")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="DETR Inference on Image Folder")
     parser.add_argument(
-        "--input_root", type=str, required=True, help="Input folder with images"
+        "--input_root", type=str, default=None, help="Input folder with images"
+    )
+    parser.add_argument(
+        "--data_folder",
+        type=str,
+        default=None,
+        help="Dataset folder with metadata.csv (evaluation mode)",
     )
     parser.add_argument(
         "--model_path", type=str, required=True, help="Path to *_full.pth model"
@@ -299,7 +565,7 @@ if __name__ == "__main__":
         "--output_root",
         type=str,
         default=None,
-        help="Output folder (default: input_root_detr_predict)",
+        help="Output folder (default: input_root_detr_predict or data_folder_detr_eval)",
     )
     parser.add_argument("--device", type=str, default=None, help="Device (cuda/cpu)")
     parser.add_argument(
@@ -314,16 +580,56 @@ if __name__ == "__main__":
     parser.add_argument(
         "--class_names", type=str, nargs="+", default=None, help="Class names"
     )
+    parser.add_argument(
+        "--batch_size", type=int, default=16, help="Batch size for evaluation mode"
+    )
+    parser.add_argument(
+        "--config", type=str, default="config/config.yaml", help="Config file path"
+    )
+    parser.add_argument(
+        "--max_objects", type=int, default=3, help="Max objects per image"
+    )
+    parser.add_argument(
+        "--no_viz",
+        action="store_true",
+        help="Disable visualizations in evaluation mode",
+    )
 
     args = parser.parse_args()
 
-    detr_predict_folder(
-        input_root=args.input_root,
-        model_path=args.model_path,
-        output_root=args.output_root,
-        device=args.device,
-        obj_threshold=args.obj_threshold,
-        use_otsu=not args.no_otsu,
-        use_gradcam=not args.no_gradcam,  # GradCAM enabled by default
-        class_names=args.class_names,
-    )
+    # Validate arguments
+    if args.data_folder is None and args.input_root is None:
+        parser.error("Either --data_folder or --input_root must be provided")
+
+    if args.data_folder is not None and args.input_root is not None:
+        parser.error("Cannot use both --data_folder and --input_root together")
+
+    # Run in evaluation mode or inference mode
+    if args.data_folder:
+        print("🔬 Running in EVALUATION mode (with metadata.csv)...")
+        detr_evaluate_dataset(
+            data_folder=args.data_folder,
+            model_path=args.model_path,
+            output_root=args.output_root,
+            device=args.device,
+            obj_threshold=args.obj_threshold,
+            use_otsu=not args.no_otsu,
+            use_gradcam=not args.no_gradcam,
+            class_names=args.class_names,
+            batch_size=args.batch_size,
+            config_path=args.config,
+            max_objects=args.max_objects,
+            save_visualizations=not args.no_viz,
+        )
+    else:
+        print("🖼️ Running in INFERENCE mode (image folder)...")
+        detr_predict_folder(
+            input_root=args.input_root,
+            model_path=args.model_path,
+            output_root=args.output_root,
+            device=args.device,
+            obj_threshold=args.obj_threshold,
+            use_otsu=not args.no_otsu,
+            use_gradcam=not args.no_gradcam,
+            class_names=args.class_names,
+        )
