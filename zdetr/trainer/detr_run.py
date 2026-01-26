@@ -287,6 +287,137 @@ def detr_predict_folder(
     return out_root
 
 
+def _evaluate_from_dataframe(
+    model: nn.Module,
+    test_df,
+    data_folder_path: Path,
+    image_info: Dict,
+    class_names: List[str],
+    output_root: Path,
+    device: torch.device,
+    input_size: Tuple[int, int],
+    obj_threshold: float = 0.5,
+    use_otsu: bool = True,
+    use_gradcam: bool = False,
+    gradcam_layer: Optional[str] = None,
+):
+    """
+    Evaluate model directly from test_df without using dataloader
+    Processes each image individually to save predictions and visualizations
+    """
+    preprocess = build_preprocess(input_size)
+
+    rows_by_folder: Dict[Path, List[Dict[str, str]]] = {}
+
+    for idx, row in tqdm(
+        test_df.iterrows(), total=len(test_df), desc="Evaluating", unit="img"
+    ):
+        image_id = str(row["image_id"])
+        gt_label = int(row["label"])
+
+        # Get image info
+        if image_id not in image_info:
+            print(f"⚠️ Image {image_id} not found in image_info, skipping...")
+            continue
+
+        info = image_info[image_id]
+        img_path = Path(info["image_path"])
+        original_size = info["original_size"]
+        gt_bbox_list = info.get("bbx_list", None)
+
+        if not img_path.exists():
+            print(f"⚠️ Image file not found: {img_path}, skipping...")
+            continue
+
+        # Determine relative path for organizing outputs
+        rel_path = img_path.relative_to(data_folder_path)
+        rel_dir = rel_path.parent
+        out_dir = output_root / rel_dir
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        # Run prediction
+        result = predict_detr_image(
+            model,
+            img_path,
+            preprocess,
+            device,
+            obj_threshold=obj_threshold,
+            use_gradcam=use_gradcam,
+            gradcam_layer=gradcam_layer,
+        )
+
+        img = result["image"]
+        pred_class = result["pred_class"]
+        confidence = result["confidence"]
+        bboxes = result["bboxes"]
+        scores = result["scores"]
+        gradcam_map = result["gradcam_map"]
+
+        # Save original image
+        img.save(out_dir / f"{img_path.stem}.png", format="PNG")
+
+        # Save GradCAM + Otsu + bboxes with confidence
+        if gradcam_map is not None:
+            img_gradcam = overlay_gradcam_with_otsu(
+                img, gradcam_map, alpha=0.55, use_otsu=use_otsu
+            )
+            img_gradcam_bbox = draw_predicted_bboxes_on_pil(
+                img_gradcam, bboxes, scores, obj_threshold, width=5
+            )
+            img_gradcam_bbox.save(
+                out_dir / f"{img_path.stem}_gradcam.png", format="PNG"
+            )
+
+        # Record results
+        class_name = (
+            class_names[pred_class]
+            if pred_class < len(class_names)
+            else str(pred_class)
+        )
+        gt_class_name = (
+            class_names[gt_label] if gt_label < len(class_names) else str(gt_label)
+        )
+
+        rows_by_folder.setdefault(rel_dir, []).append(
+            {
+                "image_id": image_id,
+                "gt_label": str(gt_label),
+                "gt_class_name": gt_class_name,
+                "pred_label": str(pred_class),
+                "pred_class_name": class_name,
+                "confidence": f"{confidence:.6f}",
+                "num_objects": str(len(bboxes)),
+                "correct": str(int(pred_class == gt_label)),
+            }
+        )
+
+    # Write CSV per subfolder
+    for rel_dir, rows in rows_by_folder.items():
+        csv_path = (
+            (output_root / rel_dir / "predictions.csv")
+            if str(rel_dir) != "."
+            else (output_root / "predictions.csv")
+        )
+        with open(csv_path, "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(
+                f,
+                fieldnames=[
+                    "image_id",
+                    "gt_label",
+                    "gt_class_name",
+                    "pred_label",
+                    "pred_class_name",
+                    "confidence",
+                    "num_objects",
+                    "correct",
+                ],
+            )
+            w.writeheader()
+            w.writerows(rows)
+
+    print(f"✅ Saved prediction outputs to: {output_root}")
+
+
 def detr_evaluate_dataset(
     data_folder: str,
     model_path: str,
@@ -345,7 +476,6 @@ def detr_evaluate_dataset(
             str(data_folder_path), config_path, target_column=None
         )
         print("Test DF columns:", test_df.columns)
-
         print(f"✓ Evaluation samples: {len(test_df)}")
         print("First 5 'link' values:", test_df["link"].head(5).tolist())
 
@@ -355,25 +485,16 @@ def detr_evaluate_dataset(
             class_names = loaded_class_names
 
         print(f"✓ Found {len(class_names)} classes: {class_names}")
-        print(f"✓ Evaluation samples: {len(test_df)}")
-    except Exception as e:
-        print(f"⚠️ Error loading metadata: {e}")
-        print("Falling back to image inference mode...")
-        return detr_predict_folder(
-            str(data_folder_path),
-            model_path,
-            str(out_root),
-            device,
-            obj_threshold,
-            use_otsu,
-            use_gradcam,
-            class_names,
-        )
 
-    # Get dataloader - use empty train_df since we only need test data
+    except Exception as e:
+        print(f"❌ Error loading metadata: {e}")
+        print("Cannot proceed without valid metadata.csv")
+        raise
+
+    # Get dataloader for batch evaluation metrics
     img_size = tuple(input_size) if isinstance(input_size, list) else input_size
     _, eval_loader = get_detr_dataloaders(
-        test_df,  # Use test_df as train_df placeholder
+        test_df,
         test_df,
         str(data_folder_path),
         batch_size=batch_size,
@@ -383,9 +504,9 @@ def detr_evaluate_dataset(
         max_objects=max_objects,
     )
 
-    # Evaluate model
+    # Evaluate model for metrics
     print("\n" + "=" * 50)
-    print("Evaluation on Dataset (DETR)")
+    print("Computing Evaluation Metrics")
     print("=" * 50)
 
     results = evaluate_detr_model(model, eval_loader, dev)
@@ -420,30 +541,25 @@ def detr_evaluate_dataset(
                 writer.writerow([key, str(value)])
     print(f"\n✅ Saved metrics to: {metrics_path}")
 
-    # Generate visualizations if requested
-    if save_visualizations and use_gradcam:
-        print("\n" + "=" * 50)
-        print("Generating Visualizations")
-        print("=" * 50)
+    # Generate predictions and visualizations from test_df
+    print("\n" + "=" * 50)
+    print("Generating Predictions and Visualizations")
+    print("=" * 50)
 
-        vis_dir = out_root / "visualizations"
-        vis_dir.mkdir(parents=True, exist_ok=True)
-
-        _generate_eval_visualizations(
-            model,
-            eval_loader,
-            test_df,
-            image_info,
-            class_names,
-            vis_dir,
-            batch_size,
-            input_size,
-            obj_threshold,
-            use_otsu,
-            use_gradcam,
-            gradcam_layer,
-            dev,
-        )
+    _evaluate_from_dataframe(
+        model,
+        test_df,
+        data_folder_path,
+        image_info,
+        class_names,
+        out_root,
+        dev,
+        img_size,
+        obj_threshold,
+        use_otsu,
+        use_gradcam and save_visualizations,
+        gradcam_layer,
+    )
 
     return out_root, all_metrics
 
