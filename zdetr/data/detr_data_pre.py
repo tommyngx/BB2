@@ -321,6 +321,8 @@ def prepare_detr_dataframe(
         print(f"  Input: {len(df)} annotations")
     # Loại bỏ bbox quá lớn
     df = remove_large_bboxes(df, area_ratio_thresh=0.9)
+    print(f"  After removing large bboxes: {len(df)} annotations")
+    print(unique_patients(df))
 
     # Group bboxes using vectorized operations
     df_grouped = group_bboxes_by_image_vectorized(
