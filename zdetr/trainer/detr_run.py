@@ -344,7 +344,7 @@ def detr_evaluate_dataset(
         train_df, test_df, loaded_class_names = load_detr_metadata(
             str(data_folder_path), config_path, target_column=None
         )
-        print(test_df.head())
+        print(test_df.columns)
 
         print(f"✓ Evaluation samples: {len(test_df)}")
 
