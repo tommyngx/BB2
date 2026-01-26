@@ -309,6 +309,8 @@ def _evaluate_from_dataframe(
     preprocess = build_preprocess(input_size)
 
     rows_by_folder: Dict[Path, List[Dict[str, str]]] = {}
+    print(f"[DEBUG] Number of test samples: {len(test_df)} ")
+    print(test_df.columns)
 
     for idx, row in tqdm(
         test_df.iterrows(), total=len(test_df), desc="Evaluating", unit="img"
