@@ -345,47 +345,6 @@ def detr_evaluate_dataset(
             str(data_folder_path), config_path, target_column=None
         )
 
-        # Filter to only test split
-        if "split" in test_df.columns:
-            test_df = test_df[test_df["split"] == "test"].copy()
-            print(f"✓ Filtered to test split only")
-        else:
-            test_df = test_df.copy()
-
-        # Deduplicate based on link or image_path column FIRST
-        dedup_column = None
-        if "link" in test_df.columns:
-            dedup_column = "link"
-        elif "image_path" in test_df.columns:
-            dedup_column = "image_path"
-
-        if dedup_column:
-            original_len = len(test_df)
-            test_df = test_df.drop_duplicates(
-                subset=[dedup_column], keep="first"
-            ).copy()
-            removed = original_len - len(test_df)
-            if removed > 0:
-                print(
-                    f"✓ Removed {removed} duplicate entries based on '{dedup_column}'"
-                )
-
-        # THEN ensure required columns exist (copy if needed and available)
-        if "image_width" in test_df.columns:
-            if "img_width" not in test_df.columns:
-                test_df["img_width"] = test_df["image_width"]
-
-        if "image_height" in test_df.columns:
-            if "img_height" not in test_df.columns:
-                test_df["img_height"] = test_df["image_height"]
-
-        if "image_path" in test_df.columns:
-            if "link" not in test_df.columns:
-                test_df["link"] = test_df["image_path"]
-        elif "link" in test_df.columns:
-            if "image_path" not in test_df.columns:
-                test_df["image_path"] = test_df["link"]
-
         print(f"✓ Evaluation samples: {len(test_df)}")
 
         _, _, image_info = load_image_metadata_with_bboxes(str(data_folder_path))
