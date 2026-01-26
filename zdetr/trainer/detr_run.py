@@ -475,9 +475,6 @@ def detr_evaluate_dataset(
         train_df, test_df, loaded_class_names = load_detr_metadata(
             str(data_folder_path), config_path, target_column=None
         )
-        print("Test DF columns:", test_df.columns)
-        print(f"✓ Evaluation samples: {len(test_df)}")
-        print("First 5 'link' values:", test_df["link"].head(5).tolist())
 
         _, _, image_info = load_image_metadata_with_bboxes(str(data_folder_path))
 
