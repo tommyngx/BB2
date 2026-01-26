@@ -424,6 +424,22 @@ def prepare_detr_from_metadata(
     # Load raw metadata
     df_raw = pd.read_csv(metadata_path)
 
+    # THEN ensure required columns exist (copy if needed and available)
+    if "image_width" in df_raw.columns:
+        if "img_width" not in df_raw.columns:
+            df_raw["img_width"] = df_raw["image_width"]
+
+    if "image_height" in df_raw.columns:
+        if "img_height" not in df_raw.columns:
+            df_raw["img_height"] = df_raw["image_height"]
+
+    if "image_path" in df_raw.columns:
+        if "link" not in df_raw.columns:
+            df_raw["link"] = df_raw["image_path"]
+    elif "link" in df_raw.columns:
+        if "image_path" not in df_raw.columns:
+            df_raw["image_path"] = df_raw["link"]
+
     if verbose:
         print(f"📂 Loading: {metadata_path}")
         print(f"  Raw rows: {len(df_raw)}")
