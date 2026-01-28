@@ -1215,38 +1215,41 @@ class MILClassifierV10(nn.Module):
 
 class MILClassifierV11(nn.Module):
     """
-    MILClassifierV11Lite: Phiên bản nhỏ gọn, nhẹ, dễ train (giống V4 nhưng cải thiện attention)
-    - Single base_model cho cả local & global
-    - Global làm query attend local (cross-attention đơn giản)
-    - Fusion: 'concat' (default) hoặc 'fuse' (adaptive gate)
-    - Giảm chiều, ít heads, bỏ top-k mặc định → train nhanh, ít overfit
-    - Lý tưởng khi V11 cũ ì ạch / nặng
+    MILClassifierV11Lite: Phiên bản nhẹ, dễ train cho MIL + Global
+    - Single backbone cho cả local patches và global image
+    - Global feature làm query attend local patches qua cross-attention (đơn giản, hiệu quả)
+    - Fusion: concat (default) hoặc adaptive fuse
+    - Đã fix lỗi non-contiguous bằng .reshape() / .contiguous()
+    - Nhẹ: hidden_dim=256 (có thể giảm xuống 128 nếu cần), dropout cao để ổn định
+    - Hỗ trợ mask cho patches invalid
     """
 
     def __init__(
         self,
-        base_model: nn.Module,  # Backbone chung (e.g. ResNet50)
-        feature_dim: int,  # Output dim của base_model (e.g. 2048)
+        base_model: nn.Module,  # Backbone chung (e.g., ResNet50, EfficientNet, ViT)
+        feature_dim: int,  # Output dim của base_model (e.g., 2048 cho ResNet50)
         num_classes: int = 1,
-        hidden_dim: int = 256,  # Dim projection & fusion (nhỏ để nhẹ)
-        num_heads: int = 4,  # Heads cho cross-attn (giảm nếu nặng)
-        dropout: float = 0.4,  # Dropout cao để ổn định
+        hidden_dim: int = 256,  # Dim sau projection (giảm để nhẹ)
+        num_heads: int = 4,  # Số heads cross-attn (giảm nếu nặng)
+        dropout: float = 0.4,
         fusion: str = "concat",  # 'concat' hoặc 'fuse'
-        use_residual: bool = True,  # Thêm residual cho gradient chảy tốt
+        use_residual: bool = True,  # Residual nhẹ cho gradient tốt
     ):
         super().__init__()
-        assert fusion in ["concat", "fuse"]
+        assert fusion in ["concat", "fuse"], "fusion phải là 'concat' hoặc 'fuse'"
+
         self.base_model = base_model
         self.feature_dim = feature_dim
         self.hidden_dim = hidden_dim
         self.fusion = fusion
+        self.use_residual = use_residual
 
-        # Projection chung (nhẹ: chỉ linear + ReLU)
+        # Projection chung (nhẹ: linear + ReLU + dropout)
         self.proj = nn.Sequential(
             nn.Linear(feature_dim, hidden_dim), nn.ReLU(), nn.Dropout(dropout)
         )
 
-        # Cross-attention nhẹ: global query attend local
+        # Cross-attention: global query attend local
         self.cross_attn = nn.MultiheadAttention(
             embed_dim=hidden_dim,
             num_heads=num_heads,
@@ -1255,11 +1258,12 @@ class MILClassifierV11(nn.Module):
             add_bias_kv=False,  # Tiết kiệm tham số
         )
 
+        # Fusion layer
         if fusion == "concat":
             self.fusion_layer = nn.Sequential(
                 nn.Linear(hidden_dim * 2, hidden_dim), nn.ReLU(), nn.Dropout(dropout)
             )
-        else:  # 'fuse' - adaptive gate
+        else:  # 'fuse'
             self.fusion_gate = nn.Sequential(
                 nn.Linear(hidden_dim * 2, hidden_dim),
                 nn.ReLU(),
@@ -1267,7 +1271,7 @@ class MILClassifierV11(nn.Module):
                 nn.Softmax(dim=-1),
             )
 
-        # Head classifier (nhỏ)
+        # Head classifier (nhỏ gọn)
         self.head = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim // 2),
             nn.ReLU(),
@@ -1275,10 +1279,10 @@ class MILClassifierV11(nn.Module):
             nn.Linear(hidden_dim // 2, num_classes),
         )
 
-        self.use_residual = use_residual
         self._init_weights()
 
     def _init_weights(self):
+        """Khởi tạo weights tốt để train ổn định"""
         for m in self.modules():
             if isinstance(m, nn.Linear):
                 nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
@@ -1286,6 +1290,7 @@ class MILClassifierV11(nn.Module):
                     nn.init.constant_(m.bias, 0.0)
 
     def _encode(self, x: torch.Tensor) -> torch.Tensor:
+        """Encode bằng base_model, flatten nếu cần"""
         feats = self.base_model(x)
         if feats.dim() == 4:
             feats = F.adaptive_avg_pool2d(feats, 1).squeeze(-1).squeeze(-1)
@@ -1293,34 +1298,38 @@ class MILClassifierV11(nn.Module):
 
     def forward(
         self,
-        x_patches: torch.Tensor,  # (B, N+1, C, H, W)
-        mask: Optional[torch.Tensor] = None,  # (B, N)
+        x_patches: torch.Tensor,  # (B, N+1, C, H, W) - last là global
+        mask: Optional[torch.Tensor] = None,  # (B, N) - optional mask invalid patches
     ) -> torch.Tensor:
+        # Fix an toàn: đảm bảo contiguous ngay từ đầu
+        x_patches = x_patches.contiguous()
+
         B, N_plus1, C, H, W = x_patches.shape
         N = N_plus1 - 1
 
         x_local = x_patches[:, :N]  # (B, N, C, H, W)
         x_global = x_patches[:, -1]  # (B, C, H, W)
 
-        # Encode & project
+        # Encode global (main path)
         feat_g = self._encode(x_global)  # (B, feature_dim)
         feat_g = self.proj(feat_g)  # (B, hidden_dim)
 
-        feat_l_flat = x_local.view(-1, C, H, W)
+        # Encode local patches - dùng reshape để tránh lỗi non-contiguous
+        feat_l_flat = x_local.reshape(-1, C, H, W)  # (B*N, C, H, W)
         feat_l = self._encode(feat_l_flat)  # (B*N, feature_dim)
         feat_l = feat_l.view(B, N, -1)  # (B, N, feature_dim)
         feat_l = self.proj(feat_l)  # (B, N, hidden_dim)
 
-        # Cross-attn: global làm query
+        # Cross-attention: global làm query attend local
         feat_g_q = feat_g.unsqueeze(1)  # (B, 1, hidden_dim)
         pooled_local, _ = self.cross_attn(
             query=feat_g_q, key=feat_l, value=feat_l, key_padding_mask=mask
         )
         pooled_local = pooled_local.squeeze(1)  # (B, hidden_dim)
 
-        # Residual nếu bật (giúp gradient chảy tốt)
+        # Residual nhẹ (giúp gradient chảy tốt hơn)
         if self.use_residual:
-            pooled_local = pooled_local + feat_g * 0.5  # residual nhẹ
+            pooled_local = pooled_local + feat_g * 0.5
 
         # Fusion
         if self.fusion == "concat":
@@ -1331,5 +1340,6 @@ class MILClassifierV11(nn.Module):
             gate_weights = self.fusion_gate(gate_in)  # (B, 2)
             fused = gate_weights[:, 0:1] * pooled_local + gate_weights[:, 1:2] * feat_g
 
+        # Classification
         logits = self.head(fused)
         return logits
