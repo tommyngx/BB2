@@ -18,6 +18,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="dinov2")
 def freeze_backbone_except_last_n_layers(model, n_layers=2):
     """
     Freeze all layers except the last n layers.
+    For models with 'stages' (ConvNeXt, Swin, etc.), freeze half of the stages.
     Args:
         model: The backbone model
         n_layers: Number of layers to keep unfrozen from the end (default: 2)
@@ -26,7 +27,41 @@ def freeze_backbone_except_last_n_layers(model, n_layers=2):
     if n_layers is None or n_layers <= 0:
         return
 
-    # Get all children modules
+    # Check if model has stages (ConvNeXt, Swin, etc.)
+    if hasattr(model, "stages") and hasattr(model.stages, "__len__"):
+        stages = model.stages
+        num_stages = len(stages)
+
+        # Freeze half of the stages (rounded down)
+        n_freeze_stages = num_stages // 2
+        n_trainable_stages = num_stages - n_freeze_stages
+
+        print(f"\n🔒 Freezing Backbone (Stage-based Model):")
+        print(f"   Total stages: {num_stages}")
+        print(f"   Frozen stages: {n_freeze_stages}")
+        print(f"   Trainable stages: {n_trainable_stages}")
+
+        # Freeze first half of stages
+        for i, stage in enumerate(stages):
+            if i < n_freeze_stages:
+                for param in stage.parameters():
+                    param.requires_grad = False
+                print(f"   ❄️  Stage {i}: FROZEN")
+            else:
+                for param in stage.parameters():
+                    param.requires_grad = True
+                print(f"   🔥 Stage {i}: TRAINABLE")
+
+        # Also freeze stem if exists
+        if hasattr(model, "stem"):
+            for param in model.stem.parameters():
+                param.requires_grad = False
+            print(f"   ❄️  Stem: FROZEN")
+
+        print()
+        return
+
+    # Original behavior for non-stage models
     children = list(model.children())
 
     if len(children) == 0:
