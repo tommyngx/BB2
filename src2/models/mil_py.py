@@ -1213,19 +1213,7 @@ class MILClassifierV10(nn.Module):
         return logits
 
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from typing import Optional
-
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from typing import Optional
-
-
-class MILClassifierV11Lite(nn.Module):
+class MILClassifierV11(nn.Module):
     """
     MILClassifierV11Lite: Phiên bản nhỏ gọn, nhẹ, dễ train (giống V4 nhưng cải thiện attention)
     - Single base_model cho cả local & global
