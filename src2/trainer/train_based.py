@@ -283,7 +283,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--freeze_backbone_except_last_n",
         type=int,
-        default=4,
+        default=5,
         help="Freeze all layers except last n layers. None = no freezing",
     )
 
