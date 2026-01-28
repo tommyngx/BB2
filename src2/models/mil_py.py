@@ -1219,65 +1219,76 @@ import torch.nn.functional as F
 from typing import Optional
 
 
-class MILClassifierV11(nn.Module):
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from typing import Optional
+
+
+class MILClassifierV11Lite(nn.Module):
     """
-    MILClassifierV11: Simplified & Effective MIL with Global-Driven Attention
-    - Global feature làm query để attend local patches (cross-attention)
-    - Pool local bằng cross-attn (rất gọn, hiệu quả hơn gated attention)
-    - Concat pooled_local + global → classify
-    - Ưu tiên global, local chỉ bổ trợ nhưng được chọn lọc theo global context
-    - Hỗ trợ mask cho patches invalid
+    MILClassifierV11Lite: Phiên bản nhỏ gọn, nhẹ, dễ train (giống V4 nhưng cải thiện attention)
+    - Single base_model cho cả local & global
+    - Global làm query attend local (cross-attention đơn giản)
+    - Fusion: 'concat' (default) hoặc 'fuse' (adaptive gate)
+    - Giảm chiều, ít heads, bỏ top-k mặc định → train nhanh, ít overfit
+    - Lý tưởng khi V11 cũ ì ạch / nặng
     """
 
     def __init__(
         self,
-        base_model: nn.Module,  # Backbone chung (e.g., ResNet50, ViT, EfficientNet)
-        feature_dim: int,  # Output dim của base_model (e.g., 2048 cho ResNet50)
+        base_model: nn.Module,  # Backbone chung (e.g. ResNet50)
+        feature_dim: int,  # Output dim của base_model (e.g. 2048)
         num_classes: int = 1,
-        attn_dim: int = 512,  # Dim sau projection (giảm để tiết kiệm)
-        num_heads: int = 4,  # Số heads cho cross-attn
-        dropout: float = 0.3,
-        top_k: Optional[
-            int
-        ] = None,  # Nếu != None, chỉ attend top-K patches (giảm noise)
+        hidden_dim: int = 256,  # Dim projection & fusion (nhỏ để nhẹ)
+        num_heads: int = 4,  # Heads cho cross-attn (giảm nếu nặng)
+        dropout: float = 0.4,  # Dropout cao để ổn định
+        fusion: str = "concat",  # 'concat' hoặc 'fuse'
+        use_residual: bool = True,  # Thêm residual cho gradient chảy tốt
     ):
         super().__init__()
+        assert fusion in ["concat", "fuse"]
         self.base_model = base_model
         self.feature_dim = feature_dim
-        self.attn_dim = attn_dim
-        self.top_k = top_k
+        self.hidden_dim = hidden_dim
+        self.fusion = fusion
 
-        # Projection chung cho local & global (giảm chiều + norm)
+        # Projection chung (nhẹ: chỉ linear + ReLU)
         self.proj = nn.Sequential(
-            nn.Linear(feature_dim, attn_dim),
-            nn.LayerNorm(attn_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout),
+            nn.Linear(feature_dim, hidden_dim), nn.ReLU(), nn.Dropout(dropout)
         )
 
-        # Cross-attention: global làm query, local patches làm key/value
+        # Cross-attention nhẹ: global query attend local
         self.cross_attn = nn.MultiheadAttention(
-            embed_dim=attn_dim, num_heads=num_heads, dropout=0.1, batch_first=True
+            embed_dim=hidden_dim,
+            num_heads=num_heads,
+            dropout=0.1,
+            batch_first=True,
+            add_bias_kv=False,  # Tiết kiệm tham số
         )
 
-        # Fusion & head sau concat
-        self.fusion_head = nn.Sequential(
-            nn.Linear(attn_dim * 2, attn_dim),
+        if fusion == "concat":
+            self.fusion_layer = nn.Sequential(
+                nn.Linear(hidden_dim * 2, hidden_dim), nn.ReLU(), nn.Dropout(dropout)
+            )
+        else:  # 'fuse' - adaptive gate
+            self.fusion_gate = nn.Sequential(
+                nn.Linear(hidden_dim * 2, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, 2),
+                nn.Softmax(dim=-1),
+            )
+
+        # Head classifier (nhỏ)
+        self.head = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim // 2),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(attn_dim, num_classes),
+            nn.Linear(hidden_dim // 2, num_classes),
         )
 
-        # Optional scorer nếu dùng top-K
-        if top_k is not None:
-            self.patch_scorer = nn.Linear(attn_dim, 1)
-
-        # Init weights
+        self.use_residual = use_residual
         self._init_weights()
-
-        # Để lưu debug nếu cần
-        self.last_attn_weights = None
-        self.last_pooled_local = None
 
     def _init_weights(self):
         for m in self.modules():
@@ -1285,24 +1296,17 @@ class MILClassifierV11(nn.Module):
                 nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0.0)
-            elif isinstance(m, nn.MultiheadAttention):
-                for name, param in m.named_parameters():
-                    if "weight" in name:
-                        nn.init.kaiming_normal_(param, mode="fan_out")
-                    elif "bias" in name:
-                        nn.init.constant_(param, 0.0)
 
     def _encode(self, x: torch.Tensor) -> torch.Tensor:
-        """Encode images/patches bằng base_model"""
         feats = self.base_model(x)
         if feats.dim() == 4:
             feats = F.adaptive_avg_pool2d(feats, 1).squeeze(-1).squeeze(-1)
-        return feats  # (B, feature_dim) hoặc (B*N, feature_dim)
+        return feats
 
     def forward(
         self,
-        x_patches: torch.Tensor,  # (B, N+1, C, H, W) - last là global
-        mask: Optional[torch.Tensor] = None,  # (B, N) - mask invalid patches
+        x_patches: torch.Tensor,  # (B, N+1, C, H, W)
+        mask: Optional[torch.Tensor] = None,  # (B, N)
     ) -> torch.Tensor:
         B, N_plus1, C, H, W = x_patches.shape
         N = N_plus1 - 1
@@ -1310,47 +1314,34 @@ class MILClassifierV11(nn.Module):
         x_local = x_patches[:, :N]  # (B, N, C, H, W)
         x_global = x_patches[:, -1]  # (B, C, H, W)
 
-        # Encode global (main feature)
+        # Encode & project
         feat_g = self._encode(x_global)  # (B, feature_dim)
-        feat_g = self.proj(feat_g)  # (B, attn_dim)
+        feat_g = self.proj(feat_g)  # (B, hidden_dim)
 
-        # Encode local patches
-        feat_l_flat = x_local.contiguous().view(-1, C, H, W)
+        feat_l_flat = x_local.view(-1, C, H, W)
         feat_l = self._encode(feat_l_flat)  # (B*N, feature_dim)
         feat_l = feat_l.view(B, N, -1)  # (B, N, feature_dim)
-        feat_l = self.proj(feat_l)  # (B, N, attn_dim)
+        feat_l = self.proj(feat_l)  # (B, N, hidden_dim)
 
-        # Optional: Top-K selection để giảm noise
-        if self.top_k is not None:
-            scores = self.patch_scorer(feat_l).squeeze(-1)  # (B, N)
-            if mask is not None:
-                scores = scores.masked_fill(mask, -1e9)
-            _, topk_idx = torch.topk(scores, k=min(self.top_k, N), dim=1)  # (B, k)
-            feat_l = torch.gather(
-                feat_l, 1, topk_idx.unsqueeze(-1).expand(-1, -1, self.attn_dim)
-            )  # (B, k, attn_dim)
-            N_selected = feat_l.size(1)
-        else:
-            N_selected = N
-
-        # Cross-attention: global làm query attend local
-        feat_g_q = feat_g.unsqueeze(1)  # (B, 1, attn_dim)
-        pooled_local, attn_weights = self.cross_attn(
-            query=feat_g_q,
-            key=feat_l,
-            value=feat_l,
-            key_padding_mask=mask
-            if self.top_k is None
-            else None,  # chỉ mask khi không top-k
+        # Cross-attn: global làm query
+        feat_g_q = feat_g.unsqueeze(1)  # (B, 1, hidden_dim)
+        pooled_local, _ = self.cross_attn(
+            query=feat_g_q, key=feat_l, value=feat_l, key_padding_mask=mask
         )
-        pooled_local = pooled_local.squeeze(1)  # (B, attn_dim)
+        pooled_local = pooled_local.squeeze(1)  # (B, hidden_dim)
 
-        # Fusion: concat global + pooled_local
-        fused = torch.cat([pooled_local, feat_g], dim=1)  # (B, attn_dim*2)
-        logits = self.fusion_head(fused)
+        # Residual nếu bật (giúp gradient chảy tốt)
+        if self.use_residual:
+            pooled_local = pooled_local + feat_g * 0.5  # residual nhẹ
 
-        # Lưu để debug/visualize nếu cần
-        self.last_attn_weights = attn_weights.detach()
-        self.last_pooled_local = pooled_local.detach()
+        # Fusion
+        if self.fusion == "concat":
+            fused = torch.cat([pooled_local, feat_g], dim=1)
+            fused = self.fusion_layer(fused)
+        else:  # 'fuse'
+            gate_in = torch.cat([pooled_local, feat_g], dim=1)
+            gate_weights = self.fusion_gate(gate_in)  # (B, 2)
+            fused = gate_weights[:, 0:1] * pooled_local + gate_weights[:, 1:2] * feat_g
 
+        logits = self.head(fused)
         return logits
