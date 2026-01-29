@@ -260,7 +260,7 @@ def get_gradcam_layer_patch(model, model_name, arch_type):
             if hasattr(model.base_model, "layer4"):
                 return "base_model.layer4"
             elif hasattr(model.base_model, "stages"):
-                return "base_model.stages.3"
+                return "base_model.stages.3.blocks.2.conv_dw"
             elif hasattr(model.base_model, "blocks"):
                 return "base_model.blocks.5"
         # # Try feature_extractor (older MIL versions)
