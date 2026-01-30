@@ -389,28 +389,16 @@ def _evaluate_from_dataframe(
         # Try to draw ground truth bboxes if available
         try:
             if gt_bbox_list is not None and len(gt_bbox_list) > 0:
-                # Check if bbox is already pixel coordinates (values > 1.5 or < -1.5)
-                bbox0 = gt_bbox_list[0]
-                is_pixel_bbox = max(abs(float(x)) for x in bbox0) > 1.5
-
+                # Assume GT format is [x, y, w, h] in pixel (xywh)
+                gt_pixel_bboxes = []
                 for idx_gt, bbox in enumerate(gt_bbox_list):
-                    print(f"[DEBUG] GT bbox {idx_gt} (raw): {bbox}")
-
-                if is_pixel_bbox:
-                    # Already pixel coordinates [x1, y1, x2, y2]
-                    gt_pixel_bboxes = [
-                        tuple(int(float(x)) for x in bbox) for bbox in gt_bbox_list
-                    ]
-                else:
-                    # Normalized coordinates [cx, cy, w, h] -> convert to pixel
-                    gt_pixel_bboxes = [
-                        rescale_bbox(np.array([float(x) for x in bbox]), original_size)
-                        for bbox in gt_bbox_list
-                    ]
-
-                for idx_gt, bbox in enumerate(gt_pixel_bboxes):
-                    print(f"[DEBUG] GT bbox {idx_gt} (pixel): {bbox}")
-
+                    x, y, w, h = [int(float(v)) for v in bbox]
+                    x2 = x + w
+                    y2 = y + h
+                    gt_pixel_bboxes.append((x, y, x2, y2))
+                    print(
+                        f"[DEBUG] GT bbox {idx_gt} (xywh): ({x}, {y}, {w}, {h}) -> (x1={x}, y1={y}, x2={x2}, y2={y2})"
+                    )
                 gt_scores = [1.0] * len(gt_pixel_bboxes)
                 img_gt = img.copy()
                 img_gt_bbox = draw_predicted_bboxes_on_pil(
@@ -439,28 +427,15 @@ def _evaluate_from_dataframe(
 
                 try:
                     if gt_bbox_list is not None and len(gt_bbox_list) > 0:
-                        bbox0 = gt_bbox_list[0]
-                        is_pixel_bbox = max(abs(float(x)) for x in bbox0) > 1.5
-
+                        gt_pixel_bboxes = []
                         for idx_gt, bbox in enumerate(gt_bbox_list):
-                            print(f"[DEBUG] GT bbox {idx_gt} (raw, gradcam): {bbox}")
-
-                        if is_pixel_bbox:
-                            gt_pixel_bboxes = [
-                                tuple(int(float(x)) for x in bbox)
-                                for bbox in gt_bbox_list
-                            ]
-                        else:
-                            gt_pixel_bboxes = [
-                                rescale_bbox(
-                                    np.array([float(x) for x in bbox]), original_size
-                                )
-                                for bbox in gt_bbox_list
-                            ]
-
-                        for idx_gt, bbox in enumerate(gt_pixel_bboxes):
-                            print(f"[DEBUG] GT bbox {idx_gt} (pixel, gradcam): {bbox}")
-
+                            x, y, w, h = [int(float(v)) for v in bbox]
+                            x2 = x + w
+                            y2 = y + h
+                            gt_pixel_bboxes.append((x, y, x2, y2))
+                            print(
+                                f"[DEBUG] GT bbox {idx_gt} (xywh, gradcam): ({x}, {y}, {w}, {h}) -> (x1={x}, y1={y}, x2={x2}, y2={y2})"
+                            )
                         gt_scores = [1.0] * len(gt_pixel_bboxes)
                         img_gradcam_gt = overlay_gradcam_with_otsu(
                             img, gradcam_map, alpha=0.55, use_otsu=use_otsu
@@ -798,31 +773,16 @@ def _generate_eval_visualizations(
                 # Try to draw ground truth bboxes if available
                 try:
                     if gt_bbox_list is not None and len(gt_bbox_list) > 0:
-                        # Check if bbox is already pixel coordinates (values > 1.5 or < -1.5)
-                        bbox0 = gt_bbox_list[0]
-                        is_pixel_bbox = max(abs(float(x)) for x in bbox0) > 1.5
-
+                        # Assume GT format is [x, y, w, h] in pixel (xywh)
+                        gt_pixel_bboxes = []
                         for idx_gt, bbox in enumerate(gt_bbox_list):
-                            print(f"[DEBUG] GT bbox {idx_gt} (raw): {bbox}")
-
-                        if is_pixel_bbox:
-                            # Already pixel coordinates [x1, y1, x2, y2]
-                            gt_pixel_bboxes = [
-                                tuple(int(float(x)) for x in bbox)
-                                for bbox in gt_bbox_list
-                            ]
-                        else:
-                            # Normalized coordinates [cx, cy, w, h] -> convert to pixel
-                            gt_pixel_bboxes = [
-                                rescale_bbox(
-                                    np.array([float(x) for x in bbox]), original_size
-                                )
-                                for bbox in gt_bbox_list
-                            ]
-
-                        for idx_gt, bbox in enumerate(gt_pixel_bboxes):
-                            print(f"[DEBUG] GT bbox {idx_gt} (pixel): {bbox}")
-
+                            x, y, w, h = [int(float(v)) for v in bbox]
+                            x2 = x + w
+                            y2 = y + h
+                            gt_pixel_bboxes.append((x, y, x2, y2))
+                            print(
+                                f"[DEBUG] GT bbox {idx_gt} (xywh): ({x}, {y}, {w}, {h}) -> (x1={x}, y1={y}, x2={x2}, y2={y2})"
+                            )
                         gt_scores = [1.0] * len(gt_pixel_bboxes)
                         img_gt = img.copy()
                         img_gt_bbox = draw_predicted_bboxes_on_pil(
@@ -851,33 +811,15 @@ def _generate_eval_visualizations(
 
                         try:
                             if gt_bbox_list is not None and len(gt_bbox_list) > 0:
-                                bbox0 = gt_bbox_list[0]
-                                is_pixel_bbox = max(abs(float(x)) for x in bbox0) > 1.5
-
+                                gt_pixel_bboxes = []
                                 for idx_gt, bbox in enumerate(gt_bbox_list):
+                                    x, y, w, h = [int(float(v)) for v in bbox]
+                                    x2 = x + w
+                                    y2 = y + h
+                                    gt_pixel_bboxes.append((x, y, x2, y2))
                                     print(
-                                        f"[DEBUG] GT bbox {idx_gt} (raw, gradcam): {bbox}"
+                                        f"[DEBUG] GT bbox {idx_gt} (xywh, gradcam): ({x}, {y}, {w}, {h}) -> (x1={x}, y1={y}, x2={x2}, y2={y2})"
                                     )
-
-                                if is_pixel_bbox:
-                                    gt_pixel_bboxes = [
-                                        tuple(int(float(x)) for x in bbox)
-                                        for bbox in gt_bbox_list
-                                    ]
-                                else:
-                                    gt_pixel_bboxes = [
-                                        rescale_bbox(
-                                            np.array([float(x) for x in bbox]),
-                                            original_size,
-                                        )
-                                        for bbox in gt_bbox_list
-                                    ]
-
-                                for idx_gt, bbox in enumerate(gt_pixel_bboxes):
-                                    print(
-                                        f"[DEBUG] GT bbox {idx_gt} (pixel, gradcam): {bbox}"
-                                    )
-
                                 gt_scores = [1.0] * len(gt_pixel_bboxes)
                                 img_gradcam_gt = overlay_gradcam_with_otsu(
                                     img, gradcam_map, alpha=0.55, use_otsu=use_otsu
