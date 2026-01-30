@@ -390,9 +390,8 @@ def _evaluate_from_dataframe(
                     gt_scores,
                     threshold=0.0,
                     width=5,
-                    color=(0, 255, 0),
                 )
-                img_gt_bbox.save(out_dir / f"{img_path.stem}.png", format="PNG")
+                img_gt_bbox.save(out_dir / f"{img_path.stem}_gt.png", format="PNG")
         except Exception as e:
             print(f"[DEBUG] Error drawing/saving ground truth bboxes: {e}")
 
@@ -409,7 +408,7 @@ def _evaluate_from_dataframe(
                     out_dir / f"{img_path.stem}_gradcam.png", format="PNG"
                 )
 
-                # Try to also draw GT bboxes on GradCAM image
+                # Try to also draw GT bboxes on GradCAM image for comparison
                 try:
                     if gt_bbox_list is not None and len(gt_bbox_list) > 0:
                         gt_pixel_bboxes = [
@@ -417,16 +416,18 @@ def _evaluate_from_dataframe(
                         ]
                         gt_scores = [1.0] * len(gt_pixel_bboxes)
 
-                        # Draw both predicted (red) and GT (green) bboxes
-                        img_gradcam_both = draw_predicted_bboxes_on_pil(
-                            img_gradcam,
+                        # Draw GT bboxes on a separate GradCAM image
+                        img_gradcam_gt = overlay_gradcam_with_otsu(
+                            img, gradcam_map, alpha=0.55, use_otsu=use_otsu
+                        )
+                        img_gradcam_gt_bbox = draw_predicted_bboxes_on_pil(
+                            img_gradcam_gt,
                             gt_pixel_bboxes,
                             gt_scores,
                             threshold=0.0,
                             width=5,
-                            color=(255, 111, 0),
                         )
-                        img_gradcam_both.save(
+                        img_gradcam_gt_bbox.save(
                             out_dir / f"{img_path.stem}_gradcam.png",
                             format="PNG",
                         )
