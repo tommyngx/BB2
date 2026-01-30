@@ -391,7 +391,7 @@ def _evaluate_from_dataframe(
                     threshold=0.0,
                     width=5,
                 )
-                img_gt_bbox.save(out_dir / f"{img_path.stem}_gt.png", format="PNG")
+                img_gt_bbox.save(out_dir / f"{img_path.stem}.png", format="PNG")
         except Exception as e:
             print(f"[DEBUG] Error drawing/saving ground truth bboxes: {e}")
 
