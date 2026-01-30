@@ -373,6 +373,29 @@ def _evaluate_from_dataframe(
         except Exception as e:
             print(f"[DEBUG] Error saving original image: {e}")
 
+        # Try to draw ground truth bboxes if available
+        try:
+            if gt_bbox_list is not None and len(gt_bbox_list) > 0:
+                # Convert GT bboxes to pixel coordinates
+                gt_pixel_bboxes = [
+                    rescale_bbox(bbox, original_size) for bbox in gt_bbox_list
+                ]
+                gt_scores = [1.0] * len(gt_pixel_bboxes)  # GT boxes have confidence 1.0
+
+                # Draw GT bboxes on original image (green color for GT)
+                img_gt = img.copy()
+                img_gt_bbox = draw_predicted_bboxes_on_pil(
+                    img_gt,
+                    gt_pixel_bboxes,
+                    gt_scores,
+                    threshold=0.0,
+                    width=5,
+                    color=(0, 255, 0),
+                )
+                img_gt_bbox.save(out_dir / f"{img_path.stem}.png", format="PNG")
+        except Exception as e:
+            print(f"[DEBUG] Error drawing/saving ground truth bboxes: {e}")
+
         # Save GradCAM + Otsu + bboxes with confidence
         if gradcam_map is not None:
             try:
@@ -385,6 +408,31 @@ def _evaluate_from_dataframe(
                 img_gradcam_bbox.save(
                     out_dir / f"{img_path.stem}_gradcam.png", format="PNG"
                 )
+
+                # Try to also draw GT bboxes on GradCAM image
+                try:
+                    if gt_bbox_list is not None and len(gt_bbox_list) > 0:
+                        gt_pixel_bboxes = [
+                            rescale_bbox(bbox, original_size) for bbox in gt_bbox_list
+                        ]
+                        gt_scores = [1.0] * len(gt_pixel_bboxes)
+
+                        # Draw both predicted (red) and GT (green) bboxes
+                        img_gradcam_both = draw_predicted_bboxes_on_pil(
+                            img_gradcam,
+                            gt_pixel_bboxes,
+                            gt_scores,
+                            threshold=0.0,
+                            width=5,
+                            color=(255, 111, 0),
+                        )
+                        img_gradcam_both.save(
+                            out_dir / f"{img_path.stem}_gradcam.png",
+                            format="PNG",
+                        )
+                except Exception as e:
+                    print(f"[DEBUG] Error drawing GT bboxes on GradCAM: {e}")
+
             except Exception as e:
                 print(f"[DEBUG] Error saving gradcam image: {e}")
 
