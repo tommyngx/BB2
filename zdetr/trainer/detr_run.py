@@ -338,17 +338,14 @@ def _evaluate_from_dataframe(
         img_path = Path(info["image_path"])
         original_size = info["original_size"]
         gt_bbox_list = info.get("bbx_list", None)
-        # print(f"[DEBUG] img_path={img_path}, original_size={original_size}")
-        if not img_path.exists():
-            print(f"⚠️ [DEBUG] Image file not found: {img_path}, skipping...")
-            continue
-
-        # Determine relative path for organizing outputs
-        rel_path = img_path.relative_to(data_folder_path)
-        rel_dir = rel_path.parent
-        out_dir = output_root / rel_dir
-        out_dir.mkdir(parents=True, exist_ok=True)
-        # print(f"[DEBUG] out_dir={out_dir}")
+        # Debug original_size và gt_bbox_list
+        print(f"[DEBUG] original_size for {image_id}: {original_size}")
+        print(f"[DEBUG] gt_bbox_list for {image_id}: {gt_bbox_list}")
+        if gt_bbox_list is not None:
+            print(
+                f"[DEBUG] gt_bbox_list type: {type(gt_bbox_list)}, shape: {np.array(gt_bbox_list).shape}"
+            )
+            print(f"[DEBUG] gt_bbox_list values: {gt_bbox_list}")
 
         # Run prediction
         try:
@@ -385,13 +382,16 @@ def _evaluate_from_dataframe(
         # Try to draw ground truth bboxes if available
         try:
             if gt_bbox_list is not None and len(gt_bbox_list) > 0:
-                # Convert GT bboxes to pixel coordinates
+                # Debug từng bbox trước khi rescale
+                for idx_gt, bbox in enumerate(gt_bbox_list):
+                    print(f"[DEBUG] GT bbox {idx_gt} (normalized?): {bbox}")
                 gt_pixel_bboxes = [
                     rescale_bbox(bbox, original_size) for bbox in gt_bbox_list
                 ]
-                print(f"[DEBUG] Ground truth bboxes (pixel): {gt_pixel_bboxes}")
-                gt_scores = [1.0] * len(gt_pixel_bboxes)  # GT boxes have confidence 1.0
-
+                # Debug sau khi rescale
+                for idx_gt, bbox in enumerate(gt_pixel_bboxes):
+                    print(f"[DEBUG] GT bbox {idx_gt} (pixel): {bbox}")
+                gt_scores = [1.0] * len(gt_pixel_bboxes)
                 # Draw GT bboxes on original image (green color for GT)
                 img_gt = img.copy()
                 img_gt_bbox = draw_predicted_bboxes_on_pil(
@@ -423,14 +423,16 @@ def _evaluate_from_dataframe(
                 # Try to also draw GT bboxes on GradCAM image for comparison
                 try:
                     if gt_bbox_list is not None and len(gt_bbox_list) > 0:
+                        for idx_gt, bbox in enumerate(gt_bbox_list):
+                            print(
+                                f"[DEBUG] GT bbox {idx_gt} (normalized?, gradcam): {bbox}"
+                            )
                         gt_pixel_bboxes = [
                             rescale_bbox(bbox, original_size) for bbox in gt_bbox_list
                         ]
-                        print(
-                            f"[DEBUG] Ground truth bboxes (pixel, gradcam): {gt_pixel_bboxes}"
-                        )
+                        for idx_gt, bbox in enumerate(gt_pixel_bboxes):
+                            print(f"[DEBUG] GT bbox {idx_gt} (pixel, gradcam): {bbox}")
                         gt_scores = [1.0] * len(gt_pixel_bboxes)
-
                         # Draw GT bboxes on a separate GradCAM image
                         img_gradcam_gt = overlay_gradcam_with_otsu(
                             img, gradcam_map, alpha=0.55, use_otsu=use_otsu
@@ -448,7 +450,6 @@ def _evaluate_from_dataframe(
                         )
                 except Exception as e:
                     print(f"[DEBUG] Error drawing GT bboxes on GradCAM: {e}")
-
             except Exception as e:
                 print(f"[DEBUG] Error saving gradcam image: {e}")
 
@@ -546,6 +547,7 @@ def detr_evaluate_dataset(
     config_path: str = "config/config.yaml",
     max_objects: int = 3,
     save_visualizations: bool = True,
+    only_viz: bool = False,  # <--- thêm tham số này
 ):
     """
     Evaluate DETR model on dataset with metadata.csv
@@ -603,55 +605,57 @@ def detr_evaluate_dataset(
         print("Cannot proceed without valid metadata.csv")
         raise
 
-    # Get dataloader for batch evaluation metrics
     img_size = tuple(input_size) if isinstance(input_size, list) else input_size
-    _, eval_loader = get_detr_dataloaders(
-        test_df,
-        test_df,
-        str(data_folder_path),
-        batch_size=batch_size,
-        config_path=config_path,
-        img_size=img_size,
-        mode="test",
-        max_objects=max_objects,
-    )
 
-    # Evaluate model for metrics
-    print("\n" + "=" * 50)
-    print("Computing Evaluation Metrics")
-    print("=" * 50)
+    if not only_viz:
+        # Get dataloader for batch evaluation metrics
+        _, eval_loader = get_detr_dataloaders(
+            test_df,
+            test_df,
+            str(data_folder_path),
+            batch_size=batch_size,
+            config_path=config_path,
+            img_size=img_size,
+            mode="test",
+            max_objects=max_objects,
+        )
 
-    results = evaluate_detr_model(model, eval_loader, dev)
+        # Evaluate model for metrics
+        print("\n" + "=" * 50)
+        print("Computing Evaluation Metrics")
+        print("=" * 50)
 
-    metrics = compute_classification_metrics(
-        results["preds"], results["labels"], results["probs"], class_names
-    )
+        results = evaluate_detr_model(model, eval_loader, dev)
 
-    all_metrics = dict(metrics)
-    all_metrics["iou"] = results.get("iou", 0.0)
-    all_metrics["map50"] = results.get("map50", 0.0)
-    all_metrics["map25"] = results.get("map25", 0.0)
-    all_metrics["recall_iou25"] = results.get("recall_iou25", 0.0)
+        metrics = compute_classification_metrics(
+            results["preds"], results["labels"], results["probs"], class_names
+        )
 
-    print_test_metrics(
-        all_metrics,
-        all_metrics["iou"],
-        all_metrics["map50"],
-        all_metrics["map25"],
-        all_metrics["recall_iou25"],
-    )
+        all_metrics = dict(metrics)
+        all_metrics["iou"] = results.get("iou", 0.0)
+        all_metrics["map50"] = results.get("map50", 0.0)
+        all_metrics["map25"] = results.get("map25", 0.0)
+        all_metrics["recall_iou25"] = results.get("recall_iou25", 0.0)
 
-    # Save metrics to CSV
-    metrics_path = out_root / "evaluation_metrics.csv"
-    with open(metrics_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["Metric", "Value"])
-        for key, value in all_metrics.items():
-            if isinstance(value, (int, float)):
-                writer.writerow([key, f"{value:.4f}"])
-            else:
-                writer.writerow([key, str(value)])
-    print(f"\n✅ Saved metrics to: {metrics_path}")
+        print_test_metrics(
+            all_metrics,
+            all_metrics["iou"],
+            all_metrics["map50"],
+            all_metrics["map25"],
+            all_metrics["recall_iou25"],
+        )
+
+        # Save metrics to CSV
+        metrics_path = out_root / "evaluation_metrics.csv"
+        with open(metrics_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Metric", "Value"])
+            for key, value in all_metrics.items():
+                if isinstance(value, (int, float)):
+                    writer.writerow([key, f"{value:.4f}"])
+                else:
+                    writer.writerow([key, str(value)])
+        print(f"\n✅ Saved metrics to: {metrics_path}")
 
     # Generate predictions and visualizations from test_df
     print("\n" + "=" * 50)
@@ -673,7 +677,7 @@ def detr_evaluate_dataset(
         gradcam_layer,
     )
 
-    return out_root, all_metrics
+    return out_root, None if only_viz else all_metrics
 
 
 def _generate_eval_visualizations(
@@ -731,11 +735,14 @@ def _generate_eval_visualizations(
                 original_size = info["original_size"]
                 image_path = info["image_path"]
                 gt_bbox_list = info.get("bbx_list", None)
-                print(f"[DEBUG] Ground truth bboxes (normalized, eval): {gt_bbox_list}")
+                # Debug original_size và gt_bbox_list
+                print(f"[DEBUG] original_size for {image_id}: {original_size}")
+                print(f"[DEBUG] gt_bbox_list for {image_id}: {gt_bbox_list}")
                 if gt_bbox_list is not None:
                     print(
-                        f"[DEBUG] Ground truth bboxes shape (eval): {np.array(gt_bbox_list).shape}, type: {type(gt_bbox_list)}"
+                        f"[DEBUG] gt_bbox_list type: {type(gt_bbox_list)}, shape: {np.array(gt_bbox_list).shape}"
                     )
+                    print(f"[DEBUG] gt_bbox_list values: {gt_bbox_list}")
 
                 # GradCAM generation
                 gradcam_map = None
@@ -830,6 +837,12 @@ if __name__ == "__main__":
         action="store_true",
         help="Disable visualizations in evaluation mode",
     )
+    parser.add_argument(
+        "--only_viz",
+        action="store_true",
+        default=False,
+        help="Only run visualization, skip metrics computation (evaluation mode)",
+    )
 
     args = parser.parse_args()
 
@@ -856,6 +869,7 @@ if __name__ == "__main__":
             config_path=args.config,
             max_objects=args.max_objects,
             save_visualizations=not args.no_viz,
+            only_viz=args.only_viz,  # <--- truyền tham số này
         )
     else:
         print("🖼️ Running in INFERENCE mode (image folder)...")
