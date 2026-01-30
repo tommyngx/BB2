@@ -347,9 +347,18 @@ def _evaluate_from_dataframe(
             )
             print(f"[DEBUG] gt_bbox_list values: {gt_bbox_list}")
 
+        # Determine relative path FIRST (before any continue)
+        rel_path = img_path.relative_to(data_folder_path)
+        rel_dir = rel_path.parent
+        out_dir = output_root / rel_dir
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        if not img_path.exists():
+            print(f"⚠️ [DEBUG] Image file not found: {img_path}, skipping...")
+            continue
+
         # Run prediction
         try:
-            # print("[DEBUG] Calling predict_detr_image")
             result = predict_detr_image(
                 model,
                 img_path,
@@ -359,7 +368,6 @@ def _evaluate_from_dataframe(
                 use_gradcam=use_gradcam,
                 gradcam_layer=gradcam_layer,
             )
-            # print("[DEBUG] predict_detr_image returned")
         except Exception as e:
             print(f"[DEBUG] Error in predict_detr_image: {e}")
             continue
@@ -375,24 +383,35 @@ def _evaluate_from_dataframe(
         # Save original image
         try:
             img.save(out_dir / f"{img_path.stem}.png", format="PNG")
-            # print(f"[DEBUG] Saved original image to {out_dir / f'{img_path.stem}.png'}")
         except Exception as e:
             print(f"[DEBUG] Error saving original image: {e}")
 
         # Try to draw ground truth bboxes if available
         try:
             if gt_bbox_list is not None and len(gt_bbox_list) > 0:
-                # Debug từng bbox trước khi rescale
+                # Check if bbox is already pixel coordinates (values > 1.5 or < -1.5)
+                bbox0 = gt_bbox_list[0]
+                is_pixel_bbox = max(abs(float(x)) for x in bbox0) > 1.5
+
                 for idx_gt, bbox in enumerate(gt_bbox_list):
-                    print(f"[DEBUG] GT bbox {idx_gt} (normalized?): {bbox}")
-                gt_pixel_bboxes = [
-                    rescale_bbox(bbox, original_size) for bbox in gt_bbox_list
-                ]
-                # Debug sau khi rescale
+                    print(f"[DEBUG] GT bbox {idx_gt} (raw): {bbox}")
+
+                if is_pixel_bbox:
+                    # Already pixel coordinates [x1, y1, x2, y2]
+                    gt_pixel_bboxes = [
+                        tuple(int(float(x)) for x in bbox) for bbox in gt_bbox_list
+                    ]
+                else:
+                    # Normalized coordinates [cx, cy, w, h] -> convert to pixel
+                    gt_pixel_bboxes = [
+                        rescale_bbox(np.array([float(x) for x in bbox]), original_size)
+                        for bbox in gt_bbox_list
+                    ]
+
                 for idx_gt, bbox in enumerate(gt_pixel_bboxes):
                     print(f"[DEBUG] GT bbox {idx_gt} (pixel): {bbox}")
+
                 gt_scores = [1.0] * len(gt_pixel_bboxes)
-                # Draw GT bboxes on original image (green color for GT)
                 img_gt = img.copy()
                 img_gt_bbox = draw_predicted_bboxes_on_pil(
                     img_gt,
@@ -408,11 +427,9 @@ def _evaluate_from_dataframe(
         # Save GradCAM + Otsu + bboxes with confidence
         if gradcam_map is not None:
             try:
-                # Generate GradCAM
                 img_gradcam = overlay_gradcam_with_otsu(
                     img, gradcam_map, alpha=0.55, use_otsu=use_otsu
                 )
-                # Draw color-coded bboxes with confidence scores
                 img_gradcam_bbox = draw_predicted_bboxes_on_pil(
                     img_gradcam, bboxes, scores, obj_threshold, width=5
                 )
@@ -420,20 +437,31 @@ def _evaluate_from_dataframe(
                     out_dir / f"{img_path.stem}_gradcam.png", format="PNG"
                 )
 
-                # Try to also draw GT bboxes on GradCAM image for comparison
                 try:
                     if gt_bbox_list is not None and len(gt_bbox_list) > 0:
+                        bbox0 = gt_bbox_list[0]
+                        is_pixel_bbox = max(abs(float(x)) for x in bbox0) > 1.5
+
                         for idx_gt, bbox in enumerate(gt_bbox_list):
-                            print(
-                                f"[DEBUG] GT bbox {idx_gt} (normalized?, gradcam): {bbox}"
-                            )
-                        gt_pixel_bboxes = [
-                            rescale_bbox(bbox, original_size) for bbox in gt_bbox_list
-                        ]
+                            print(f"[DEBUG] GT bbox {idx_gt} (raw, gradcam): {bbox}")
+
+                        if is_pixel_bbox:
+                            gt_pixel_bboxes = [
+                                tuple(int(float(x)) for x in bbox)
+                                for bbox in gt_bbox_list
+                            ]
+                        else:
+                            gt_pixel_bboxes = [
+                                rescale_bbox(
+                                    np.array([float(x) for x in bbox]), original_size
+                                )
+                                for bbox in gt_bbox_list
+                            ]
+
                         for idx_gt, bbox in enumerate(gt_pixel_bboxes):
                             print(f"[DEBUG] GT bbox {idx_gt} (pixel, gradcam): {bbox}")
+
                         gt_scores = [1.0] * len(gt_pixel_bboxes)
-                        # Draw GT bboxes on a separate GradCAM image
                         img_gradcam_gt = overlay_gradcam_with_otsu(
                             img, gradcam_map, alpha=0.55, use_otsu=use_otsu
                         )
@@ -475,7 +503,6 @@ def _evaluate_from_dataframe(
                 "correct": str(int(pred_class == gt_label)),
             }
         )
-        # print(f"[DEBUG] Recorded results for image_id={image_id}")
 
     # Write CSV per subfolder
     for rel_dir, rows in rows_by_folder.items():
@@ -547,6 +574,7 @@ def detr_evaluate_dataset(
     config_path: str = "config/config.yaml",
     max_objects: int = 3,
     save_visualizations: bool = True,
+    only_viz: bool = False,
 ):
     """
     Evaluate DETR model on dataset with metadata.csv
@@ -606,53 +634,59 @@ def detr_evaluate_dataset(
 
     # Get dataloader for batch evaluation metrics
     img_size = tuple(input_size) if isinstance(input_size, list) else input_size
-    _, eval_loader = get_detr_dataloaders(
-        test_df,
-        test_df,
-        str(data_folder_path),
-        batch_size=batch_size,
-        config_path=config_path,
-        img_size=img_size,
-        mode="test",
-        max_objects=max_objects,
-    )
 
-    # Evaluate model for metrics
-    print("\n" + "=" * 50)
-    print("Computing Evaluation Metrics")
-    print("=" * 50)
+    if not only_viz:
+        # Get dataloader for batch evaluation metrics
+        _, eval_loader = get_detr_dataloaders(
+            test_df,
+            test_df,
+            str(data_folder_path),
+            batch_size=batch_size,
+            config_path=config_path,
+            img_size=img_size,
+            mode="test",
+            max_objects=max_objects,
+        )
 
-    results = evaluate_detr_model(model, eval_loader, dev)
+        # Evaluate model for metrics
+        print("\n" + "=" * 50)
+        print("Computing Evaluation Metrics")
+        print("=" * 50)
 
-    metrics = compute_classification_metrics(
-        results["preds"], results["labels"], results["probs"], class_names
-    )
+        results = evaluate_detr_model(model, eval_loader, dev)
 
-    all_metrics = dict(metrics)
-    all_metrics["iou"] = results.get("iou", 0.0)
-    all_metrics["map50"] = results.get("map50", 0.0)
-    all_metrics["map25"] = results.get("map25", 0.0)
-    all_metrics["recall_iou25"] = results.get("recall_iou25", 0.0)
+        metrics = compute_classification_metrics(
+            results["preds"], results["labels"], results["probs"], class_names
+        )
 
-    print_test_metrics(
-        all_metrics,
-        all_metrics["iou"],
-        all_metrics["map50"],
-        all_metrics["map25"],
-        all_metrics["recall_iou25"],
-    )
+        all_metrics = dict(metrics)
+        all_metrics["iou"] = results.get("iou", 0.0)
+        all_metrics["map50"] = results.get("map50", 0.0)
+        all_metrics["map25"] = results.get("map25", 0.0)
+        all_metrics["recall_iou25"] = results.get("recall_iou25", 0.0)
 
-    # Save metrics to CSV
-    metrics_path = out_root / "evaluation_metrics.csv"
-    with open(metrics_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["Metric", "Value"])
-        for key, value in all_metrics.items():
-            if isinstance(value, (int, float)):
-                writer.writerow([key, f"{value:.4f}"])
-            else:
-                writer.writerow([key, str(value)])
-    print(f"\n✅ Saved metrics to: {metrics_path}")
+        print_test_metrics(
+            all_metrics,
+            all_metrics["iou"],
+            all_metrics["map50"],
+            all_metrics["map25"],
+            all_metrics["recall_iou25"],
+        )
+
+        # Save metrics to CSV
+        metrics_path = out_root / "evaluation_metrics.csv"
+        with open(metrics_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Metric", "Value"])
+            for key, value in all_metrics.items():
+                if isinstance(value, (int, float)):
+                    writer.writerow([key, f"{value:.4f}"])
+                else:
+                    writer.writerow([key, str(value)])
+        print(f"\n✅ Saved metrics to: {metrics_path}")
+    else:
+        print("\n⏭️  Skipping metrics computation (--only_viz enabled)")
+        all_metrics = None
 
     # Generate predictions and visualizations from test_df
     print("\n" + "=" * 50)
@@ -732,59 +766,218 @@ def _generate_eval_visualizations(
                 original_size = info["original_size"]
                 image_path = info["image_path"]
                 gt_bbox_list = info.get("bbx_list", None)
-                # Debug original_size và gt_bbox_list
-                print(f"[DEBUG] original_size for {image_id}: {original_size}")
-                print(f"[DEBUG] gt_bbox_list for {image_id}: {gt_bbox_list}")
-                if gt_bbox_list is not None:
-                    print(
-                        f"[DEBUG] gt_bbox_list type: {type(gt_bbox_list)}, shape: {np.array(gt_bbox_list).shape}"
-                    )
-                    print(f"[DEBUG] gt_bbox_list values: {gt_bbox_list}")
 
-                # GradCAM generation
-                gradcam_map = None
-                if use_gradcam and gradcam_layer is not None:
-                    try:
-                        input_tensor = images[i : i + 1].clone().requires_grad_(True)
-                        with torch.set_grad_enabled(True):
-                            result = gradcam(
-                                model,
-                                input_tensor,
-                                gradcam_layer,
-                                class_idx=pred_class,
-                            )
-                            if (
-                                isinstance(result, np.ndarray)
-                                and result.ndim == 2
-                                and result.dtype == np.uint8
-                            ):
-                                gradcam_map = result
-                    except Exception as e:
-                        print(f"⚠️ GradCAM failed for {image_id}: {e}")
-
-                save_path = vis_dir / f"{image_id}.png"
+                # Run prediction
                 try:
-                    visualize_detr_result(
-                        images[i],
-                        spatial_attn[i] if spatial_attn is not None else None,
-                        pred_bboxes[i],
-                        pred_obj[i].squeeze(-1),
-                        gt_bbox_list,
-                        pred_class,
-                        gt_label,
-                        pred_prob,
-                        str(save_path),
-                        class_names,
-                        original_size,
-                        image_path=image_path,
+                    result = predict_detr_image(
+                        model,
+                        img_path,
+                        preprocess,
+                        device,
                         obj_threshold=obj_threshold,
-                        use_otsu=use_otsu,
-                        gradcam_map=gradcam_map,
+                        use_gradcam=use_gradcam,
+                        gradcam_layer=gradcam_layer,
                     )
                 except Exception as e:
-                    print(f"⚠️ Error visualizing {image_id}: {e}")
+                    print(f"[DEBUG] Error in predict_detr_image: {e}")
+                    continue
 
-    print(f"✅ Saved visualizations to: {vis_dir}")
+                img = result["image"]
+                pred_class = result["pred_class"]
+                confidence = result["confidence"]
+                bboxes = result["bboxes"]
+                scores = result["scores"]
+                gradcam_map = result["gradcam_map"]
+
+                # Save original image
+                try:
+                    img.save(out_dir / f"{img_path.stem}.png", format="PNG")
+                except Exception as e:
+                    print(f"[DEBUG] Error saving original image: {e}")
+
+                # Try to draw ground truth bboxes if available
+                try:
+                    if gt_bbox_list is not None and len(gt_bbox_list) > 0:
+                        # Check if bbox is already pixel coordinates (values > 1.5 or < -1.5)
+                        bbox0 = gt_bbox_list[0]
+                        is_pixel_bbox = max(abs(float(x)) for x in bbox0) > 1.5
+
+                        for idx_gt, bbox in enumerate(gt_bbox_list):
+                            print(f"[DEBUG] GT bbox {idx_gt} (raw): {bbox}")
+
+                        if is_pixel_bbox:
+                            # Already pixel coordinates [x1, y1, x2, y2]
+                            gt_pixel_bboxes = [
+                                tuple(int(float(x)) for x in bbox)
+                                for bbox in gt_bbox_list
+                            ]
+                        else:
+                            # Normalized coordinates [cx, cy, w, h] -> convert to pixel
+                            gt_pixel_bboxes = [
+                                rescale_bbox(
+                                    np.array([float(x) for x in bbox]), original_size
+                                )
+                                for bbox in gt_bbox_list
+                            ]
+
+                        for idx_gt, bbox in enumerate(gt_pixel_bboxes):
+                            print(f"[DEBUG] GT bbox {idx_gt} (pixel): {bbox}")
+
+                        gt_scores = [1.0] * len(gt_pixel_bboxes)
+                        img_gt = img.copy()
+                        img_gt_bbox = draw_predicted_bboxes_on_pil(
+                            img_gt,
+                            gt_pixel_bboxes,
+                            gt_scores,
+                            threshold=0.0,
+                            width=5,
+                        )
+                        img_gt_bbox.save(out_dir / f"{img_path.stem}.png", format="PNG")
+                except Exception as e:
+                    print(f"[DEBUG] Error drawing/saving ground truth bboxes: {e}")
+
+                # Save GradCAM + Otsu + bboxes with confidence
+                if gradcam_map is not None:
+                    try:
+                        img_gradcam = overlay_gradcam_with_otsu(
+                            img, gradcam_map, alpha=0.55, use_otsu=use_otsu
+                        )
+                        img_gradcam_bbox = draw_predicted_bboxes_on_pil(
+                            img_gradcam, bboxes, scores, obj_threshold, width=5
+                        )
+                        img_gradcam_bbox.save(
+                            out_dir / f"{img_path.stem}_gradcam.png", format="PNG"
+                        )
+
+                        try:
+                            if gt_bbox_list is not None and len(gt_bbox_list) > 0:
+                                bbox0 = gt_bbox_list[0]
+                                is_pixel_bbox = max(abs(float(x)) for x in bbox0) > 1.5
+
+                                for idx_gt, bbox in enumerate(gt_bbox_list):
+                                    print(
+                                        f"[DEBUG] GT bbox {idx_gt} (raw, gradcam): {bbox}"
+                                    )
+
+                                if is_pixel_bbox:
+                                    gt_pixel_bboxes = [
+                                        tuple(int(float(x)) for x in bbox)
+                                        for bbox in gt_bbox_list
+                                    ]
+                                else:
+                                    gt_pixel_bboxes = [
+                                        rescale_bbox(
+                                            np.array([float(x) for x in bbox]),
+                                            original_size,
+                                        )
+                                        for bbox in gt_bbox_list
+                                    ]
+
+                                for idx_gt, bbox in enumerate(gt_pixel_bboxes):
+                                    print(
+                                        f"[DEBUG] GT bbox {idx_gt} (pixel, gradcam): {bbox}"
+                                    )
+
+                                gt_scores = [1.0] * len(gt_pixel_bboxes)
+                                img_gradcam_gt = overlay_gradcam_with_otsu(
+                                    img, gradcam_map, alpha=0.55, use_otsu=use_otsu
+                                )
+                                img_gradcam_gt_bbox = draw_predicted_bboxes_on_pil(
+                                    img_gradcam_gt,
+                                    gt_pixel_bboxes,
+                                    gt_scores,
+                                    threshold=0.0,
+                                    width=5,
+                                )
+                                img_gradcam_gt_bbox.save(
+                                    out_dir / f"{img_path.stem}_gradcam.png",
+                                    format="PNG",
+                                )
+                        except Exception as e:
+                            print(f"[DEBUG] Error drawing GT bboxes on GradCAM: {e}")
+                    except Exception as e:
+                        print(f"[DEBUG] Error saving gradcam image: {e}")
+
+                # Record results
+                class_name = (
+                    class_names[pred_class]
+                    if pred_class < len(class_names)
+                    else str(pred_class)
+                )
+                gt_class_name = (
+                    class_names[gt_label]
+                    if gt_label < len(class_names)
+                    else str(gt_label)
+                )
+
+                rows_by_folder.setdefault(rel_dir, []).append(
+                    {
+                        "image_id": image_id,
+                        "ground_truth": str(gt_label),
+                        "gt_class_name": gt_class_name,
+                        "label": str(pred_class),
+                        "pred_class_name": class_name,
+                        "confidence_score": f"{confidence:.6f}",
+                        "num_objects": str(len(bboxes)),
+                        "correct": str(int(pred_class == gt_label)),
+                    }
+                )
+
+            # Write CSV per subfolder
+            for rel_dir, rows in rows_by_folder.items():
+                csv_path = (
+                    (output_root / rel_dir / "metadata.csv")
+                    if str(rel_dir) != "."
+                    else (output_root / "metadata.csv")
+                )
+                try:
+                    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+                        w = csv.DictWriter(
+                            f,
+                            fieldnames=[
+                                "image_id",
+                                "ground_truth",
+                                "label",
+                                "pred_label",
+                                "pred_class_name",
+                                "confidence_score",
+                                "num_objects",
+                                "correct",
+                            ],
+                        )
+                        w.writeheader()
+                        w.writerows(rows)
+                    # print(f"[DEBUG] Saved CSV to {csv_path}")
+                except Exception as e:
+                    print(f"[DEBUG] Error saving CSV: {e}")
+
+            # Gộp tất cả kết quả lại thành một file metadata.csv lớn ở output_root
+            all_rows = []
+            for rows in rows_by_folder.values():
+                all_rows.extend(rows)
+            big_csv_path = output_root / "metadata.csv"
+            try:
+                with open(big_csv_path, "w", newline="", encoding="utf-8") as f:
+                    w = csv.DictWriter(
+                        f,
+                        fieldnames=[
+                            "image_id",
+                            "ground_truth",
+                            "label",
+                            "pred_label",
+                            "pred_class_name",
+                            "confidence_score",
+                            "num_objects",
+                            "correct",
+                        ],
+                    )
+                    w.writeheader()
+                    w.writerows(all_rows)
+                # print(f"✅ Saved merged metadata to: {big_csv_path}")
+            except Exception as e:
+                print(f"[DEBUG] Error saving merged metadata CSV: {e}")
+
+            print(f"✅ Saved prediction outputs to: {output_root}")
 
 
 if __name__ == "__main__":
@@ -834,6 +1027,12 @@ if __name__ == "__main__":
         action="store_true",
         help="Disable visualizations in evaluation mode",
     )
+    parser.add_argument(
+        "--only_viz",
+        action="store_true",
+        default=False,
+        help="Only run visualization, skip metrics computation (evaluation mode)",
+    )
 
     args = parser.parse_args()
 
@@ -860,6 +1059,7 @@ if __name__ == "__main__":
             config_path=args.config,
             max_objects=args.max_objects,
             save_visualizations=not args.no_viz,
+            only_viz=args.only_viz,
         )
     else:
         print("🖼️ Running in INFERENCE mode (image folder)...")
