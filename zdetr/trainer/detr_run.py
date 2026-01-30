@@ -547,7 +547,6 @@ def detr_evaluate_dataset(
     config_path: str = "config/config.yaml",
     max_objects: int = 3,
     save_visualizations: bool = True,
-    only_viz: bool = False,  # <--- thêm tham số này
 ):
     """
     Evaluate DETR model on dataset with metadata.csv
@@ -605,57 +604,55 @@ def detr_evaluate_dataset(
         print("Cannot proceed without valid metadata.csv")
         raise
 
+    # Get dataloader for batch evaluation metrics
     img_size = tuple(input_size) if isinstance(input_size, list) else input_size
+    _, eval_loader = get_detr_dataloaders(
+        test_df,
+        test_df,
+        str(data_folder_path),
+        batch_size=batch_size,
+        config_path=config_path,
+        img_size=img_size,
+        mode="test",
+        max_objects=max_objects,
+    )
 
-    if not only_viz:
-        # Get dataloader for batch evaluation metrics
-        _, eval_loader = get_detr_dataloaders(
-            test_df,
-            test_df,
-            str(data_folder_path),
-            batch_size=batch_size,
-            config_path=config_path,
-            img_size=img_size,
-            mode="test",
-            max_objects=max_objects,
-        )
+    # Evaluate model for metrics
+    print("\n" + "=" * 50)
+    print("Computing Evaluation Metrics")
+    print("=" * 50)
 
-        # Evaluate model for metrics
-        print("\n" + "=" * 50)
-        print("Computing Evaluation Metrics")
-        print("=" * 50)
+    results = evaluate_detr_model(model, eval_loader, dev)
 
-        results = evaluate_detr_model(model, eval_loader, dev)
+    metrics = compute_classification_metrics(
+        results["preds"], results["labels"], results["probs"], class_names
+    )
 
-        metrics = compute_classification_metrics(
-            results["preds"], results["labels"], results["probs"], class_names
-        )
+    all_metrics = dict(metrics)
+    all_metrics["iou"] = results.get("iou", 0.0)
+    all_metrics["map50"] = results.get("map50", 0.0)
+    all_metrics["map25"] = results.get("map25", 0.0)
+    all_metrics["recall_iou25"] = results.get("recall_iou25", 0.0)
 
-        all_metrics = dict(metrics)
-        all_metrics["iou"] = results.get("iou", 0.0)
-        all_metrics["map50"] = results.get("map50", 0.0)
-        all_metrics["map25"] = results.get("map25", 0.0)
-        all_metrics["recall_iou25"] = results.get("recall_iou25", 0.0)
+    print_test_metrics(
+        all_metrics,
+        all_metrics["iou"],
+        all_metrics["map50"],
+        all_metrics["map25"],
+        all_metrics["recall_iou25"],
+    )
 
-        print_test_metrics(
-            all_metrics,
-            all_metrics["iou"],
-            all_metrics["map50"],
-            all_metrics["map25"],
-            all_metrics["recall_iou25"],
-        )
-
-        # Save metrics to CSV
-        metrics_path = out_root / "evaluation_metrics.csv"
-        with open(metrics_path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["Metric", "Value"])
-            for key, value in all_metrics.items():
-                if isinstance(value, (int, float)):
-                    writer.writerow([key, f"{value:.4f}"])
-                else:
-                    writer.writerow([key, str(value)])
-        print(f"\n✅ Saved metrics to: {metrics_path}")
+    # Save metrics to CSV
+    metrics_path = out_root / "evaluation_metrics.csv"
+    with open(metrics_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["Metric", "Value"])
+        for key, value in all_metrics.items():
+            if isinstance(value, (int, float)):
+                writer.writerow([key, f"{value:.4f}"])
+            else:
+                writer.writerow([key, str(value)])
+    print(f"\n✅ Saved metrics to: {metrics_path}")
 
     # Generate predictions and visualizations from test_df
     print("\n" + "=" * 50)
@@ -677,7 +674,7 @@ def detr_evaluate_dataset(
         gradcam_layer,
     )
 
-    return out_root, None if only_viz else all_metrics
+    return out_root, all_metrics
 
 
 def _generate_eval_visualizations(
@@ -837,12 +834,6 @@ if __name__ == "__main__":
         action="store_true",
         help="Disable visualizations in evaluation mode",
     )
-    parser.add_argument(
-        "--only_viz",
-        action="store_true",
-        default=False,
-        help="Only run visualization, skip metrics computation (evaluation mode)",
-    )
 
     args = parser.parse_args()
 
@@ -869,7 +860,6 @@ if __name__ == "__main__":
             config_path=args.config,
             max_objects=args.max_objects,
             save_visualizations=not args.no_viz,
-            only_viz=args.only_viz,  # <--- truyền tham số này
         )
     else:
         print("🖼️ Running in INFERENCE mode (image folder)...")
