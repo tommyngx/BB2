@@ -276,14 +276,14 @@ def detr_predict_folder(
                     "image_id",
                     "label",
                     "class_name",
-                    "confidence",
+                    "confidence_score",
                     "num_objects",
                 ],
             )
             w.writeheader()
             w.writerows(rows)
 
-    print(f"✅ Saved outputs to: {out_root}")
+    # print(f"✅ Saved outputs to: {out_root}")
     return out_root
 
 
@@ -415,9 +415,9 @@ def _evaluate_from_dataframe(
     # Write CSV per subfolder
     for rel_dir, rows in rows_by_folder.items():
         csv_path = (
-            (output_root / rel_dir / "predictions.csv")
+            (output_root / rel_dir / "metadata.csv")
             if str(rel_dir) != "."
-            else (output_root / "predictions.csv")
+            else (output_root / "metadata.csv")
         )
         try:
             with open(csv_path, "w", newline="", encoding="utf-8") as f:
@@ -425,20 +425,46 @@ def _evaluate_from_dataframe(
                     f,
                     fieldnames=[
                         "image_id",
-                        "gt_label",
-                        "gt_class_name",
+                        "ground_truth",
+                        "label",
                         "pred_label",
                         "pred_class_name",
-                        "confidence",
+                        "confidence_score",
                         "num_objects",
                         "correct",
                     ],
                 )
                 w.writeheader()
                 w.writerows(rows)
-            print(f"[DEBUG] Saved CSV to {csv_path}")
+            # print(f"[DEBUG] Saved CSV to {csv_path}")
         except Exception as e:
             print(f"[DEBUG] Error saving CSV: {e}")
+
+    # Gộp tất cả kết quả lại thành một file metadata.csv lớn ở output_root
+    all_rows = []
+    for rows in rows_by_folder.values():
+        all_rows.extend(rows)
+    big_csv_path = output_root / "metadata.csv"
+    try:
+        with open(big_csv_path, "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(
+                f,
+                fieldnames=[
+                    "image_id",
+                    "ground_truth",
+                    "label",
+                    "pred_label",
+                    "pred_class_name",
+                    "confidence_score",
+                    "num_objects",
+                    "correct",
+                ],
+            )
+            w.writeheader()
+            w.writerows(all_rows)
+        # print(f"✅ Saved merged metadata to: {big_csv_path}")
+    except Exception as e:
+        print(f"[DEBUG] Error saving merged metadata CSV: {e}")
 
     print(f"✅ Saved prediction outputs to: {output_root}")
 
