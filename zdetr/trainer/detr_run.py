@@ -451,8 +451,8 @@ def _evaluate_from_dataframe(
             {
                 "image_id": image_id,
                 "ground_truth": str(gt_label),
-                "label": gt_class_name,
-                "pred_label": str(pred_class),
+                "gt_class_name": gt_class_name,
+                "label": str(pred_class),
                 "pred_class_name": class_name,
                 "confidence_score": f"{confidence:.6f}",
                 "num_objects": str(len(bboxes)),
