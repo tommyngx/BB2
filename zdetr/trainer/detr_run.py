@@ -450,11 +450,11 @@ def _evaluate_from_dataframe(
         rows_by_folder.setdefault(rel_dir, []).append(
             {
                 "image_id": image_id,
-                "gt_label": str(gt_label),
-                "gt_class_name": gt_class_name,
+                "ground_truth": str(gt_label),
+                "label": gt_class_name,
                 "pred_label": str(pred_class),
                 "pred_class_name": class_name,
-                "confidence": f"{confidence:.6f}",
+                "confidence_score": f"{confidence:.6f}",
                 "num_objects": str(len(bboxes)),
                 "correct": str(int(pred_class == gt_label)),
             }
