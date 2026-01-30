@@ -118,8 +118,16 @@ def predict_detr_image(
     filtered_bboxes = pred_bboxes[0][valid_indices].cpu().numpy()
     filtered_scores = obj_scores[0][valid_indices].cpu().numpy().flatten()
 
+    # Debug print for predicted bboxes
+    print(f"[DEBUG] Predicted bboxes (normalized): {filtered_bboxes}")
+    print(
+        f"[DEBUG] Predicted bboxes shape: {filtered_bboxes.shape}, type: {type(filtered_bboxes)}"
+    )
+    print(f"[DEBUG] Predicted scores: {filtered_scores}")
+
     # Rescale bboxes to original image size
     pixel_bboxes = [rescale_bbox(bbox, original_size) for bbox in filtered_bboxes]
+    print(f"[DEBUG] Predicted bboxes (pixel): {pixel_bboxes}")
 
     # Generate GradCAM if requested
     gradcam_map = None
@@ -363,6 +371,7 @@ def _evaluate_from_dataframe(
         pred_class = result["pred_class"]
         confidence = result["confidence"]
         bboxes = result["bboxes"]
+        print(f"[DEBUG] Predicted bboxes for image {img_path.name}: {bboxes}")
         scores = result["scores"]
         gradcam_map = result["gradcam_map"]
 
@@ -380,6 +389,7 @@ def _evaluate_from_dataframe(
                 gt_pixel_bboxes = [
                     rescale_bbox(bbox, original_size) for bbox in gt_bbox_list
                 ]
+                print(f"[DEBUG] Ground truth bboxes (pixel): {gt_pixel_bboxes}")
                 gt_scores = [1.0] * len(gt_pixel_bboxes)  # GT boxes have confidence 1.0
 
                 # Draw GT bboxes on original image (green color for GT)
@@ -398,9 +408,11 @@ def _evaluate_from_dataframe(
         # Save GradCAM + Otsu + bboxes with confidence
         if gradcam_map is not None:
             try:
+                # Generate GradCAM
                 img_gradcam = overlay_gradcam_with_otsu(
                     img, gradcam_map, alpha=0.55, use_otsu=use_otsu
                 )
+                # Draw color-coded bboxes with confidence scores
                 img_gradcam_bbox = draw_predicted_bboxes_on_pil(
                     img_gradcam, bboxes, scores, obj_threshold, width=5
                 )
@@ -414,6 +426,9 @@ def _evaluate_from_dataframe(
                         gt_pixel_bboxes = [
                             rescale_bbox(bbox, original_size) for bbox in gt_bbox_list
                         ]
+                        print(
+                            f"[DEBUG] Ground truth bboxes (pixel, gradcam): {gt_pixel_bboxes}"
+                        )
                         gt_scores = [1.0] * len(gt_pixel_bboxes)
 
                         # Draw GT bboxes on a separate GradCAM image
@@ -716,8 +731,11 @@ def _generate_eval_visualizations(
                 original_size = info["original_size"]
                 image_path = info["image_path"]
                 gt_bbox_list = info.get("bbx_list", None)
-
-                attn_map = spatial_attn[i] if spatial_attn is not None else None
+                print(f"[DEBUG] Ground truth bboxes (normalized, eval): {gt_bbox_list}")
+                if gt_bbox_list is not None:
+                    print(
+                        f"[DEBUG] Ground truth bboxes shape (eval): {np.array(gt_bbox_list).shape}, type: {type(gt_bbox_list)}"
+                    )
 
                 # GradCAM generation
                 gradcam_map = None
@@ -744,7 +762,7 @@ def _generate_eval_visualizations(
                 try:
                     visualize_detr_result(
                         images[i],
-                        attn_map,
+                        spatial_attn[i] if spatial_attn is not None else None,
                         pred_bboxes[i],
                         pred_obj[i].squeeze(-1),
                         gt_bbox_list,
